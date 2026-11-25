@@ -9,6 +9,7 @@ import { Toolbar } from './ui/toolbar/Toolbar';
 import { InstrumentEditor } from './ui/instruments';
 import { initPersistence } from './persistence/session';
 import { BusyOverlay } from './ui/project/ProjectUI';
+import { ShortcutHelp } from './ui/common/ShortcutHelp';
 import { BottomPanel } from './ui/editor/BottomPanel';
 
 function AudioUnlockBanner() {
@@ -38,6 +39,7 @@ export default function App() {
       {synthTrackId && <InstrumentEditor trackId={synthTrackId} />}
       <Toasts />
       <BusyOverlay />
+      <ShortcutHelp />
     </div>
   );
 }

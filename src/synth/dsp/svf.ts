@@ -47,3 +47,24 @@ export class Svf {
     return c.k * v1;
   }
 }
+
+/** Filter a block in place; state lives in locals inside the loop. Same math as Svf.process. */
+export function svfBlock(f: Svf, c: SvfCoefs, mode: number, buf: Float64Array, n: number): void {
+  let ic1 = f.ic1;
+  let ic2 = f.ic2;
+  const a1 = c.a1;
+  const a2 = c.a2;
+  const a3 = c.a3;
+  const k = c.k;
+  for (let i = 0; i < n; i++) {
+    const x = buf[i] as number;
+    const v3 = x - ic2;
+    const v1 = a1 * ic1 + a2 * v3;
+    const v2 = ic2 + a2 * ic1 + a3 * v3;
+    ic1 = 2 * v1 - ic1;
+    ic2 = 2 * v2 - ic2;
+    buf[i] = mode === FILTER_LP ? v2 : mode === FILTER_HP ? x - k * v1 - v2 : k * v1;
+  }
+  f.ic1 = ic1;
+  f.ic2 = ic2;
+}

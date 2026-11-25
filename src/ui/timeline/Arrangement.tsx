@@ -12,6 +12,7 @@ import { useTransportStore } from '../../state/transportStore';
 import { useUiStore } from '../../state/uiStore';
 import {
   addNewTrack,
+  renameClip,
   copySelectedClips,
   deleteSelectedClips,
   duplicateSelectedClips,
@@ -24,7 +25,7 @@ import {
   createMidiClipAt,
   openClipEditor,
 } from '../actions';
-import { drawLanes, drawRuler, laneValueToY, laneYToValue, type DrawState } from './draw';
+import { drawLanesDynamic, drawLanesStatic, drawRuler, laneValueToY, laneYToValue, type DrawState } from './draw';
 import { EDGE_PX, HEADER_W, MAX_PX_PER_BEAT, MIN_PX_PER_BEAT, RULER_H, TRACK_H, tickToX, xToTick } from './layout';
 import { TrackHeader } from './TrackHeader';
 import { AddTrackRow } from './AddTrackRow';
@@ -39,7 +40,8 @@ type Drag =
   | { mode: 'select'; startTick: number; startX: number; moved: boolean }
   | { mode: 'ruler'; startTick: number; startX: number; moved: boolean; key: string }
   | { mode: 'loop-edge'; edge: 'start' | 'end'; key: string }
-  | { mode: 'autopoint'; key: string; trackId: string; laneId: string; pointId: string; trackIndex: number };
+  | { mode: 'autopoint'; key: string; trackId: string; laneId: string; pointId: string; trackIndex: number }
+  | { mode: 'marquee'; x0: number; y0: number; base: string[] };
 
 /** The automation lane being edited on the track under y (automation mode only). */
 function editableLaneAt(project: Project, y: number) {
@@ -119,9 +121,12 @@ export function Arrangement() {
   const laneCv = useRef<HTMLCanvasElement>(null);
   const drag = useRef<Drag | null>(null);
   const dirty = useRef(true);
+  /** offscreen cache of the static lane layer */
+  const staticLayer = useRef<HTMLCanvasElement | null>(null);
   const timeSel = useRef<{ start: number; end: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [dropHint, setDropHint] = useState(false);
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const { w: viewW } = useSize(laneArea);
   const { h: viewH } = useSize(scroller);
   const laneH = Math.max(viewH, tracks.length * TRACK_H + 48);
@@ -161,7 +166,10 @@ export function Arrangement() {
           ui.set({ scrollX: Math.max(0, (playTick / PPQ) * ui.pxPerBeat - viewW * 0.1) });
         }
       }
-      if (!dirty.current && playTick === lastTick) return;
+      // `dirty` means the static layer (clips, grid, curves) must be repainted;
+      // a moving playhead alone only repaints the cheap overlay.
+      const staticDirty = dirty.current;
+      if (!staticDirty && playTick === lastTick) return;
       dirty.current = false;
       lastTick = playTick;
       const project = useProjectStore.getState().project;
@@ -194,8 +202,19 @@ export function Arrangement() {
         if (g) drawRuler(g, viewW, RULER_H, st);
       }
       if (lc) {
+        const layer = (staticLayer.current ??= document.createElement('canvas'));
+        if (staticDirty || layer.width !== Math.round(viewW * (window.devicePixelRatio || 1))) {
+          const sg = setupCanvas(layer, viewW, laneH);
+          if (sg) drawLanesStatic(sg, viewW, laneH, st);
+        }
         const g = setupCanvas(lc, viewW, laneH);
-        if (g) drawLanes(g, viewW, laneH, st);
+        if (g) {
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          g.drawImage(layer, 0, 0);
+          const dpr = window.devicePixelRatio || 1;
+          g.setTransform(dpr, 0, 0, dpr, 0, 0);
+          drawLanesDynamic(g, viewW, laneH, st);
+        }
       }
     };
     raf = requestAnimationFrame(frame);
@@ -259,9 +278,13 @@ export function Arrangement() {
       } else {
         drag.current = { mode: hit.zone === 'start' ? 'trim-start' : 'trim-end', key, orig: hit.clip, last: '' };
       }
+    } else if (additive) {
+      // Ctrl/Shift-drag on empty space: box-select clips
+      drag.current = { mode: 'marquee', x0: x, y0: y, base: e.shiftKey ? ui.selectedClipIds : [] };
+      setMarquee({ x0: x, y0: y, x1: x, y1: y });
     } else {
       const track = project.tracks[Math.floor(y / TRACK_H)];
-      ui.set({ selectedClipIds: additive ? ui.selectedClipIds : [], selectedTrackId: track?.id ?? ui.selectedTrackId });
+      ui.set({ selectedClipIds: [], selectedTrackId: track?.id ?? ui.selectedTrackId });
       drag.current = { mode: 'select', startTick: xToTick(x, ui.pxPerBeat, ui.scrollX), startX: x, moved: false };
     }
     dirty.current = true;
@@ -280,6 +303,19 @@ export function Arrangement() {
       }
       const hit = hitClip(project, x, y, ui.pxPerBeat, ui.scrollX);
       e.currentTarget.style.cursor = !hit ? 'default' : hit.zone === 'body' ? 'grab' : 'ew-resize';
+      return;
+    }
+    if (d.mode === 'marquee') {
+      setMarquee({ x0: d.x0, y0: d.y0, x1: x, y1: y });
+      const t0 = xToTick(Math.min(d.x0, x), ui.pxPerBeat, ui.scrollX);
+      const t1 = xToTick(Math.max(d.x0, x), ui.pxPerBeat, ui.scrollX);
+      const r0 = Math.floor(Math.min(d.y0, y) / TRACK_H);
+      const r1 = Math.floor(Math.max(d.y0, y) / TRACK_H);
+      const ids = project.tracks.slice(Math.max(0, r0), r1 + 1).map((t) => t.id);
+      const hits = Object.values(project.clips)
+        .filter((c) => ids.includes(c.trackId) && c.start < t1 && c.start + c.length > t0)
+        .map((c) => c.id);
+      ui.set({ selectedClipIds: [...new Set([...d.base, ...hits])] });
       return;
     }
     if (d.mode === 'autopoint') {
@@ -340,6 +376,7 @@ export function Arrangement() {
     const d = drag.current;
     drag.current = null;
     e.currentTarget.style.cursor = 'default';
+    if (d?.mode === 'marquee') setMarquee(null);
     if (d?.mode === 'select' && !d.moved) {
       // click on empty space moves the playhead
       engine.transport?.seek(snapTick(d.startTick));
@@ -380,6 +417,7 @@ export function Arrangement() {
       if (!ui.selectedClipIds.includes(hit.clip.id)) ui.set({ selectedClipIds: [hit.clip.id] });
       items = [
         { label: hit.clip.kind === 'midi' ? 'Open in piano roll' : 'Open in editor', shortcut: 'Dbl-click', onClick: () => openClipEditor(hit.clip.id) },
+        { label: 'Rename…', onClick: () => renameClip(hit.clip.id) },
         { label: 'Split at playhead', shortcut: 'S', onClick: splitSelectedAtPlayhead },
         { label: 'Duplicate', shortcut: 'Ctrl+D', onClick: duplicateSelectedClips },
         { label: hit.clip.loop ? 'Stop looping content' : 'Loop content', shortcut: 'Ctrl+L', onClick: toggleLoopSelectedClips },
@@ -559,6 +597,12 @@ export function Arrangement() {
               onContextMenu={onContextMenu}
             />
             {dropHint && <div className="pointer-events-none absolute inset-0 border-2 border-dashed border-accent/70 bg-accent/5" />}
+            {marquee && (
+              <div
+                className="pointer-events-none absolute border border-accent-hi bg-accent/10"
+                style={{ left: Math.min(marquee.x0, marquee.x1), top: Math.min(marquee.y0, marquee.y1), width: Math.abs(marquee.x1 - marquee.x0), height: Math.abs(marquee.y1 - marquee.y0) }}
+              />
+            )}
           </div>
         </div>
       </div>

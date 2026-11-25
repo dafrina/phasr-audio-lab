@@ -202,3 +202,40 @@ export function togglePlay(): void {
 export function stopTransport(): void {
   engine.transport?.stop();
 }
+
+export function selectAllClips(): void {
+  const ids = Object.keys(getProject().clips);
+  useUiStore.getState().set({ selectedClipIds: ids });
+}
+
+/**
+ * Nudge the selected clips by `dTicks` and/or move them `dTrack` tracks up or
+ * down. A vertical move only happens if every clip lands on a track of the
+ * right kind (audio clips → audio tracks, MIDI → instrument tracks).
+ */
+export function nudgeSelectedClips(dTicks: number, dTrack: number): void {
+  const p = getProject();
+  const sel = selectedClips(p);
+  if (!sel.length) return;
+  const minStart = Math.min(...sel.map((c) => c.start));
+  const dt = Math.max(dTicks, -minStart);
+  const idx = new Map(p.tracks.map((t, i) => [t.id, i]));
+  let dk = dTrack;
+  if (dk !== 0) {
+    const ok = sel.every((c) => {
+      const t = p.tracks[(idx.get(c.trackId) ?? 0) + dk];
+      return t && (c.kind === 'audio' ? t.kind === 'audio' : t.kind === 'instrument');
+    });
+    if (!ok) dk = 0;
+  }
+  if (dt === 0 && dk === 0) return;
+  const moved = sel.map((c) => ({ ...c, start: c.start + dt, trackId: p.tracks[(idx.get(c.trackId) ?? 0) + dk]?.id ?? c.trackId }));
+  upsertClips(moved, 'Nudge clips', { coalesce: `nudge-${sel.map((c) => c.id).join(',')}` });
+}
+
+export function renameClip(clipId: string): void {
+  const c = getProject().clips[clipId];
+  if (!c) return;
+  const name = prompt('Clip name:', c.name)?.trim();
+  if (name && name !== c.name) upsertClips([{ ...c, name: name.slice(0, 48) }], 'Rename clip');
+}

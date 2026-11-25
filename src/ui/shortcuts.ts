@@ -16,7 +16,11 @@ import {
   stopTransport,
   toggleLoopSelectedClips,
   togglePlay,
+  selectAllClips,
+  nudgeSelectedClips,
+  gridTicks,
 } from './actions';
+import { PPQ } from '../core/time';
 
 export function isTypingTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
@@ -93,6 +97,8 @@ export function useGlobalShortcuts(): void {
       // Inside an editor, only transport and undo/redo stay global.
       if (inOwnShortcutScope(e.target) && !(key === ' ' || key === 'enter' || (mod && (key === 'z' || key === 'y')))) return;
       if (e.repeat && (key === ' ' || key === 'r')) return;
+      // sliders keep their own arrow keys
+      if (key.startsWith('arrow') && e.target instanceof HTMLInputElement && e.target.type === 'range') return;
       if (key === ' ') {
         e.preventDefault();
         togglePlay();
@@ -108,6 +114,18 @@ export function useGlobalShortcuts(): void {
       } else if (mod && key === 'y') {
         e.preventDefault();
         useProjectStore.getState().redo();
+      } else if (mod && key === 'a') {
+        e.preventDefault();
+        selectAllClips();
+      } else if (!mod && (key === 'arrowleft' || key === 'arrowright')) {
+        e.preventDefault();
+        const g = gridTicks() || PPQ / 4;
+        nudgeSelectedClips((key === 'arrowright' ? 1 : -1) * (e.altKey ? 1 : g), 0);
+      } else if (!mod && (key === 'arrowup' || key === 'arrowdown')) {
+        e.preventDefault();
+        nudgeSelectedClips(0, key === 'arrowdown' ? 1 : -1);
+      } else if (e.key === '?') {
+        useUiStore.getState().set({ helpOpen: !useUiStore.getState().helpOpen });
       } else if (mod && key === 'c') {
         copySelectedClips();
       } else if (mod && key === 'v') {

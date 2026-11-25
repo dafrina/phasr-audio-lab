@@ -28,6 +28,8 @@ interface UiState {
   editorClipId: string | null;
   /** Track shown in the bottom "track devices" panel */
   fxTrackId: string | null;
+  /** keyboard shortcut help overlay */
+  helpOpen: boolean;
   /** Automation editing mode: clicks on a track with a shown lane edit points instead of clips */
   automationMode: boolean;
   /** Which automation lane is drawn over each track (trackId → laneId) */
@@ -57,6 +59,7 @@ export const useUiStore = create<UiState>((set) => ({
   editorClipId: null,
   fxTrackId: null,
   automationMode: false,
+  helpOpen: false,
   shownLanes: {},
   peqSelected: {},
   audioReady: false,

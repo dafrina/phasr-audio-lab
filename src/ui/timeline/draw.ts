@@ -273,7 +273,19 @@ export function drawClip(g: CanvasRenderingContext2D, clip: Clip, trackIndex: nu
   g.lineWidth = 1;
 }
 
+/** Everything on the lanes (both layers). */
 export function drawLanes(g: CanvasRenderingContext2D, width: number, height: number, s: DrawState): void {
+  drawLanesStatic(g, width, height, s);
+  drawLanesDynamic(g, width, height, s);
+}
+
+/**
+ * The part of the lanes that only changes when the project, view or selection
+ * changes (grid, clips, waveforms, notes, automation curves). The arrangement
+ * caches this layer and repaints it only when needed — not on every frame of
+ * playback.
+ */
+export function drawLanesStatic(g: CanvasRenderingContext2D, width: number, height: number, s: DrawState): void {
   g.fillStyle = COL.bg;
   g.fillRect(0, 0, width, height);
   const tracks = s.project.tracks;
@@ -303,7 +315,6 @@ export function drawLanes(g: CanvasRenderingContext2D, width: number, height: nu
       drawClip(g, c, i, tracks[i]?.color ?? '#888', width, s);
     }
   }
-  if (s.recording && s.playTick > s.recording.startTick) drawLiveRecording(g, s, s.recording);
   for (const lane of s.lanes) drawLane(g, width, s, lane);
   if (s.timeSel) {
     const a = tickToX(s.timeSel.start, s.pxPerBeat, s.scrollX);
@@ -321,6 +332,12 @@ export function drawLanes(g: CanvasRenderingContext2D, width: number, height: nu
     g.textBaseline = 'middle';
     g.fillText('Drop audio files here to create a new track', 12, tracks.length * TRACK_H + 22);
   }
+}
+
+/** Per-frame overlay: the take being recorded, live automation values and the playhead. */
+export function drawLanesDynamic(g: CanvasRenderingContext2D, width: number, height: number, s: DrawState): void {
+  if (s.recording && s.playTick > s.recording.startTick) drawLiveRecording(g, s, s.recording);
+  for (const lane of s.lanes) drawLaneLabel(g, width, s, lane);
   const px = Math.round(tickToX(s.playTick, s.pxPerBeat, s.scrollX)) + 0.5;
   if (px >= 0 && px <= width) {
     g.strokeStyle = COL.playhead;
@@ -364,8 +381,14 @@ function drawLane(g: CanvasRenderingContext2D, width: number, s: DrawState, lane
       g.stroke();
     }
   }
-  // label with the value at the playhead
-  const v = valueAt(pts, s.playTick);
+  g.restore();
+}
+
+/** The lane's name and its value at the playhead (changes every frame while playing). */
+function drawLaneLabel(g: CanvasRenderingContext2D, width: number, s: DrawState, lane: DrawState['lanes'][number]): void {
+  const { top } = laneBox(lane.trackIndex);
+  g.save();
+  const v = valueAt(lane.points, s.playTick);
   const txt = `${lane.label}${v !== null ? `: ${lane.spec.format(v)}` : ''}${lane.enabled ? '' : ' (off)'}`;
   g.globalAlpha = 1;
   g.font = '600 10px Inter, system-ui, sans-serif';

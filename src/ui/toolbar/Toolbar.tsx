@@ -268,6 +268,9 @@ export function Toolbar() {
           <FileAudio size={14} /> <span className="text-[11px]">Import</span>
         </IconButton>
         <div className="mx-1 h-6 w-px bg-line" />
+        <IconButton title="Keyboard shortcuts (?)" onClick={() => setUi({ helpOpen: true })}>
+          <span className="text-[12px] font-bold">?</span>
+        </IconButton>
         <AutomationModeButton />
         <MixerButton />
         <MidiButton />

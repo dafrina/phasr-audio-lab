@@ -31,7 +31,7 @@ import {
 } from './db';
 import { downloadBlob, safeFileName } from './download';
 
-export type PersistStatus = 'starting' | 'saved' | 'dirty' | 'saving' | 'error' | 'unavailable';
+export type PersistStatus = 'starting' | 'saved' | 'dirty' | 'saving' | 'error' | 'unavailable' | 'readonly';
 
 interface PersistState {
   status: PersistStatus;
@@ -55,6 +55,70 @@ let saving: Promise<void> | null = null;
 let again = false;
 /** asset ids known to be in storage (avoids re-writing large files on every save) */
 const stored = new Set<string>();
+
+// ---------------------------------------------------------------------------
+// One writer per project across tabs (Web Locks). A second tab that opens the
+// same project becomes read-only instead of silently overwriting the first.
+// ---------------------------------------------------------------------------
+
+let readOnly = false;
+let releaseLock: (() => void) | null = null;
+const READONLY_MSG = 'This project is open in another tab. Changes here are not saved — use “Take over” to edit it here.';
+
+function lockName(id: string): string {
+  return `phasr-project:${id}`;
+}
+
+/** Hold the project's lock for as long as it is open here. Resolves true if acquired. */
+function acquireLock(id: string, steal = false): Promise<boolean> {
+  releaseLock?.();
+  releaseLock = null;
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (!locks) return Promise.resolve(true); // no Web Locks: single-tab behaviour
+  return new Promise<boolean>((acquired) => {
+    locks
+      .request(lockName(id), steal ? { steal: true } : { ifAvailable: true }, async (lock) => {
+        if (!lock) {
+          acquired(false);
+          return;
+        }
+        acquired(true);
+        await new Promise<void>((done) => (releaseLock = done));
+      })
+      .catch(() => {
+        // our lock was stolen by another tab that chose "Take over"
+        if (getProject().id === id && !readOnly) {
+          readOnly = true;
+          if (timer) clearTimeout(timer);
+          setP({ status: 'readonly', error: 'Another tab took over this project. Changes here are no longer saved.' });
+          uiToast('error', 'Another tab took over this project; this tab is now read-only.');
+        }
+      });
+  });
+}
+
+function applyLockResult(acquired: boolean): void {
+  readOnly = !acquired;
+  if (readOnly) {
+    setP({ status: 'readonly', error: READONLY_MSG });
+    uiToast('error', READONLY_MSG);
+  }
+}
+
+/** Claim the open project in this tab (the other tab becomes read-only). */
+export async function takeOver(): Promise<void> {
+  const ok = await acquireLock(getProject().id, true);
+  readOnly = !ok;
+  if (ok) {
+    setP({ status: 'dirty', error: null });
+    await saveNow();
+    uiToast('info', 'This tab now owns the project; changes are saved again.');
+  }
+}
+
+export function isReadOnly(): boolean {
+  return readOnly;
+}
 
 function remember(id: string): void {
   try {
@@ -98,6 +162,7 @@ async function persistAssets(p: Project): Promise<string[]> {
 }
 
 async function doSave(): Promise<void> {
+  if (readOnly) return;
   const p = getProject();
   setP({ status: 'saving' });
   try {
@@ -119,6 +184,10 @@ export async function saveNow(): Promise<void> {
     uiToast('error', 'Local storage is unavailable in this browser session. Use “Export archive” to keep your work.');
     return;
   }
+  if (readOnly) {
+    setP({ status: 'readonly', error: READONLY_MSG });
+    return;
+  }
   if (timer) clearTimeout(timer);
   timer = null;
   if (saving) {
@@ -136,13 +205,28 @@ export async function saveNow(): Promise<void> {
 
 function scheduleAutosave(): void {
   if (!available || loading) return;
+  if (readOnly) {
+    setP({ status: 'readonly' });
+    return;
+  }
   setP({ status: 'dirty' });
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => void saveNow(), AUTOSAVE_MS);
 }
 
-/** Called once at startup: open storage, restore the last project, start autosaving. */
-export async function initPersistence(): Promise<void> {
+let initPromise: Promise<void> | null = null;
+
+/**
+ * Called at startup: open storage, restore the last project, start autosaving.
+ * Idempotent — React StrictMode runs effects twice in development, and a second
+ * run would contend for this tab's own project lock and turn it read-only.
+ */
+export function initPersistence(): Promise<void> {
+  initPromise ??= doInitPersistence();
+  return initPromise;
+}
+
+async function doInitPersistence(): Promise<void> {
   try {
     await openDb();
     available = true;
@@ -167,6 +251,7 @@ export async function initPersistence(): Promise<void> {
   if (last && (await getProjectRecord(last))) {
     await openProject(last, { quiet: true });
   } else {
+    applyLockResult(await acquireLock(getProject().id));
     await saveNow();
   }
 }
@@ -209,8 +294,10 @@ async function activate(project: Project, quiet: boolean): Promise<void> {
       missing.push(`${ref.name} (could not decode)`);
     }
   }
+  const acquired = await acquireLock(project.id);
   // decode first, then load: instruments and clips find their samples immediately
   useProjectStore.getState().loadProject(project);
+  applyLockResult(acquired);
   engine.transport?.seek(0);
   remember(project.id);
   if (missing.length) uiToast('error', `Missing audio in “${project.name}”: ${missing.join(', ')}. Affected clips are marked “missing audio”.`);
@@ -231,7 +318,7 @@ export async function openProject(id: string, opts: { quiet?: boolean } = {}): P
       throw new ProjectFormatError(`The saved project is damaged: ${e instanceof Error ? e.message : String(e)}`);
     }
     await activate(project, !!opts.quiet);
-    setP({ status: 'saved', lastSavedAt: rec.updatedAt, error: null });
+    if (!readOnly) setP({ status: 'saved', lastSavedAt: rec.updatedAt, error: null });
     return true;
   } catch (e) {
     uiToast('error', e instanceof Error ? e.message : String(e));

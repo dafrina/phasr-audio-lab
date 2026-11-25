@@ -2,12 +2,17 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App';
+import { ErrorBoundary, installGlobalErrorReporting } from './ui/common/ErrorBoundary';
+import { uiToast } from './state/uiStore';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing #root element');
+installGlobalErrorReporting((msg) => uiToast('error', msg));
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );
 

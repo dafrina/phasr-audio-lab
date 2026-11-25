@@ -144,3 +144,95 @@ export function previewSample(wf: number, t: number, pw: number, noise: Noise): 
       return 0;
   }
 }
+
+/**
+ * Block kernels: render `n` samples of one oscillator into `out` with the
+ * waveform branch taken once per block instead of once per sample. Produces
+ * exactly the same samples as calling oscSample() n times.
+ */
+export function renderOscBlock(s: OscState, wf: number, dt: number, hq: boolean, pw: number, out: Float64Array, n: number): void {
+  let t = s.phase;
+  switch (wf) {
+    case WF_SINE:
+      for (let i = 0; i < n; i++) {
+        out[i] = Math.sin(TWO_PI * t);
+        t += dt;
+        if (t >= 1) t -= 1;
+      }
+      break;
+    case WF_SAW:
+      if (hq) {
+        for (let i = 0; i < n; i++) {
+          let v = 2 * t - 1;
+          if (t < dt) {
+            const x = t / dt;
+            v -= x + x - x * x - 1;
+          } else if (t > 1 - dt) {
+            const x = (t - 1) / dt;
+            v -= x * x + x + x + 1;
+          }
+          out[i] = v;
+          t += dt;
+          if (t >= 1) t -= 1;
+        }
+      } else {
+        for (let i = 0; i < n; i++) {
+          out[i] = 2 * t - 1;
+          t += dt;
+          if (t >= 1) t -= 1;
+        }
+      }
+      break;
+    case WF_SQUARE:
+    case WF_PULSE: {
+      const w = wf === WF_SQUARE ? 0.5 : pw;
+      const dc = 2 * w - 1;
+      for (let i = 0; i < n; i++) {
+        let v = t < w ? 1 : -1;
+        if (hq) {
+          v += polyBlep(t, dt);
+          let t2 = t - w;
+          if (t2 < 0) t2 += 1;
+          v -= polyBlep(t2, dt);
+        }
+        out[i] = v - dc;
+        t += dt;
+        if (t >= 1) t -= 1;
+      }
+      break;
+    }
+    case WF_TRIANGLE: {
+      if (hq) {
+        let tri = s.tri;
+        const step = 4 * dt;
+        for (let i = 0; i < n; i++) {
+          let sq = t < 0.5 ? 1 : -1;
+          sq += polyBlep(t, dt);
+          let t2 = t - 0.5;
+          if (t2 < 0) t2 += 1;
+          sq -= polyBlep(t2, dt);
+          tri += step * sq;
+          tri += ((t < 0.5 ? -1 + 4 * t : 3 - 4 * t) - tri) * 0.002;
+          out[i] = tri;
+          t += dt;
+          if (t >= 1) t -= 1;
+        }
+        s.tri = tri;
+      } else {
+        for (let i = 0; i < n; i++) {
+          out[i] = t < 0.5 ? -1 + 4 * t : 3 - 4 * t;
+          t += dt;
+          if (t >= 1) t -= 1;
+        }
+      }
+      break;
+    }
+    default:
+      out.fill(0, 0, n);
+  }
+  s.phase = t;
+}
+
+export function renderNoiseBlock(noise: Noise, out: Float64Array, n: number): void {
+  for (let i = 0; i < n; i++) out[i] = noise.next();
+}

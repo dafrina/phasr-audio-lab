@@ -397,3 +397,43 @@ describe('sample-accurate event core', () => {
     expect(peak(l, 480)).toBe(0);
   });
 });
+
+describe('block kernels match the per-sample reference exactly', () => {
+  it('renderOscBlock = n × oscSample for every waveform and quality', async () => {
+    const { renderOscBlock, oscSample, OscState: OS } = await import('../src/synth/dsp/oscillator');
+    for (const wf of [0, 1, 2, 3, 4]) {
+      for (const hq of [false, true]) {
+        const a = new OS();
+        const b = new OS();
+        a.setPhase(0.37);
+        b.setPhase(0.37);
+        const dt = 1234.5 / 48000;
+        const ref = new Float64Array(500);
+        for (let i = 0; i < 500; i++) ref[i] = oscSample(a, wf, dt, hq, 0.3);
+        const out = new Float64Array(500);
+        for (let i = 0; i < 500; i += 32) {
+          const blk = new Float64Array(32);
+          renderOscBlock(b, wf, dt, hq, 0.3, blk, Math.min(32, 500 - i));
+          out.set(blk.subarray(0, Math.min(32, 500 - i)), i);
+        }
+        expect(out, `wf ${wf} hq ${hq}`).toEqual(ref);
+        expect(b.phase).toBe(a.phase);
+      }
+    }
+  });
+
+  it('svfBlock = n × Svf.process', async () => {
+    const { Svf, SvfCoefs, svfBlock, FILTER_LP, FILTER_HP, FILTER_BP } = await import('../src/synth/dsp/svf');
+    for (const mode of [FILTER_LP, FILTER_HP, FILTER_BP]) {
+      const c = new SvfCoefs();
+      c.set(1500, 0.6, 48000);
+      const f1 = new Svf();
+      const f2 = new Svf();
+      const x = Float64Array.from({ length: 256 }, (_, i) => Math.sin(i * 0.3) + ((i * 7919) % 13) / 13 - 0.5);
+      const ref = x.map((v) => f1.process(v, c, mode));
+      const buf = x.slice();
+      svfBlock(f2, c, mode, buf, 256);
+      expect(buf).toEqual(ref);
+    }
+  });
+});

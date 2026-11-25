@@ -101,17 +101,26 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
 - **Keyboard/mouse:** Space always drives the transport unless you're typing or deliberately Tab-focused a control;
   the browser context menu is disabled outside text fields.
 
-### Performance (measured, headless Chromium, this machine)
+- **Milestone 7 (refinement): done.** Block-wise synth DSP (oscillators, envelope, filter rendered per 32-sample block
+  with the waveform branch hoisted; bit-identical output, guarded by tests), cached static timeline layer (only the
+  playhead/overlays repaint during playback), error boundary with "export archive / try to continue / reload",
+  global error toasts and processor-error reporting, one-writer-per-project across tabs (Web Locks; a second tab is
+  read-only with **Take over**), box-select clips (Ctrl/Shift-drag), Ctrl+A, arrow-key nudging and track moves,
+  clip rename, `?` shortcut overlay, and a leak test (90 tracks with full chains created/deleted + project switches →
+  channels/modulators/params back to baseline, +1.2 MB heap).
 
-| Scenario (10 s, 8 tracks, 4-note chords every beat) | Offline render speed |
-| --- | --- |
-| 8 × TriOsc, no effects | 4.0× realtime |
-| 8 × TriOsc + EQ/Comp/Delay each | 3.3× realtime |
-| 8 × TriOsc + all 4 effects each (32 effects) | ~1.8× realtime |
+### Performance (measured: headless Chromium / Node on the dev machine — run `npm run bench`)
 
-Convolution reverb is the dominant cost. In the realtime context Chrome runs long convolution partitions on a
-background thread, and the live 8-track/32-effect test kept pace with wall-clock time. Synth DSP optimisation
-(block-wise oscillator rendering) is planned for the milestone 7 performance pass.
+| Scenario | Before M7 | After M7 |
+| --- | --- | --- |
+| TriOsc *Soft Pad*, 16 voices (Node) | 9.8× realtime | 41× realtime |
+| TriOsc *Detuned Saw*, 16 voices (Node) | 14× | 53× |
+| 8 × TriOsc, 4-note chords every beat (offline, 10 s) | 4.0× | 9.2× |
+| …plus 4 effects on every track (32 effects) | 1.7× | 2.5× |
+| Timeline frame during playback (8 tracks × 24 clips) | 5–11 ms | 0.02–0.05 ms |
+
+Convolution reverb is now the dominant cost of the worst case; in a realtime context Chrome runs long convolution
+partitions on a background thread, and the live 8-track/32-effect test keeps pace with wall-clock time.
 
 ## Known limitations
 
@@ -132,11 +141,10 @@ background thread, and the live 8-track/32-effect test kept pace with wall-clock
 - Audio sidechain sources tap the source track before its fader and mute (so a muted track can still drive a duck).
 - Drum pads are one-shots (note length is ignored). Instrument parameters can be automated but not sidechain-modulated.
 - TriOsc automation updates at the worklet's block rate (128 samples ≈ 2.7 ms).
-- No multi-tab coordination: open the app in one tab at a time to avoid two tabs autosaving the same project.
 
 ## Keyboard
 
-Space play/stop · Enter stop · Ctrl+S save · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+C / V copy/paste clips · Ctrl+D duplicate ·
+Press **?** in the app for the full list. Space play/stop · Enter stop · Ctrl+S save · Ctrl+A select all · ←→ nudge · ↑↓ move to track · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+C / V copy/paste clips · Ctrl+D duplicate ·
 Delete remove · S split at playhead · L loop on/off · Ctrl+L loop clip content · M metronome · F9 mixer · R record · A automation mode ·
 TriOsc focused: Z–M / Q–P play notes, [ ] octave, Esc close.
 Piano roll focused: Delete, Ctrl+A/C/X/V/D, ↑↓ transpose (Shift = octave), ←→ nudge, Q quantize, Esc deselect. Shortcuts are ignored while typing in text fields.

@@ -16,6 +16,7 @@ import {
   newProject,
   openProject,
   saveNow,
+  takeOver,
   usePersistStore,
 } from '../../persistence/session';
 import { getProject, useProjectStore } from '../../state/projectStore';
@@ -50,7 +51,9 @@ export function ProjectControls() {
   }, [menu]);
 
   const statusText =
-    status === 'saving' ? 'Saving…' : status === 'dirty' ? 'Unsaved changes' : status === 'saved' ? `Saved${lastSavedAt ? ' ' + new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}` : status === 'unavailable' ? 'Not saved — storage unavailable' : status === 'error' ? 'Save failed' : '…';
+    status === 'readonly'
+      ? 'Read-only (open in another tab)'
+      : status === 'saving' ? 'Saving…' : status === 'dirty' ? 'Unsaved changes' : status === 'saved' ? `Saved${lastSavedAt ? ' ' + new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}` : status === 'unavailable' ? 'Not saved — storage unavailable' : status === 'error' ? 'Save failed' : '…';
   const item = (icon: React.ReactNode, label: string, onClick: () => void, hint?: string) => (
     <button
       type="button"
@@ -75,11 +78,16 @@ export function ProjectControls() {
         <Save size={14} />
       </IconButton>
       <span
-        className={`w-[92px] truncate text-[10px] ${status === 'error' || status === 'unavailable' ? 'text-bad' : status === 'dirty' || status === 'saving' ? 'text-warn' : 'text-muted'}`}
+        className={`w-[92px] truncate text-[10px] ${status === 'error' || status === 'unavailable' || status === 'readonly' ? 'text-bad' : status === 'dirty' || status === 'saving' ? 'text-warn' : 'text-muted'}`}
         title={error ?? statusText}
       >
         {statusText}
       </span>
+      {status === 'readonly' && (
+        <button type="button" onClick={() => void takeOver()} className="h-6 rounded bg-bad/80 px-2 text-[10px] font-semibold text-white hover:bg-bad" title="Edit this project here; the other tab becomes read-only">
+          Take over
+        </button>
+      )}
       {menu && (
         <div className="absolute left-0 top-9 z-[90] w-[250px] rounded-md border border-line-2 bg-panel-2 py-1 shadow-2xl shadow-black/60">
           {item(<FilePlus2 size={13} />, 'New project', () => void newProject())}

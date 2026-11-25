@@ -20,8 +20,8 @@ import {
   type TriOscPatch,
 } from '../params';
 import { Envelope, EnvelopeCoefs } from './envelope';
-import { Noise, OscState, WF_NOISE, WF_PULSE, WF_SAW, WF_SINE, WF_SQUARE, WF_TRIANGLE, oscSample } from './oscillator';
-import { FILTER_BP, FILTER_HP, FILTER_LP, Svf, SvfCoefs } from './svf';
+import { Noise, OscState, WF_NOISE, WF_PULSE, WF_SAW, WF_SINE, WF_SQUARE, WF_TRIANGLE, renderNoiseBlock, renderOscBlock } from './oscillator';
+import { FILTER_BP, FILTER_HP, FILTER_LP, Svf, SvfCoefs, svfBlock } from './svf';
 import { allocateVoice } from './voiceAllocator';
 
 export const CONTROL_BLOCK = 32;
@@ -464,78 +464,75 @@ export class TriOscSynth {
     const vs = p.voice.velocitySens;
     const gain = ((1 - vs) + vs * v.velocity) * ampMod * MIX_SCALE;
 
-    const am = p.amMode;
-    const en0 = this.enabled[0] === 1;
-    const en1 = this.enabled[1] === 1;
-    const en2 = this.enabled[2] === 1;
-    const lvl3 = p.oscs[2].level;
-    const pw0 = p.oscs[0].pulseWidth;
-    const pw1 = p.oscs[1].pulseWidth;
-    const pw2 = p.oscs[2].pulseWidth;
+    // --- audio rate, block-wise: envelope, oscillators, mix, filter, output ---
+    const env = this.envBuf;
     const ampC = this.ampC;
-    const mode = this.filterMode;
-
-    for (let k = 0; k < n; k++) {
-      const env = v.amp.next(ampC);
-      let l = 0;
-      let r = 0;
-      if (en0) {
-        const [a, b] = this.oscPair(v, 0, hq, pw0);
-        l += a * (this.gainL[0] as number);
-        r += b * (this.gainR[0] as number);
-      }
-      if (en1) {
-        const [a, b] = this.oscPair(v, 1, hq, pw1);
-        l += a * (this.gainL[1] as number);
-        r += b * (this.gainR[1] as number);
-      }
-      if (en2) {
-        const [a, b] = this.oscPair(v, 2, hq, pw2);
-        if (am) {
-          // osc 3 as amplitude modulator for osc 1+2: depth = osc 3 level
-          l *= 1 - lvl3 + lvl3 * (0.5 + 0.5 * a);
-          r *= 1 - lvl3 + lvl3 * (0.5 + 0.5 * b);
-        } else {
-          l += a * (this.gainL[2] as number);
-          r += b * (this.gainR[2] as number);
+    for (let k = 0; k < n; k++) env[k] = v.amp.next(ampC);
+    const mixL = this.mixL;
+    const mixR = this.mixR;
+    mixL.fill(0, 0, n);
+    mixR.fill(0, 0, n);
+    const lvl3 = p.oscs[2].level;
+    for (let i = 0; i < 3; i++) {
+      if (this.enabled[i] !== 1) continue;
+      const [oL, oR] = this.renderOscPair(v, i, hq, (p.oscs[i] as { pulseWidth: number }).pulseWidth, n);
+      if (i === 2 && p.amMode) {
+        // osc 3 as amplitude modulator for osc 1+2: depth = osc 3 level
+        for (let k = 0; k < n; k++) {
+          mixL[k] = (mixL[k] as number) * (1 - lvl3 + lvl3 * (0.5 + 0.5 * (oL[k] as number)));
+          mixR[k] = (mixR[k] as number) * (1 - lvl3 + lvl3 * (0.5 + 0.5 * (oR[k] as number)));
         }
+        continue;
       }
-      if (filterOn) {
-        l = v.svfL.process(l, v.svfC, mode);
-        r = v.svfR.process(r, v.svfC, mode);
+      const gL = this.gainL[i] as number;
+      const gR = this.gainR[i] as number;
+      for (let k = 0; k < n; k++) {
+        mixL[k] = (mixL[k] as number) + (oL[k] as number) * gL;
+        mixR[k] = (mixR[k] as number) + (oR[k] as number) * gR;
       }
-      const g = env * gain;
-      outL[pos + k] = (outL[pos + k] as number) + l * g;
-      outR[pos + k] = (outR[pos + k] as number) + r * g;
-      if (!v.amp.active) break;
+    }
+    if (filterOn) {
+      svfBlock(v.svfL, v.svfC, this.filterMode, mixL, n);
+      svfBlock(v.svfR, v.svfC, this.filterMode, mixR, n);
+    }
+    for (let k = 0; k < n; k++) {
+      const g = (env[k] as number) * gain;
+      outL[pos + k] = (outL[pos + k] as number) + (mixL[k] as number) * g;
+      outR[pos + k] = (outR[pos + k] as number) + (mixR[k] as number) * g;
     }
   }
 
-  // reused tuple for oscPair results (avoids allocating per sample)
-  private readonly pair: [number, number] = [0, 0];
+  // scratch buffers for one control block (no allocation while rendering)
+  private readonly envBuf = new Float64Array(CONTROL_BLOCK);
+  private readonly mixL = new Float64Array(CONTROL_BLOCK);
+  private readonly mixR = new Float64Array(CONTROL_BLOCK);
+  private readonly oscBufL = new Float64Array(CONTROL_BLOCK);
+  private readonly oscBufR = new Float64Array(CONTROL_BLOCK);
+  private readonly pairBufs: [Float64Array, Float64Array] = [this.oscBufL, this.oscBufR];
+  private readonly monoBufs: [Float64Array, Float64Array] = [this.oscBufL, this.oscBufL];
 
-  private oscPair(v: Voice, i: number, hq: boolean, pw: number): [number, number] {
+  /** Render one oscillator (both channels) for a block; mono oscillators share one buffer. */
+  private renderOscPair(v: Voice, i: number, hq: boolean, pw: number, n: number): [Float64Array, Float64Array] {
     const wf = this.wf[i] as number;
-    const out = this.pair;
+    const stereo = this.stereo[i] === 1;
     if (wf === WF_NOISE) {
-      const a = (v.noiseL[i] as Noise).next();
-      out[0] = a;
-      out[1] = this.stereo[i] === 1 ? (v.noiseR[i] as Noise).next() : a;
-      return out;
+      renderNoiseBlock(v.noiseL[i] as Noise, this.oscBufL, n);
+      if (!stereo) return this.monoBufs;
+      renderNoiseBlock(v.noiseR[i] as Noise, this.oscBufR, n);
+      return this.pairBufs;
     }
     const sl = v.osc[2 * i] as OscState;
     const sr = v.osc[2 * i + 1] as OscState;
-    if (this.stereo[i] === 1) {
-      out[0] = oscSample(sl, wf, v.incL[i] as number, hq, pw);
-      out[1] = oscSample(sr, wf, v.incR[i] as number, hq, pw);
-    } else {
-      const a = oscSample(sl, wf, v.incL[i] as number, hq, pw);
+    renderOscBlock(sl, wf, v.incL[i] as number, hq, pw, this.oscBufL, n);
+    if (!stereo) {
       // keep the right state in step so enabling stereo later is seamless
       sr.phase = sl.phase;
       sr.tri = sl.tri;
-      out[0] = a;
-      out[1] = a;
+      return this.monoBufs;
     }
-    return out;
+    renderOscBlock(sr, wf, v.incR[i] as number, hq, pw, this.oscBufR, n);
+    return this.pairBufs;
   }
+
+
 }

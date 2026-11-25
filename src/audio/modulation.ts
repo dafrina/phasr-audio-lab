@@ -72,6 +72,7 @@ export class ModulationRouter {
               triggers: (initialTriggers?.get(r.sourceTrackId) ?? []).filter((n) => r.note === null || n.note === r.note).map((n) => n.time),
             },
           });
+          node.onprocessorerror = () => console.error('Sidechain modulator stopped (processor error).');
           const analyser = this.realtime ? new AnalyserNode(this.ctx, { fftSize: 32 }) : null;
           if (analyser) node.connect(analyser);
           rn = { route: r, ownerTrackId: owner.id, node, analyser, depthGains: [], tap: null, settingsKey: key };

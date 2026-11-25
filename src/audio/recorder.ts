@@ -189,6 +189,7 @@ class AudioRecorder {
       channelCountMode: 'explicit', // mono inputs are up-mixed to both channels
       channelInterpretation: 'speakers',
     });
+    node.onprocessorerror = () => this.handleInputLost('The recorder stopped unexpectedly.');
     const sink = new GainNode(ctx, { gain: 0 });
     const monitor = new GainNode(ctx, { gain: 0 });
     source.connect(gain);
