@@ -192,7 +192,10 @@ export function Arrangement() {
           const live = recorder.liveView();
           if (!live) return null;
           const trackIndex = project.tracks.findIndex((t) => t.id === live.trackId);
-          return trackIndex < 0 ? null : { trackIndex, startTick: live.startTick, peaks: live.peaks, sampleRate: live.sampleRate };
+          if (trackIndex < 0) return null;
+          return live.kind === 'midi'
+            ? { trackIndex, startTick: live.startTick, notes: live.notes }
+            : { trackIndex, startTick: live.startTick, peaks: live.peaks, sampleRate: live.sampleRate };
         })(),
       };
       const rc = rulerCv.current;

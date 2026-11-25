@@ -11,6 +11,7 @@ import { fromNormalized, toNormalized, type NumericParamSpec } from '../../synth
 import { valueAt } from '../../project/automation';
 import { TRACK_H, tickToX } from './layout';
 import { LIVE_PEAK_BUCKET, type LivePeaks } from '../../audio/recordingMath';
+import type { LiveNote } from '../../audio/midiTake';
 
 export interface DrawState {
   project: Project;
@@ -22,7 +23,10 @@ export interface DrawState {
   timeSel: { start: number; end: number } | null;
   selectedTrackId: string | null;
   /** take in progress, drawn as a growing red clip */
-  recording: { trackIndex: number; startTick: number; peaks: LivePeaks; sampleRate: number } | null;
+  recording:
+    | { trackIndex: number; startTick: number; peaks: LivePeaks; sampleRate: number; notes?: undefined }
+    | { trackIndex: number; startTick: number; notes: readonly LiveNote[]; peaks?: undefined }
+    | null;
   /** automation lanes shown over their tracks */
   lanes: { trackIndex: number; points: AutomationPoint[]; spec: NumericParamSpec; label: string; editable: boolean; enabled: boolean }[];
 }
@@ -336,7 +340,8 @@ export function drawLanesStatic(g: CanvasRenderingContext2D, width: number, heig
 
 /** Per-frame overlay: the take being recorded, live automation values and the playhead. */
 export function drawLanesDynamic(g: CanvasRenderingContext2D, width: number, height: number, s: DrawState): void {
-  if (s.recording && s.playTick > s.recording.startTick) drawLiveRecording(g, s, s.recording);
+  if (s.recording?.notes) drawLiveMidi(g, s, s.recording.trackIndex, s.recording.startTick, s.recording.notes);
+  else if (s.recording && s.playTick > s.recording.startTick) drawLiveRecording(g, s, s.recording);
   for (const lane of s.lanes) drawLaneLabel(g, width, s, lane);
   const px = Math.round(tickToX(s.playTick, s.pxPerBeat, s.scrollX)) + 0.5;
   if (px >= 0 && px <= width) {
@@ -401,7 +406,55 @@ function drawLaneLabel(g: CanvasRenderingContext2D, width: number, s: DrawState,
   g.restore();
 }
 
-function drawLiveRecording(g: CanvasRenderingContext2D, s: DrawState, rec: NonNullable<DrawState['recording']>): void {
+/** MIDI take in progress: a red region with the notes played so far (held notes grow with the playhead). */
+function drawLiveMidi(g: CanvasRenderingContext2D, s: DrawState, trackIndex: number, startTick: number, notes: readonly LiveNote[]): void {
+  let lo = startTick;
+  let hi = Math.max(startTick, s.playTick);
+  for (const n of notes) {
+    lo = Math.min(lo, n.start);
+    hi = Math.max(hi, n.end ?? n.start);
+  }
+  const x0 = tickToX(lo, s.pxPerBeat, s.scrollX);
+  const x1 = tickToX(hi, s.pxPerBeat, s.scrollX);
+  const y = trackIndex * TRACK_H + 2;
+  const h = TRACK_H - 5;
+  g.save();
+  roundRect(g, x0 + 0.5, y + 0.5, Math.max(2, x1 - x0 - 1), h, 4);
+  g.fillStyle = 'rgba(244,63,94,0.18)';
+  g.fill();
+  g.strokeStyle = '#f43f5e';
+  g.stroke();
+  g.clip();
+  g.fillStyle = 'rgba(244,63,94,0.9)';
+  g.fillRect(x0, y, x1 - x0, 14);
+  g.fillStyle = '#ffffff';
+  g.font = '600 10px Inter, system-ui, sans-serif';
+  g.textBaseline = 'middle';
+  g.fillText(`● REC MIDI · ${notes.length}`, Math.max(x0, 0) + 4, y + 7.5);
+  if (notes.length) {
+    let pLo = 127;
+    let pHi = 0;
+    for (const n of notes) {
+      pLo = Math.min(pLo, n.pitch);
+      pHi = Math.max(pHi, n.pitch);
+    }
+    const range = Math.max(12, pHi - pLo + 1);
+    const top = y + 16;
+    const ih = h - 18;
+    const noteH = Math.max(2, Math.min(6, ih / range));
+    g.fillStyle = '#fecdd3';
+    for (const n of notes) {
+      const nx0 = tickToX(n.start, s.pxPerBeat, s.scrollX);
+      const end = n.end ?? Math.max(n.start, s.playTick);
+      const nx1 = tickToX(end, s.pxPerBeat, s.scrollX);
+      const ny = top + ih - ((n.pitch - pLo + 0.5 + (range - (pHi - pLo + 1)) / 2) / range) * ih - noteH / 2;
+      g.fillRect(nx0, ny, Math.max(2, nx1 - nx0), noteH);
+    }
+  }
+  g.restore();
+}
+
+function drawLiveRecording(g: CanvasRenderingContext2D, s: DrawState, rec: { trackIndex: number; startTick: number; peaks: LivePeaks; sampleRate: number }): void {
   const x0 = tickToX(rec.startTick, s.pxPerBeat, s.scrollX);
   const x1 = tickToX(s.playTick, s.pxPerBeat, s.scrollX);
   const y = rec.trackIndex * TRACK_H + 2;

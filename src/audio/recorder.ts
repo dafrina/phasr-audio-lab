@@ -11,8 +11,13 @@
  *
  * Failures (permission denied, device unplugged, browser suspending audio)
  * end the take gracefully: whatever was captured is kept as a clip.
+ *
+ * Arming an instrument track records MIDI instead: every live note sent to
+ * that track (Web MIDI, computer keys, on-screen keyboard) is placed at the
+ * timeline position the player was hearing and becomes a new MIDI clip.
  */
-import { createAudioClip } from '../project/defaults';
+import { ticksPerBar } from '../core/time';
+import { createAudioClip, createMidiClip } from '../project/defaults';
 import type { Project } from '../project/types';
 import { getProject, useProjectStore } from '../state/projectStore';
 import { REC_KEYS, useRecordingStore, writeLS, type InputDevice } from '../state/recordingStore';
@@ -21,6 +26,7 @@ import { engine } from './engine';
 import { StereoMeter, type MeterReading } from './meter';
 import { assembleChunks, estimateLatency, LivePeaks, placeRecordedClip, type CapturedChunk } from './recordingMath';
 import { encodeWav } from './wav';
+import { heardContextTime, MidiTake, type LiveNote } from './midiTake';
 
 const set = (s: Partial<ReturnType<typeof useRecordingStore.getState>>) => useRecordingStore.setState(s);
 
@@ -48,12 +54,16 @@ interface Take {
   resolveDone: () => void;
 }
 
-export interface LiveRecordingView {
+export type LiveRecordingView =
+  | { kind: 'audio'; trackId: string; startTick: number; startTime: number; sampleRate: number; peaks: LivePeaks }
+  | { kind: 'midi'; trackId: string; startTick: number; notes: readonly LiveNote[] };
+
+interface MidiRecording {
   trackId: string;
-  startTick: number;
-  startTime: number;
-  sampleRate: number;
-  peaks: LivePeaks;
+  take: MidiTake;
+  /** live voice id → take key */
+  keys: Map<number, number>;
+  unsubInput: () => void;
 }
 
 function describeError(e: unknown): string {
@@ -77,6 +87,7 @@ function describeError(e: unknown): string {
 class AudioRecorder {
   private input: OpenInput | null = null;
   private take: Take | null = null;
+  private midi: MidiRecording | null = null;
   private opening: Promise<boolean> | null = null;
   private unsubTransport: (() => void) | null = null;
   private countInTimer: ReturnType<typeof setTimeout> | null = null;
@@ -246,12 +257,12 @@ class AudioRecorder {
   // Arming & monitoring (driven by project state)
   // -------------------------------------------------------------------------
 
-  /** Arm one audio track (disarming all others), or disarm it if already armed. */
+  /** Arm one track (disarming all others), or disarm it if already armed. Audio tracks open the input. */
   async toggleArm(trackId: string): Promise<void> {
     const p = getProject();
     const track = p.tracks.find((t) => t.id === trackId);
-    if (!track || track.kind !== 'audio') return;
-    if (this.take) {
+    if (!track) return;
+    if (this.isRecording()) {
       uiToast('info', 'Stop recording before changing the armed track.');
       return;
     }
@@ -261,7 +272,7 @@ class AudioRecorder {
       (prev) => ({ ...prev, tracks: prev.tracks.map((t) => ({ ...t, armed: t.id === trackId ? arm : false })) }),
       { skipHistory: true },
     );
-    if (arm) await this.openInput();
+    if (arm && track.kind === 'audio') await this.openInput();
   }
 
   setMonitor(trackId: string, on: boolean): void {
@@ -274,10 +285,14 @@ class AudioRecorder {
 
   /** Called on every project change: keep armed state, input and monitoring consistent. */
   syncFromProject(p: Project): void {
-    const armed = p.tracks.find((t) => t.armed && t.kind === 'audio');
+    const armed = p.tracks.find((t) => t.armed);
     const armedId = armed?.id ?? null;
     if (useRecordingStore.getState().armedTrackId !== armedId) set({ armedTrackId: armedId });
-    if (!armed && this.input && !this.take) this.closeInput();
+    if (armed?.kind !== 'audio' && this.input && !this.take) this.closeInput();
+    if (this.midi && !p.tracks.some((t) => t.id === this.midi?.trackId)) {
+      uiToast('error', 'The track being recorded was deleted. Recording stopped.');
+      this.endMidi(false);
+    }
     // (an armed track whose input is closed — e.g. after a reload — opens lazily on the next record press)
     if (this.take && !p.tracks.some((t) => t.id === this.take?.trackId)) {
       uiToast('error', 'The track being recorded was deleted. Recording stopped.');
@@ -316,7 +331,7 @@ class AudioRecorder {
   // -------------------------------------------------------------------------
 
   isRecording(): boolean {
-    return this.take !== null;
+    return this.take !== null || this.midi !== null;
   }
 
   private latencySec(includeManual = true): number {
@@ -332,26 +347,30 @@ class AudioRecorder {
   }
 
   async toggleRecord(): Promise<void> {
-    if (this.take) await this.stop();
+    if (this.isRecording()) await this.stop();
     else await this.start();
   }
 
   async start(): Promise<void> {
-    if (this.take) return;
+    if (this.isRecording()) return;
     const p = getProject();
-    let armed = p.tracks.find((t) => t.armed && t.kind === 'audio');
+    let armed = p.tracks.find((t) => t.armed);
     if (!armed) {
-      // convenience: arm the selected audio track if there is one
+      // convenience: arm the selected track if there is one
       const sel = useUiStore.getState().selectedTrackId;
-      const selTrack = p.tracks.find((t) => t.id === sel && t.kind === 'audio');
+      const selTrack = p.tracks.find((t) => t.id === sel);
       if (!selTrack) {
-        uiToast('info', 'Arm an audio track (R button in the track header) to record.');
+        uiToast('info', 'Arm a track (R button in the track header) to record: audio tracks record the input, instrument tracks record MIDI.');
         return;
       }
       await this.toggleArm(selTrack.id);
       armed = getProject().tracks.find((t) => t.id === selTrack.id);
     }
     if (!armed) return;
+    if (armed.kind === 'instrument') {
+      this.startMidi(armed.id);
+      return;
+    }
     if (!(await this.openInput())) return;
     const ctx = engine.ctx;
     const transport = engine.transport;
@@ -386,7 +405,88 @@ class AudioRecorder {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // MIDI recording
+  // -------------------------------------------------------------------------
+
+  /** timeline tick the player was hearing at a performance.now() timestamp */
+  private heardTick(atMs: number): number {
+    const ctx = engine.ctx;
+    const transport = engine.transport;
+    if (!ctx || !transport) return 0;
+    let out: AudioTimestamp | null = null;
+    try {
+      out = ctx.getOutputTimestamp?.() ?? null;
+    } catch {
+      out = null;
+    }
+    const t = heardContextTime(atMs, out, { currentTime: ctx.currentTime, outputLatency: ctx.outputLatency, baseLatency: ctx.baseLatency, nowMs: performance.now() });
+    return transport.tickAtContextTime(t);
+  }
+
+  private startMidi(trackId: string): void {
+    const ctx = engine.ctx;
+    const transport = engine.transport;
+    if (!ctx || !transport) return;
+    if (transport.isPlaying()) transport.pause();
+    const project = getProject();
+    const startTick = Math.max(0, Math.round(transport.getTick()));
+    const loop = project.loop.enabled && project.loop.end > startTick ? { start: project.loop.start, end: project.loop.end } : null;
+    transport.play({ countInBars: project.countInBars, fromTick: startTick });
+    const { time: startTime } = transport.playStartInfo();
+    const take = new MidiTake(startTick, loop);
+    const keys = new Map<number, number>();
+    const unsubInput = engine.onLiveInput((e) => {
+      if (e.trackId !== trackId) return;
+      if (e.type === 'noteOn') {
+        keys.set(e.id, e.id);
+        take.noteOn(e.id, e.note, e.velocity, this.heardTick(e.at));
+      } else if (e.type === 'noteOff') {
+        if (keys.delete(e.id)) take.noteOff(e.id, this.heardTick(e.at));
+      } else take.sustain(e.on, this.heardTick(e.at));
+    });
+    this.midi = { trackId, take, keys, unsubInput };
+    set({ status: project.countInBars > 0 ? 'countIn' : 'recording', error: null });
+    this.countInTimer = setTimeout(() => {
+      if (this.midi) set({ status: 'recording' });
+    }, Math.max(0, (startTime - ctx.currentTime) * 1000));
+    this.unsubTransport = transport.subscribe((snap) => {
+      if (snap.state !== 'playing' && this.midi) void this.stop();
+    });
+  }
+
+  /** Finish the MIDI take; `keep` = write the clip. */
+  private endMidi(keep: boolean): void {
+    const rec = this.midi;
+    if (!rec) return;
+    this.midi = null;
+    rec.unsubInput();
+    if (this.countInTimer) clearTimeout(this.countInTimer);
+    this.unsubTransport?.();
+    this.unsubTransport = null;
+    set({ status: this.input ? 'ready' : 'idle' });
+    if (!keep) return;
+    const p = getProject();
+    const track = p.tracks.find((t) => t.id === rec.trackId);
+    if (!track) return;
+    const endTick = this.heardTick(performance.now());
+    const res = rec.take.finish(endTick, ticksPerBar(p.timeSignature));
+    if (!res) {
+      uiToast('info', 'No notes were played, so no MIDI clip was created.');
+      return;
+    }
+    const takeNo = Object.values(p.clips).filter((c) => c.trackId === track.id && c.name.startsWith(`${track.name} take`)).length + 1;
+    const clip = { ...createMidiClip(track.id, res.start, res.length), name: `${track.name} take ${takeNo}`, notes: res.notes };
+    useProjectStore.getState().commit('Record MIDI', (prev) => ({ ...prev, clips: { ...prev.clips, [clip.id]: clip } }));
+    useUiStore.getState().set({ selectedClipIds: [clip.id], selectedTrackId: track.id });
+    uiToast('info', `Recorded ${res.notes.length} note${res.notes.length === 1 ? '' : 's'} into "${clip.name}".`);
+  }
+
   async stop(): Promise<void> {
+    if (this.midi) {
+      this.endMidi(true);
+      return;
+    }
     const take = this.take;
     const inp = this.input;
     const ctx = engine.ctx;
@@ -464,9 +564,11 @@ class AudioRecorder {
 
   /** Snapshot for drawing the growing waveform on the timeline. */
   liveView(): LiveRecordingView | null {
+    const m = this.midi;
+    if (m) return { kind: 'midi', trackId: m.trackId, startTick: m.take.startTick, notes: m.take.live() };
     const t = this.take;
     if (!t) return null;
-    return { trackId: t.trackId, startTick: t.startTick, startTime: t.startTime, sampleRate: t.sampleRate, peaks: t.peaks };
+    return { kind: 'audio', trackId: t.trackId, startTick: t.startTick, startTime: t.startTime, sampleRate: t.sampleRate, peaks: t.peaks };
   }
 }
 

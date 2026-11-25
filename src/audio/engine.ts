@@ -19,6 +19,11 @@ import { Transport } from './transport';
 import { PeqUnit, isCompressorUnit } from './effects/units';
 import { automatedInstKeys, valueAt } from '../project/automation';
 
+export type LiveInputEvent =
+  | { type: 'noteOn'; trackId: string; id: number; note: number; velocity: number; at: number }
+  | { type: 'noteOff'; trackId: string; id: number; at: number }
+  | { type: 'sustain'; trackId: string; on: boolean; at: number };
+
 export type EngineStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 interface MasterBus {
@@ -205,22 +210,38 @@ export class AudioEngine {
 
   // --- live note input (keyboard, piano roll preview) ---
 
-  previewNoteOn(trackId: string, note: number, velocity = 0.8): number | null {
+  private readonly liveInputTaps = new Set<(e: LiveInputEvent) => void>();
+
+  /** Observe live note input (Web MIDI, computer keys, on-screen keyboard) — used by MIDI recording. */
+  onLiveInput(fn: (e: LiveInputEvent) => void): () => void {
+    this.liveInputTaps.add(fn);
+    return () => this.liveInputTaps.delete(fn);
+  }
+
+  private tap(e: LiveInputEvent): void {
+    for (const fn of this.liveInputTaps) fn(e);
+  }
+
+  /** `at` = when the input happened (performance.now() ms; MIDI events carry their own timestamp). */
+  previewNoteOn(trackId: string, note: number, velocity = 0.8, at = performance.now()): number | null {
     const inst = this.channels.get(trackId)?.instrument;
     if (!inst) return null;
     if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume();
     const id = nextNoteInstanceId();
     inst.noteOn(id, note, velocity);
     this.modulation?.trigger(trackId, [{ time: -1, note }]); // live notes also fire MIDI sidechains
+    this.tap({ type: 'noteOn', trackId, id, note, velocity, at });
     return id;
   }
 
-  previewNoteOff(trackId: string, id: number): void {
+  previewNoteOff(trackId: string, id: number, at = performance.now()): void {
     this.channels.get(trackId)?.instrument?.noteOff(id);
+    this.tap({ type: 'noteOff', trackId, id, at });
   }
 
-  sustain(trackId: string, on: boolean): void {
+  sustain(trackId: string, on: boolean, at = performance.now()): void {
     this.channels.get(trackId)?.instrument?.sustain(on);
+    this.tap({ type: 'sustain', trackId, on, at });
   }
 
   pitchBend(trackId: string, value: number): void {

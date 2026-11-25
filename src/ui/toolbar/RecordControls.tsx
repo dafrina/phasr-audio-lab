@@ -33,7 +33,7 @@ export function RecordControls() {
         ? 'Recording — click or press R to stop'
         : armedTrackId
           ? 'Record onto the armed track (R)'
-          : 'Record (R) — arm an audio track first, or select one';
+          : 'Record (R) — arm a track first (audio tracks record the input, instrument tracks record MIDI), or select one';
 
   return (
     <div ref={wrap} className="relative flex items-center">
@@ -58,7 +58,8 @@ export function RecordControls() {
 function RecordPanel() {
   const { status, inputs, deviceId, armedTrackId, autoLatencyMs, manualOffsetMs, inputLabel, error } = useRecordingStore();
   const countIn = useProjectStore((s) => s.project.countInBars);
-  const armedName = useProjectStore((s) => s.project.tracks.find((t) => t.id === armedTrackId)?.name);
+  const armedTrack = useProjectStore((s) => s.project.tracks.find((t) => t.id === armedTrackId));
+  const armedName = armedTrack ? `${armedTrack.name}${armedTrack.kind === 'instrument' ? ' (MIDI)' : ''}` : undefined;
   const inputOpen = status !== 'idle' && status !== 'opening';
   return (
     <div className="absolute left-0 top-9 z-[90] w-[300px] rounded-md border border-line-2 bg-panel-2 p-3 text-[11px] shadow-2xl shadow-black/60">

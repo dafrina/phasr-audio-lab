@@ -106,6 +106,11 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
     A4 = 440 Hz, bass vs. treble T60, partial decay order, double decay, unison beating, velocity → brightness,
     dampers / undamped treble / pedal, EP bark and bell decay, tremolo rate, drawbar levels, phase-locked wheels,
     single-trigger percussion, key click, rotor speeds, filter sweeps, glide, sample-accurate starts, automation.
+- **MIDI recording:** arm an instrument track (R) and record: Web MIDI, the computer keys and the on-screen keyboard
+  play the armed track and are written into a new clip ("Keys 3 take 1"). Notes land on the timeline position you were
+  hearing (input timestamps are mapped through the context's output timestamp, so output latency is compensated),
+  count-in notes snap to the start, the sustain pedal extends note lengths, loop passes merge, the take is drawn live,
+  and one undo removes it. Web MIDI input always goes to the armed instrument track.
 - **Add tracks** from the *+ Add track* row under the last track (Audio / TriOsc / Drum Rack / Keyforge) or the lane context menu.
 - **Piano roll navigation:** Space + drag (or middle-drag) pans, Shift + wheel scrolls horizontally, horizontal scrollbar.
 - **Milestone 6 (persistence & export): done.** Projects autosave (~1 s after each edit) to IndexedDB; audio assets go
@@ -152,7 +157,8 @@ partitions on a background thread, and the live 8-track/32-effect test keeps pac
 - Notes that began before the play position are not "chased" (they don't sound mid-note on start/seek).
 - Rescheduling after an edit during playback restarts in-progress audio clips at the correct offset, with a 4 ms de-click fade.
   Synth notes that are sounding at the moment of an edit are released (not re-triggered), so a held note may cut short once.
-- Web MIDI input plays live only; recording incoming MIDI into clips is not implemented.
+- MIDI recording bakes the sustain pedal into note lengths (there are no CC lanes) and doesn't record pitch bend.
+  With the loop on, passes are merged into one clip.
 - The master limiter is a hard-knee `DynamicsCompressorNode` (safety only, not a brickwall).
 - The compressor is the browser's `DynamicsCompressorNode`; its built-in automatic makeup gain is cancelled so the
   Makeup knob is literal (residual error < ~1.5 dB around the fixed 6 dB knee).

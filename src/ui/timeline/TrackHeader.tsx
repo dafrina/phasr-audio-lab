@@ -123,9 +123,14 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
           <ToggleChip
             on={track.armed}
             label="R"
-            title={track.kind === 'audio' ? (track.armed ? 'Disarm recording' : 'Arm for recording (opens the audio input)') : 'Recording is for audio tracks; play the instrument live or draw notes in the piano roll'}
+            title={
+              track.armed
+                ? 'Disarm recording'
+                : track.kind === 'audio'
+                  ? 'Arm for recording (opens the audio input)'
+                  : 'Arm for MIDI recording: Web MIDI, the computer keys and the on-screen keyboard play this track and are recorded into a clip'
+            }
             onClass="bg-bad text-white"
-            disabled={track.kind !== 'audio'}
             onClick={() => void recorder.toggleArm(track.id)}
           />
         </div>

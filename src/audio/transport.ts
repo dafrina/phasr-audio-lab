@@ -107,6 +107,12 @@ export class Transport {
     return tickAtTime(this.anchors, this.host.ctx.currentTime, this.bpm);
   }
 
+  /** Musical position at an arbitrary (recent or near-future) AudioContext time. */
+  tickAtContextTime(time: number): number {
+    if (this.state !== 'playing') return this.position;
+    return tickAtTime(this.anchors, time, this.bpm);
+  }
+
   play(opts: PlayOptions = {}): void {
     const ctx = this.host.ctx;
     if (ctx.state !== 'running') void ctx.resume();
@@ -276,7 +282,8 @@ export class Transport {
     this.execute(plan);
     this.cursor = plan.next;
     // prune anchors that can no longer be the current one
-    while (this.anchors.length > 1 && (this.anchors[1] as Anchor).time <= now) this.anchors.shift();
+    // (one second of history is kept so input timestamps just before a loop wrap still map correctly)
+    while (this.anchors.length > 1 && (this.anchors[1] as Anchor).time <= now - 1) this.anchors.shift();
   }
 
   /** Turn a window plan into scheduled audio: synth events, buffer sources, clicks. */

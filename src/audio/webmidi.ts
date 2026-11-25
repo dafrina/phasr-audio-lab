@@ -109,7 +109,7 @@ class WebMidiInput {
       if (input.state !== 'connected') continue;
       names.push(input.name ?? 'MIDI input');
       input.onmidimessage = (e) => {
-        if (e.data) this.handle(e.data);
+        if (e.data) this.handle(e.data, e.timeStamp);
       };
     }
     // a device was unplugged: release anything it was holding
@@ -121,32 +121,35 @@ class WebMidiInput {
     const ui = useUiStore.getState();
     const p = getProject();
     const isInst = (id: string | null) => !!id && p.tracks.some((t) => t.id === id && t.kind === 'instrument');
+    // an instrument track armed for recording always receives the input
+    const armed = p.tracks.find((t) => t.armed && t.kind === 'instrument');
+    if (armed) return armed.id;
     if (isInst(ui.synthTrackId)) return ui.synthTrackId;
     if (isInst(ui.selectedTrackId)) return ui.selectedTrackId;
     return p.tracks.find((t) => t.kind === 'instrument')?.id ?? null;
   }
 
-  private handle(data: Uint8Array): void {
+  private handle(data: Uint8Array, at: number): void {
     const ev = parseMidi(data);
     if (!ev) return;
     const key = ev.channel * 128 + ('note' in ev ? ev.note : 0);
     if (ev.type === 'noteOn') {
       const prev = this.held.get(key);
-      if (prev) engine.previewNoteOff(prev.trackId, prev.id);
+      if (prev) engine.previewNoteOff(prev.trackId, prev.id, at);
       const trackId = this.target();
       if (!trackId) return;
-      const id = engine.previewNoteOn(trackId, ev.note, ev.velocity);
+      const id = engine.previewNoteOn(trackId, ev.note, ev.velocity, at);
       if (id !== null) this.held.set(key, { trackId, id });
     } else if (ev.type === 'noteOff') {
       const h = this.held.get(key);
       if (h) {
-        engine.previewNoteOff(h.trackId, h.id);
+        engine.previewNoteOff(h.trackId, h.id, at);
         this.held.delete(key);
       }
     } else if (ev.type === 'sustain') {
       const trackId = this.target();
       if (!trackId) return;
-      engine.sustain(trackId, ev.on);
+      engine.sustain(trackId, ev.on, at);
       if (ev.on) this.sustainTracks.add(trackId);
       else this.sustainTracks.delete(trackId);
     } else if (ev.type === 'bend') {

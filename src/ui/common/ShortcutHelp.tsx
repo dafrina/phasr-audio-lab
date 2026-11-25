@@ -8,7 +8,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     items: [
       ['Space', 'Play / stop (also right after using a dropdown)'],
       ['Enter', 'Stop (again: back to bar 1)'],
-      ['R', 'Record on the armed audio track'],
+      ['R', 'Record on the armed track (audio input or MIDI)'],
       ['L', 'Loop on / off'],
       ['M', 'Metronome on / off'],
       ['Ctrl+S', 'Save now (autosave is always on)'],

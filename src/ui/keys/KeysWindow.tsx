@@ -329,7 +329,7 @@ function Drawbar({ trackId, spec, value, color, onChange }: { trackId: string; s
           <div key={i} className="absolute left-0 right-0 border-t border-line/60" style={{ top: 9 + (i / 8) * (H - 18) }} />
         ))}
         <div className="absolute left-1 right-1 top-0 rounded-b-sm" style={{ height: 8 + pulled, background: color, opacity: auto.automated ? 0.85 : 1 }}>
-          <div className={`absolute bottom-0.5 left-0 right-0 text-center font-mono text-[10px] font-bold ${dark ? 'text-white/85' : 'text-black/70'}`}>{Math.round(shown)}</div>
+          {pulled >= 12 && <div className={`absolute bottom-0.5 left-0 right-0 text-center font-mono text-[10px] font-bold ${dark ? 'text-white/85' : 'text-black/70'}`}>{Math.round(shown)}</div>}
         </div>
       </div>
       <AutoKnob trackId={trackId} target={{ kind: 'inst', param: spec.key }} spec={spec} value={value} size={26} color={dark ? '#b07a5a' : '#cfcac0'} onChange={onChange} />
