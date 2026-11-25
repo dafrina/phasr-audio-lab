@@ -7,6 +7,7 @@
  *    not time-stretched: changing BPM moves clips but not their sound.
  *  - Raw audio never lives in the project; clips reference assets by ID.
  */
+import type { KeysEngineType } from '../keys/params';
 import type { TimeSignature } from '../core/time';
 import type { TriOscPatch } from '../synth/params';
 
@@ -114,7 +115,8 @@ export interface DrumKit {
 
 export type InstrumentConfig =
   | { type: 'triosc'; patch: TriOscPatch; presetName: string }
-  | { type: 'drumrack'; kit: DrumKit; presetName: string };
+  | { type: 'drumrack'; kit: DrumKit; presetName: string }
+  | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string };
 
 export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'chorus';
 

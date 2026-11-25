@@ -18,6 +18,15 @@ const WORKLET_SOURCES = [
   'src/synth/dsp/voiceAllocator.ts',
   'src/audio/modsource/ModSourceCore.ts',
   'src/synth/params.ts',
+  'src/audio/worklets/keys.worklet.ts',
+  'src/keys/params.ts',
+  'src/keys/dsp/KeysCore.ts',
+  'src/keys/dsp/KeysSynth.ts',
+  'src/keys/dsp/common.ts',
+  'src/keys/dsp/piano.ts',
+  'src/keys/dsp/epiano.ts',
+  'src/keys/dsp/organ.ts',
+  'src/keys/dsp/analog.ts',
 ];
 const FORBIDDEN = ['structuredClone(', 'setTimeout(', 'setInterval(', 'fetch(', 'requestAnimationFrame(', 'document.', 'window.', 'localStorage'];
 

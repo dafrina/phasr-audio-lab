@@ -3,15 +3,17 @@
  * (See instruments/definitions.ts for how to add a new instrument.)
  */
 import type { ComponentType } from 'react';
-import { Drum, Waves, type LucideIcon } from 'lucide-react';
+import { Drum, Piano, Waves, type LucideIcon } from 'lucide-react';
 import type { InstrumentType } from '../instruments/definitions';
 import { useProjectStore } from '../state/projectStore';
 import { DrumRackWindow } from './drums/DrumRackWindow';
+import { KeysWindow } from './keys/KeysWindow';
 import { SynthWindow } from './synth/SynthWindow';
 
 export const INSTRUMENT_UI: { [T in InstrumentType]: { icon: LucideIcon; Editor: ComponentType<{ trackId: string }> } } = {
   triosc: { icon: Waves, Editor: SynthWindow },
   drumrack: { icon: Drum, Editor: DrumRackWindow },
+  keys: { icon: Piano, Editor: KeysWindow },
 };
 
 /** Opens the editor window that matches the track's instrument type. */

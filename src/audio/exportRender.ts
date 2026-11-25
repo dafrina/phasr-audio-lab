@@ -25,6 +25,7 @@ import { TrackChannel, dbToGainFader } from './trackChannel';
 import { decodeWav, encodeWav, type WavFormat } from './wav';
 import modsourceWorkletUrl from './worklets/modsource.worklet.ts?worker&url';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
+import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
 
 export interface ExportOptions {
   sampleRate: number;
@@ -58,6 +59,7 @@ export async function renderProjectToWav(project: Project, assets: AssetRegistry
   const frames = Math.max(1, Math.ceil((range.seconds + tailMax) * sr));
   const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: frames, sampleRate: sr });
   await ctx.audioWorklet.addModule(trioscWorkletUrl);
+  await ctx.audioWorklet.addModule(keysWorkletUrl);
   await ctx.audioWorklet.addModule(modsourceWorkletUrl);
 
   // master: volume → (safety limiter) → output. The metronome is never exported.

@@ -1,6 +1,7 @@
 # PHASR Audio Lab
 
-Browser DAW (8 tracks) with **TriOsc**, a custom three-oscillator subtractive synth.
+Browser DAW (8 tracks) with **TriOsc** (three-oscillator subtractive synth), **Keyforge** (modelled piano, electric
+piano, tonewheel organ and analog pad/techno engines) and a **Drum Rack**.
 
 **Live:** https://dafrina.github.io/phasr-audio-lab/ — deployed by `.github/workflows/pages.yml` on every push to `main`
 (typecheck → tests → build with `BASE_PATH=/<repo>/` → GitHub Pages).
@@ -23,7 +24,8 @@ npm run build
 | `src/state` | `projectStore` (every edit is a command → snapshot undo/redo with gesture coalescing), `uiStore`, `transportStore` |
 | `src/audio` | `AudioEngine` (one AudioContext, master bus + safety limiter), `TrackChannel` graphs, `Transport` lookahead scheduler, worker clock, asset registry + peak caches, real meters |
 | `src/synth` | TriOsc: centralized param specs, presets, and pure-TS DSP (`dsp/`) shared by the AudioWorklet, offline export and tests |
-| `src/ui` | Toolbar, canvas arrangement (ruler/lanes), track headers, TriOsc plugin window |
+| `src/keys` | Keyforge: per-engine param specs, presets and DSP engines (`dsp/`: piano, epiano, organ, analog, KeysSynth/KeysCore) |
+| `src/ui` | Toolbar, canvas arrangement (ruler/lanes), track headers, instrument windows |
 
 **Signal path per track:** clip sources or TriOsc worklet → input → (insert FX slot chain) → volume → pan → mute/solo gate → meter → master → limiter → output.
 
@@ -83,7 +85,28 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   Lo-Fi; voice, tone, snap, length per pad), per-pad gain, pan, tune, decay and choke groups. Replace any pad with your
   own sample (drop a file on it, or *Sample…*), or drop/load several files to fill consecutive pads. The piano roll shows
   pad names for drum tracks.
-- **Add tracks** from the *+ Add track* row under the last track (Audio / TriOsc / Drum Rack) or the lane context menu.
+- **Keyforge** (multi-engine keyboard instrument, 13 presets; every knob automatable):
+  - *Piano* — modal string model: up to 96 partials per note following the stiff-string inharmonicity law
+    (B rising into the treble) with Railsback stretch tuning; velocity-dependent hammer spectrum and contact time,
+    strike-position notch; two/three coupled string resonators per low partial for beating and the prompt/aftersound
+    double decay; frequency-dependent losses (high partials die first, bass rings ~20 s, treble ~1 s); dampers that
+    are slower in the bass, undamped top keys, key-off noise; restrikes hit the vibrating string; soundboard body
+    modes + hammer knock, 12 sympathetic "strings" that bloom with the sustain pedal, lid filter, pitch-based stereo.
+    Presets: Concert Grand, Felt Piano, Bright Upright.
+  - *Electric Piano* — tine (fundamental + clamped-free beam bell modes 6.27×/17.55×) and detuned tonebar, through an
+    asymmetric magnetic pickup (time derivative of flux) so hard hits bark; damper, stereo tremolo, preamp drive.
+    Presets: Classic Tine EP, Suitcase EP, Soft Ballad EP.
+  - *Tonewheel Organ* — 91 free-running tempered tonewheels shared by all keys (phase locked like the real thing),
+    nine 3 dB-step drawbars with foldback, staggered-contact key click, single-triggered 2nd/3rd percussion, chorus
+    scanner, overdrive, rotary speaker (800 Hz crossover, horn/drum inertia, Doppler, AM, cabinet reflection).
+    Presets: Jazz Tonewheel, Rock Organ, Gospel Full.
+  - *Analog* — up to 7 detuned stereo saws + sub + noise, drive, 4-pole resonant low-pass with envelope / key /
+    velocity, mono legato glide, ensemble. Presets: Warm Pad, Glass Pad, Techno Stab, Acid Line.
+  - Realism is checked by measurement tests (`tests/keys.test.ts`): partial frequencies vs. the inharmonicity formula,
+    A4 = 440 Hz, bass vs. treble T60, partial decay order, double decay, unison beating, velocity → brightness,
+    dampers / undamped treble / pedal, EP bark and bell decay, tremolo rate, drawbar levels, phase-locked wheels,
+    single-trigger percussion, key click, rotor speeds, filter sweeps, glide, sample-accurate starts, automation.
+- **Add tracks** from the *+ Add track* row under the last track (Audio / TriOsc / Drum Rack / Keyforge) or the lane context menu.
 - **Piano roll navigation:** Space + drag (or middle-drag) pans, Shift + wheel scrolls horizontally, horizontal scrollbar.
 - **Milestone 6 (persistence & export): done.** Projects autosave (~1 s after each edit) to IndexedDB; audio assets go
   to the Origin Private File System where writable, else IndexedDB. The last project reopens on load. Project menu
@@ -96,8 +119,9 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
 - **Chorus / Flanger:** modulated short delay with feedback and stereo width; presets Chorus, Wide Chorus, Flanger,
   Jet Flanger, Vibrato.
 - **Instrument automation:** TriOsc (amp & filter envelopes, cutoff, resonance, env amount, key tracking, LFO, glide,
-  master, per-oscillator level/fine/pan/pulse width) and Drum Rack pads (gain, pan, tune, decay) — right-click a knob →
-  Automate. TriOsc ramps are applied inside the synth worklet; drum pad values are sampled at each hit.
+  master, per-oscillator level/fine/pan/pulse width), every Keyforge parameter (incl. drawbars and rotor speed) and
+  Drum Rack pads (gain, pan, tune, decay) — right-click a knob → Automate. Synth ramps are applied inside the worklet;
+  drum pad values are sampled at each hit.
 - **Keyboard/mouse:** Space always drives the transport unless you're typing or deliberately Tab-focused a control;
   the browser context menu is disabled outside text fields.
 
@@ -140,11 +164,13 @@ partitions on a background thread, and the live 8-track/32-effect test keeps pac
   to 1/16; the piano roll has its own grid (default 1/16) separate from the arrangement snap.
 - Audio sidechain sources tap the source track before its fader and mute (so a muted track can still drive a duck).
 - Drum pads are one-shots (note length is ignored). Instrument parameters can be automated but not sidechain-modulated.
-- TriOsc automation updates at the worklet's block rate (128 samples ≈ 2.7 ms).
+- TriOsc / Keyforge automation updates at the worklet's block rate (128 samples ≈ 2.7 ms).
+- Keyforge is fully synthesized (no samples), so it trades the last bit of sampled-piano realism for tiny size,
+  continuous velocity response and real interaction between notes (restrikes, pedal resonance).
 
 ## Keyboard
 
 Press **?** in the app for the full list. Space play/stop · Enter stop · Ctrl+S save · Ctrl+A select all · ←→ nudge · ↑↓ move to track · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+C / V copy/paste clips · Ctrl+D duplicate ·
 Delete remove · S split at playhead · L loop on/off · Ctrl+L loop clip content · M metronome · F9 mixer · R record · A automation mode ·
-TriOsc focused: Z–M / Q–P play notes, [ ] octave, Esc close.
+TriOsc / Keyforge focused: Z–M / Q–P play notes, [ ] octave, Esc close.
 Piano roll focused: Delete, Ctrl+A/C/X/V/D, ↑↓ transpose (Shift = octave), ←→ nudge, Q quantize, Esc deselect. Shortcuts are ignored while typing in text fields.

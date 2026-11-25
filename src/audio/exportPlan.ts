@@ -42,6 +42,10 @@ export function estimateTailSeconds(p: Project, trackAudible: (t: Track) => bool
     let inst = 0;
     const cfg = t.instrument;
     if (cfg?.type === 'triosc') inst = cfg.patch.ampEnv.release;
+    if (cfg?.type === 'keys') {
+      // undamped treble strings / tine damper / rotary / amp release
+      inst = cfg.engine === 'piano' ? 3 : cfg.engine === 'epiano' ? 0.8 : cfg.engine === 'organ' ? 0.3 : (cfg.params.release ?? 1);
+    }
     if (cfg?.type === 'drumrack') {
       for (const pad of cfg.kit.pads) {
         const rate = Math.pow(2, pad.tune / 12);

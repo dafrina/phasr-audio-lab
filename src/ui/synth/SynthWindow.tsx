@@ -20,16 +20,8 @@ import { Knob } from '../common/Knob';
 import { AutoKnob } from '../common/AutoKnob';
 import { Meter } from '../common/Meter';
 import { Section, Segmented } from '../common/controls';
-import { BendWheel, PianoKeyboard } from './PianoKeyboard';
+import { KeyboardStrip, useComputerKeyboard } from './KeyboardStrip';
 import { EnvelopeGraph, WaveIcon, WaveformPreview } from './visuals';
-
-/** Computer-keyboard note map (physical key codes, layout independent). Values are semitones from the base C. */
-const KEY_MAP: Record<string, number> = {
-  KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyV: 5, KeyG: 6, KeyB: 7, KeyH: 8, KeyN: 9, KeyJ: 10, KeyM: 11,
-  Comma: 12, KeyL: 13, Period: 14,
-  KeyQ: 12, Digit2: 13, KeyW: 14, Digit3: 15, KeyE: 16, KeyR: 17, Digit5: 18, KeyT: 19, Digit6: 20, KeyY: 21, Digit7: 22, KeyU: 23,
-  KeyI: 24, Digit9: 25, KeyO: 26, Digit0: 27, KeyP: 28,
-};
 
 const WIN_W = 1120;
 
@@ -48,16 +40,12 @@ export function SynthWindow({ trackId }: { trackId: string }) {
   const [pos, setPos] = useState(() => ({ x: Math.max(8, (window.innerWidth - WIN_W) / 2), y: Math.max(56, window.innerHeight - 690) }));
   const dragWin = useRef<{ dx: number; dy: number } | null>(null);
   const [userPresets, setUserPresets] = useState<TriOscPreset[]>(() => loadUserPresets());
-  const [octave, setOctave] = useState(4); // base C = C4 (MIDI 60)
-  const [sustain, setSustain] = useState(false);
-  const [kbActive, setKbActive] = useState<ReadonlySet<number>>(new Set());
-  const kbHeld = useRef(new Map<string, { note: number; id: number }>());
-
   const close = useCallback(() => {
     engine.allNotesOff(trackId);
     engine.sustain(trackId, false);
     setUi({ synthTrackId: null });
   }, [trackId, setUi]);
+  const kb = useComputerKeyboard(trackId, close);
 
   // close if the track disappears (deleted / undo) or is no longer a TriOsc
   useEffect(() => {
@@ -66,13 +54,6 @@ export function SynthWindow({ trackId }: { trackId: string }) {
 
   useEffect(() => {
     root.current?.focus();
-    const held = kbHeld.current;
-    return () => {
-      // never leave notes hanging when the window closes or switches track
-      for (const h of held.values()) engine.previewNoteOff(trackId, h.id);
-      held.clear();
-      engine.sustain(trackId, false);
-    };
   }, [trackId]);
 
   const allPresets = useMemo(() => [...FACTORY_PRESETS, ...userPresets], [userPresets]);
@@ -131,50 +112,15 @@ export function SynthWindow({ trackId }: { trackId: string }) {
     setUserPresets(next);
   };
 
-  // ---- computer keyboard ----
-  const base = (octave + 1) * 12;
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
-      e.preventDefault();
-      setOctave((o) => Math.min(8, Math.max(0, o + (e.code === 'BracketRight' ? 1 : -1))));
-      return;
-    }
-    if (e.code === 'Escape') return close();
-    const off = KEY_MAP[e.code];
-    if (off === undefined) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.repeat || kbHeld.current.has(e.code)) return;
-    const note = base + off;
-    if (note > 127) return;
-    const id = engine.previewNoteOn(trackId, note, 0.8);
-    if (id === null) return;
-    kbHeld.current.set(e.code, { note, id });
-    setKbActive(new Set([...kbHeld.current.values()].map((h) => h.note)));
-  };
-  const onKeyUp = (e: React.KeyboardEvent) => {
-    const h = kbHeld.current.get(e.code);
-    if (!h) return;
-    engine.previewNoteOff(trackId, h.id);
-    kbHeld.current.delete(e.code);
-    setKbActive(new Set([...kbHeld.current.values()].map((x) => x.note)));
-  };
-  const releaseKb = () => {
-    for (const h of kbHeld.current.values()) engine.previewNoteOff(trackId, h.id);
-    kbHeld.current.clear();
-    setKbActive(new Set());
-  };
-
   return (
     <div
       ref={root}
       tabIndex={-1}
       data-capture-keys
-      onKeyDown={onKeyDown}
-      onKeyUp={onKeyUp}
+      onKeyDown={kb.onKeyDown}
+      onKeyUp={kb.onKeyUp}
       onBlur={(e) => {
-        if (!root.current?.contains(e.relatedTarget as Node | null)) releaseKb();
+        if (!root.current?.contains(e.relatedTarget as Node | null)) kb.releaseAll();
       }}
       style={{ left: pos.x, top: pos.y, width: WIN_W }}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
@@ -363,45 +309,7 @@ export function SynthWindow({ trackId }: { trackId: string }) {
         </Section>
       </div>
 
-      {/* ---------- keyboard ---------- */}
-      <div className="flex items-stretch gap-2 border-t border-line bg-panel-2 px-2 py-2">
-        <div className="flex flex-col justify-between gap-1">
-          <div className="flex items-center gap-1">
-            <button type="button" title="Octave down ([)" onClick={() => setOctave((o) => Math.max(0, o - 1))} className="h-5 w-5 rounded bg-panel-3 text-[11px] hover:bg-line-2">
-              −
-            </button>
-            <span className="w-10 text-center font-mono text-[10px] text-muted" title="Computer keyboard base octave">
-              C{octave}
-            </span>
-            <button type="button" title="Octave up (])" onClick={() => setOctave((o) => Math.min(8, o + 1))} className="h-5 w-5 rounded bg-panel-3 text-[11px] hover:bg-line-2">
-              +
-            </button>
-          </div>
-          <button
-            type="button"
-            title="Sustain pedal (latching)"
-            onClick={() => {
-              const on = !sustain;
-              setSustain(on);
-              engine.sustain(trackId, on);
-            }}
-            className={`h-5 rounded px-1.5 text-[10px] uppercase tracking-wide ${sustain ? 'bg-accent text-white' : 'bg-panel-3 text-muted'}`}
-          >
-            Sustain
-          </button>
-          <div className="max-w-[92px] text-[9px] leading-tight text-dim">Keys Z–M / Q–P play · [ ] octave</div>
-        </div>
-        <BendWheel onChange={(v) => engine.pitchBend(trackId, v)} />
-        <div className="flex-1">
-          <PianoKeyboard
-            low={36}
-            high={96}
-            externalActive={kbActive}
-            onNoteOn={(n, v) => engine.previewNoteOn(trackId, n, v)}
-            onNoteOff={(_n, id) => engine.previewNoteOff(trackId, id)}
-          />
-        </div>
-      </div>
+      <KeyboardStrip trackId={trackId} kb={kb} />
     </div>
   );
 }

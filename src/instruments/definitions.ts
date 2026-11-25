@@ -15,6 +15,8 @@ import type { AutoParamInfo } from '../project/automation';
 import { DRUM_SPECS } from '../drums/kit';
 import { PARAM_SPECS, type NumericParamSpec, type TriOscPatch } from '../synth/params';
 import { defaultPatch, sanitizePatch } from '../synth/params';
+import { KEYS_ENGINES, KEYS_ENGINE_TYPES, sanitizeKeysParams, type KeysEngineType } from '../keys/params';
+import { KEYS_PRESETS } from '../keys/presets';
 
 // ---- automatable instrument parameters ----
 
@@ -67,6 +69,18 @@ export function parsePadKey(key: string): { pad: number; field: 'gain' | 'pan' |
   if (!m) return null;
   const pad = Number(m[1]);
   return pad >= 0 && pad < 16 ? { pad, field: m[2] as 'gain' | 'pan' | 'tune' | 'decay' } : null;
+}
+
+/** Keyforge: every numeric parameter of the active engine is automatable (flat keys). */
+const KEYS_AUTO = Object.fromEntries(
+  KEYS_ENGINE_TYPES.map((e) => [
+    e,
+    KEYS_ENGINES[e].params.map((s) => ({ key: s.key, label: s.group === 'Output' || s.group === 'Drawbars' ? s.label : `${s.group} ${s.label}`, spec: s })),
+  ]),
+) as unknown as Record<KeysEngineType, AutoParamInfo[]>;
+
+function isKeysEngine(v: unknown): v is KeysEngineType {
+  return typeof v === 'string' && v in KEYS_ENGINES;
 }
 
 export type InstrumentType = InstrumentConfig['type'];
@@ -127,6 +141,26 @@ export const INSTRUMENTS: { [T in InstrumentType]: InstrumentDefinition<T> } = {
       const pad = k ? c.kit.pads[k.pad] : undefined;
       return k && pad ? pad[k.field] : null;
     },
+  },
+  keys: {
+    type: 'keys',
+    label: 'Keyforge',
+    description: 'Keyboard instruments: modelled grand piano, tine electric piano, tonewheel organ, analog pads & techno',
+    trackName: 'Keys',
+    createConfig: () => {
+      const p = KEYS_PRESETS[0];
+      if (!p) throw new Error('no Keyforge presets');
+      return { type: 'keys', engine: p.engine, params: { ...p.params }, presetName: p.name };
+    },
+    sanitize: (r) => {
+      const engine = isKeysEngine(r.engine) ? r.engine : 'piano';
+      return { type: 'keys', engine, params: sanitizeKeysParams(engine, r.params), presetName: typeof r.presetName === 'string' ? r.presetName : 'Custom' };
+    },
+    assetIds: () => [],
+    noteLabel: () => null,
+    defaultSidechainNote: () => null,
+    automatableParams: (c) => KEYS_AUTO[c.engine],
+    staticValue: (c, key) => c.params[key] ?? null,
   },
 };
 

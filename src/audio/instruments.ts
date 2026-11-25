@@ -6,6 +6,7 @@ import type { InstrumentType } from '../instruments/definitions';
 import type { InstrumentConfig } from '../project/types';
 import type { SynthEvent } from '../synth/dsp/TriOscCore';
 import { DrumRackInstrument } from './drumRack';
+import { KeysInstrument } from './keysNode';
 import { TriOscInstrument } from './trioscNode';
 
 /** What the transport and engine need from any instrument. */
@@ -57,6 +58,14 @@ export const INSTRUMENT_AUDIO: { [T in InstrumentType]: AudioFactory<T> } = {
     update: (node, c) => {
       if (!(node instanceof DrumRackInstrument)) return false;
       node.setKit(c.kit);
+      return true;
+    },
+  },
+  keys: {
+    create: (ctx, c, env) => new KeysInstrument(ctx, { engine: c.engine, params: c.params }, env.events),
+    update: (node, c) => {
+      if (!(node instanceof KeysInstrument)) return false;
+      node.setConfig({ engine: c.engine, params: c.params });
       return true;
     },
   },

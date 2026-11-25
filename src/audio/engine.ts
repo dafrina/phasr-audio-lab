@@ -7,6 +7,7 @@
 import { nextNoteInstanceId } from '../core/ids';
 import type { Project, Track } from '../project/types';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
+import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
 import recorderWorkletUrl from './worklets/recorder.worklet.ts?worker&url';
 import modsourceWorkletUrl from './worklets/modsource.worklet.ts?worker&url';
 import { ModulationRouter } from './modulation';
@@ -66,6 +67,7 @@ export class AudioEngine {
     try {
       const ctx = new AudioContext({ latencyHint: 'interactive' });
       await ctx.audioWorklet.addModule(trioscWorkletUrl);
+      await ctx.audioWorklet.addModule(keysWorkletUrl);
       await ctx.audioWorklet.addModule(recorderWorkletUrl);
       await ctx.audioWorklet.addModule(modsourceWorkletUrl);
       this.ctx = ctx;
