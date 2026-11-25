@@ -223,6 +223,28 @@ describe('Keyforge piano — string physics', () => {
     expect(db(rms(slice(diff, SR, 1.2, 2)))).toBeGreaterThan(db(rms(slice(ma, SR, 1.2, 2))) - 30);
   });
 
+  it('hard strikes start a few cents sharp and settle (tension modulation)', () => {
+    const note = 40;
+    const f8 = partialFrequency(pianoFundamental(note, 1), 8, inharmonicityB(note, 1));
+    const pitch = (vel: number, from: number, to: number) => {
+      const [L, R] = renderKeys(cfg('piano', { unison: 0, room: 0 }), hit(note, vel), to + 0.01, SR);
+      return peakNear(spectrum(slice(mono(L, R), SR, from, to), SR, 1 << 18), f8, 15).f;
+    };
+    const glide = 1200 * Math.log2(pitch(1, 0.005, 0.06) / pitch(1, 0.6, 0.9));
+    expect(glide).toBeGreaterThan(1);
+    expect(glide).toBeLessThan(15);
+    // soft notes barely move
+    expect(Math.abs(1200 * Math.log2(pitch(0.2, 0.005, 0.06) / pitch(0.2, 0.6, 0.9)))).toBeLessThan(glide / 3);
+  });
+
+  it('the room adds an ambient tail', () => {
+    const tail = (room: number) => {
+      const [L, R] = renderKeys(cfg('piano', { room }), hit(60, 0.9, 0, 0.3), 1, SR);
+      return db(rms(slice(mono(L, R), SR, 0.5, 0.8)));
+    };
+    expect(tail(1)).toBeGreaterThan(tail(0) + 6);
+  });
+
   it('restriking a sounding note reuses its string', () => {
     const synth = new KeysSynth(SR, cfg('piano'));
     renderKeys(cfg('piano'), [...hit(60, 0.5, 0, 0.3), ...hit(60, 0.9, 0.5, undefined, 2)], 0.8, SR, synth);
@@ -378,6 +400,30 @@ describe('Keyforge analog — pads & techno', () => {
     };
     // relative to its pitch, the harmonic content stays similar instead of getting duller
     expect(bright(72)).toBeGreaterThan(bright(48) * 0.6);
+  });
+
+  it('the built-in delay echoes in time with the song tempo', () => {
+    const echoAt = (bpm: number) => {
+      const synth = new KeysSynth(SR, cfg('analog', { delayMix: 1, delayBeats: 0.5, space: 0, ensemble: 0, attack: 0.001, decay: 0.05, sustainLvl: 0, release: 0.02 }));
+      synth.setTempo(bpm);
+      const [L, R] = renderKeys(cfg('analog'), hit(60, 1, 0, 0.05), 1.2, SR, synth);
+      const env = envelopeDb(mono(L, R), SR, 0.005);
+      // strongest window after the dry note has died
+      let best = 30;
+      for (let i = 30; i < env.length; i++) if ((env[i] as number) > (env[best] as number)) best = i;
+      return best * 0.005;
+    };
+    expect(echoAt(120)).toBeGreaterThan(0.23); // an 1/8 at 120 BPM = 0.25 s
+    expect(echoAt(120)).toBeLessThan(0.28);
+    expect(echoAt(60)).toBeGreaterThan(0.48);
+    expect(echoAt(60)).toBeLessThan(0.54);
+  });
+
+  it('the motion LFO sweeps the filter over time', () => {
+    const [L, R] = renderKeys(cfg('analog', { lfoDepth: 2.5, lfoRate: 1, envAmt: 0, cutoff: 800, ensemble: 0, space: 0, attack: 0.001 }), hit(48, 0.8), 2.2, SR);
+    const m = mono(L, R);
+    const cs = [0.2, 0.45, 0.7, 0.95, 1.2, 1.45, 1.7, 1.95].map((t) => centroid(spectrum(slice(m, SR, t, t + 0.05), SR)));
+    expect(Math.max(...cs)).toBeGreaterThan(Math.min(...cs) * 2);
   });
 
   it('mono mode glides on legato notes and jumps on detached ones', () => {

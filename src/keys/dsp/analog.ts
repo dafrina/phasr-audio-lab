@@ -6,12 +6,16 @@
  * noise, a pre-filter drive stage, a 4-pole resonant low-pass (two cascaded
  * TPT state-variable stages) with its own ADSR, key tracking and velocity,
  * and an amp ADSR. Mono mode adds legato with glide for acid lines. A
- * stereo BBD-style ensemble (three modulated taps per side) widens pads.
+ * stereo BBD-style ensemble (three modulated taps per side) widens pads, a
+ * slow filter LFO adds motion, and a built-in ping-pong delay and large
+ * reverb ("Space") give leads the room they're designed for.
  */
 import {
   BEND_SEMITONES,
   DelayLine,
+  FdnReverb,
   HeldIds,
+  PingPongDelay,
   MAX_BLOCK,
   Smoother,
   TWO_PI,
@@ -52,6 +56,11 @@ export interface AnalogParams {
   decay: number;
   sustainLvl: number;
   release: number;
+  lfoRate: number;
+  lfoDepth: number;
+  space: number;
+  delayMix: number;
+  delayBeats: number;
   drive: number;
   ensemble: number;
   mono: number;
@@ -60,8 +69,8 @@ export interface AnalogParams {
 }
 
 /** cutoff (Hz) for a voice state */
-export function analogCutoff(p: AnalogParams, note: number, vel: number, fenv: number, sampleRate: number): number {
-  const oct = p.envAmt * ENV_OCTAVES * fenv + (p.keyTrack * (note - 60)) / 12 + p.velFilter * 2.5 * (vel - 0.6);
+export function analogCutoff(p: AnalogParams, note: number, vel: number, fenv: number, sampleRate: number, lfo = 0): number {
+  const oct = p.envAmt * ENV_OCTAVES * fenv + (p.keyTrack * (note - 60)) / 12 + p.velFilter * 2.5 * (vel - 0.6) + lfo * (p.lfoDepth ?? 0);
   return clamp(p.cutoff * Math.pow(2, oct), 20, sampleRate * 0.45);
 }
 
@@ -124,6 +133,12 @@ export class AnalogEngine implements KeysEngine {
   private ensPhaseFast = 0;
   private readonly ens = new Smoother(0);
   private readonly master = new Smoother(0.8);
+  private lfoPhase = 0;
+  private bpm = 120;
+  private readonly reverb: FdnReverb;
+  private readonly delay: PingPongDelay;
+  private readonly space = new Smoother(0);
+  private readonly delayMix = new Smoother(0);
 
   constructor(sampleRate: number, params: AnalogParams) {
     this.sr = sampleRate;
@@ -133,9 +148,16 @@ export class AnalogEngine implements KeysEngine {
     this.ensR = new DelayLine(Math.ceil(0.02 * sampleRate));
     this.ens.setTime(0.05, sampleRate);
     this.master.setTime(0.02, sampleRate);
+    this.space.setTime(0.05, sampleRate);
+    this.delayMix.setTime(0.05, sampleRate);
+    this.reverb = new FdnReverb(sampleRate);
+    this.reverb.set(3.4, 1.35, 6500, 0.025);
+    this.delay = new PingPongDelay(sampleRate);
     this.setParams(params as unknown as Record<string, number>);
     this.ens.value = this.ens.target;
     this.master.value = this.master.target;
+    this.space.value = this.space.target;
+    this.delayMix.value = this.delayMix.target;
   }
 
   private get isMono(): boolean {
@@ -162,11 +184,19 @@ export class AnalogEngine implements KeysEngine {
     }
     this.ens.target = p.ensemble;
     this.master.target = p.master;
+    this.space.target = p.space;
+    this.delayMix.target = p.delayMix;
+    this.delay.setTime((p.delayBeats * 60) / this.bpm);
     if (wasMono !== this.isMono) this.allNotesOff();
   }
 
   setBend(value: number): void {
     this.bend = clamp(value, -1, 1) * BEND_SEMITONES;
+  }
+
+  setTempo(bpm: number): void {
+    this.bpm = clamp(bpm, 20, 400);
+    this.delay.setTime((this.p.delayBeats * 60) / this.bpm);
   }
 
   setSustain(on: boolean): void {
@@ -303,6 +333,8 @@ export class AnalogEngine implements KeysEngine {
     }
     this.ensL.clear();
     this.ensR.clear();
+    this.reverb.clear();
+    this.delay.clear();
   }
 
   activeVoices(): number {
@@ -364,7 +396,8 @@ export class AnalogEngine implements KeysEngine {
         }
       }
       const fe = v.fenv.advance(this.filtC, n);
-      const fc = analogCutoff(p, v.note, v.vel, fe, sr);
+      const lfo = p.lfoDepth > 0 ? Math.sin(TWO_PI * (this.lfoPhase + (pos * p.lfoRate) / sr)) : 0;
+      const fc = analogCutoff(p, v.note, v.vel, fe, sr, lfo);
       this.c1.set(fc, 0.1, sr);
       this.c2.set(fc, p.reso, sr);
       svfBlock(v.f1L, this.c1, FILTER_LP, bL, n);
@@ -399,6 +432,8 @@ export class AnalogEngine implements KeysEngine {
     R.fill(0, 0, count);
     for (const v of this.voices) if (v.active) this.renderVoice(v, count);
     const sr = this.sr;
+    this.lfoPhase += (count * this.p.lfoRate) / sr;
+    this.lfoPhase -= Math.floor(this.lfoPhase);
     const slow = 0.55 / sr;
     const fast = 5.8 / sr;
     const base = 0.007 * sr;
@@ -427,6 +462,19 @@ export class AnalogEngine implements KeysEngine {
       if (this.ensPhase >= 1) this.ensPhase -= 1;
       this.ensPhaseFast += fast;
       if (this.ensPhaseFast >= 1) this.ensPhaseFast -= 1;
+      // built-in FX: ping-pong delay into the reverb (both are sends; the dry signal stays)
+      const dm = this.delayMix.next();
+      if (dm > 1e-4) {
+        this.delay.process(l, r);
+        l += this.delay.outL * dm * 0.8;
+        r += this.delay.outR * dm * 0.8;
+      }
+      const sp = this.space.next();
+      if (sp > 1e-4) {
+        this.reverb.process(l, r);
+        l = l * (1 - 0.3 * sp) + this.reverb.outL * sp * 0.85;
+        r = r * (1 - 0.3 * sp) + this.reverb.outR * sp * 0.85;
+      }
       const g = this.master.next();
       outL[offset + i] = (outL[offset + i] as number) + l * g;
       outR[offset + i] = (outR[offset + i] as number) + r * g;

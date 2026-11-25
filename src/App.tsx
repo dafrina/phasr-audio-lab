@@ -11,6 +11,7 @@ import { initPersistence } from './persistence/session';
 import { BusyOverlay } from './ui/project/ProjectUI';
 import { ShortcutHelp } from './ui/common/ShortcutHelp';
 import { BottomPanel } from './ui/editor/BottomPanel';
+import { SlipperizerWindow } from './ui/chords/SlipperizerWindow';
 
 function AudioUnlockBanner() {
   const status = useTransportStore((s) => s.engineStatus);
@@ -30,6 +31,7 @@ export default function App() {
     void initPersistence();
   }, []);
   const synthTrackId = useUiStore((s) => s.synthTrackId);
+  const chordsTrackId = useUiStore((s) => s.chordsTrackId);
   return (
     <div className="relative flex h-full flex-col">
       <Toolbar />
@@ -37,6 +39,7 @@ export default function App() {
       <Arrangement />
       <BottomPanel />
       {synthTrackId && <InstrumentEditor trackId={synthTrackId} />}
+      {chordsTrackId && <SlipperizerWindow trackId={chordsTrackId} />}
       <Toasts />
       <BusyOverlay />
       <ShortcutHelp />

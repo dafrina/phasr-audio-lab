@@ -1,4 +1,7 @@
-import { ArrowRight, AudioLines, Music, Plus } from 'lucide-react';
+import { ArrowRight, AudioLines, Footprints, Music, Plus } from 'lucide-react';
+import { chordToolActive, chordToolAvailable } from '../../chords/expand';
+import { keyName, progressionOf, vibeById } from '../../chords/theory';
+import { openSlipperizer } from '../chords/SlipperizerWindow';
 import { INSTRUMENTS } from '../../instruments/definitions';
 import { INSTRUMENT_UI } from '../instruments';
 import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
@@ -29,6 +32,27 @@ export function TrackDevicePanel({ trackId }: { trackId: string }) {
         </span>
       </div>
       <div className="flex min-h-0 flex-1 items-start gap-2 overflow-auto p-2">
+        {chordToolAvailable(track) && (
+          <>
+            <div className="flex h-[150px] w-[150px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-md border border-[#5a4a22] bg-[#1d1a12] p-2 text-center">
+              <Footprints size={20} className="text-[#d9b44a]" />
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#d9b44a]">Gucci Slipper-izer</div>
+              {track.chords ? (
+                <div className="text-[10px] leading-tight text-muted">
+                  {chordToolActive(track) ? `${vibeById(track.chords.vibe).name} · ${progressionOf(track.chords).name}` : 'Off'}
+                  <br />
+                  {chordToolActive(track) && keyName(track.chords)}
+                </div>
+              ) : (
+                <div className="text-[10px] leading-tight text-muted">Single keys → full chords</div>
+              )}
+              <button type="button" onClick={() => openSlipperizer(track.id)} className="h-6 rounded bg-[#d9b44a] px-2 text-[11px] font-semibold text-black">
+                {track.chords ? 'Open' : 'Add chords'}
+              </button>
+            </div>
+            <ArrowRight size={14} className="mt-[68px] shrink-0 text-dim" />
+          </>
+        )}
         <div className="flex h-[150px] w-[150px] shrink-0 flex-col items-center justify-center gap-2 rounded-md border border-line bg-panel-2 p-2 text-center">
           {track.kind === 'instrument' ? (
             <>

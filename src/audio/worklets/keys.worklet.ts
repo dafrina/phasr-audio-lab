@@ -23,6 +23,7 @@ const scope = globalThis as unknown as WorkletScope;
 interface ProcessorOptions {
   config?: KeysConfigData;
   events?: SynthEvent[];
+  bpm?: number;
 }
 
 class KeysProcessor extends scope.AudioWorkletProcessor {
@@ -33,6 +34,7 @@ class KeysProcessor extends scope.AudioWorkletProcessor {
     super(options);
     const opts = options?.processorOptions ?? {};
     this.core = new KeysCore(scope.sampleRate, opts.config);
+    if (opts.bpm) this.core.handleMessage({ type: 'tempo', bpm: opts.bpm });
     if (opts.events) this.core.handleMessage({ type: 'events', events: opts.events });
     this.port.onmessage = (e: MessageEvent<KeysMessage | { type: 'dispose' }>) => {
       const msg = e.data;

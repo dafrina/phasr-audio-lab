@@ -224,6 +224,8 @@ export interface KeysEngine {
   /** add `count` frames into outL/outR starting at `offset` (count ≤ MAX_BLOCK) */
   render(outL: Float32Array, outR: Float32Array, offset: number, count: number): void;
   activeVoices(): number;
+  /** song tempo, for tempo-synced effects */
+  setTempo?(bpm: number): void;
 }
 
 export const BEND_SEMITONES = 2;
@@ -252,5 +254,128 @@ export class HeldIds {
   }
   clear(): void {
     this.ids.length = 0;
+  }
+}
+
+/** delay lengths (ms) of the reverb network: mutually prime-ish so the echoes don't line up */
+const FDN_MS = [29.7, 37.1, 41.1, 43.7, 53.3, 59.1, 67.3, 73.1];
+
+/**
+ * Stereo 8-line feedback delay network reverb (Hadamard feedback matrix,
+ * per-line damping, pre-delay). Used as the piano's room and the analog
+ * engine's "Space". Allocation happens only in the constructor.
+ */
+export class FdnReverb {
+  private readonly lines: DelayLine[] = [];
+  private readonly len = new Float64Array(8);
+  private readonly gain = new Float64Array(8);
+  private readonly lp = new Float64Array(8);
+  private readonly tmp = new Float64Array(8);
+  private damp = 0.3;
+  private readonly pre: DelayLine;
+  private preSamples = 1;
+  private readonly sr: number;
+  outL = 0;
+  outR = 0;
+
+  constructor(sampleRate: number, maxSize = 1.6) {
+    this.sr = sampleRate;
+    for (let i = 0; i < 8; i++) this.lines.push(new DelayLine(Math.ceil(((FDN_MS[i] as number) / 1000) * maxSize * sampleRate) + 4));
+    this.pre = new DelayLine(Math.ceil(0.08 * sampleRate));
+  }
+
+  /** t60 seconds, size scales the delay lengths (room size), damping cutoff in Hz, pre-delay seconds */
+  set(t60: number, size: number, dampHz: number, preDelay: number): void {
+    for (let i = 0; i < 8; i++) {
+      const n = Math.max(8, Math.round(((FDN_MS[i] as number) / 1000) * size * this.sr));
+      this.len[i] = n;
+      this.gain[i] = Math.pow(10, (-3 * n) / (Math.max(0.05, t60) * this.sr));
+    }
+    this.damp = Math.exp((-TWO_PI * dampHz) / this.sr);
+    this.preSamples = Math.max(1, Math.round(preDelay * this.sr));
+  }
+
+  process(inL: number, inR: number): void {
+    this.pre.write(0.5 * (inL + inR));
+    const x = this.pre.read(this.preSamples);
+    const t = this.tmp;
+    for (let i = 0; i < 8; i++) {
+      const y = (this.lines[i] as DelayLine).read(this.len[i] as number);
+      const l = y + ((this.lp[i] as number) - y) * this.damp;
+      this.lp[i] = l;
+      t[i] = l;
+    }
+    // output taps: even lines left, odd lines right
+    this.outL = ((t[0] as number) + (t[2] as number) + (t[4] as number) + (t[6] as number)) * 0.5;
+    this.outR = ((t[1] as number) + (t[3] as number) + (t[5] as number) + (t[7] as number)) * 0.5;
+    // fast 8-point Walsh–Hadamard transform (orthogonal after the 1/√8 scale)
+    for (let h = 1; h < 8; h <<= 1) {
+      for (let i = 0; i < 8; i += h << 1) {
+        for (let j = i; j < i + h; j++) {
+          const a = t[j] as number;
+          const b = t[j + h] as number;
+          t[j] = a + b;
+          t[j + h] = a - b;
+        }
+      }
+    }
+    const s = 1 / Math.sqrt(8);
+    for (let i = 0; i < 8; i++) {
+      const inj = i & 1 ? inR - inL * 0.3 : inL - inR * 0.3;
+      (this.lines[i] as DelayLine).write((t[i] as number) * s * (this.gain[i] as number) + (x * 0.6 + inj * 0.4) * 0.35);
+    }
+  }
+
+  clear(): void {
+    for (const l of this.lines) l.clear();
+    this.pre.clear();
+    this.lp.fill(0);
+    this.outL = 0;
+    this.outR = 0;
+  }
+}
+
+/** Stereo ping-pong delay with a darkening feedback path. */
+export class PingPongDelay {
+  private readonly l: DelayLine;
+  private readonly r: DelayLine;
+  private lpL = 0;
+  private lpR = 0;
+  private readonly damp: number;
+  private samples = 1;
+  feedback = 0.45;
+  outL = 0;
+  outR = 0;
+
+  constructor(sampleRate: number, maxSec = 1.3) {
+    this.l = new DelayLine(Math.ceil(maxSec * sampleRate) + 4);
+    this.r = new DelayLine(Math.ceil(maxSec * sampleRate) + 4);
+    this.damp = Math.exp((-TWO_PI * 4500) / sampleRate);
+    this.sr = sampleRate;
+  }
+
+  private readonly sr: number;
+
+  setTime(seconds: number): void {
+    this.samples = Math.max(1, Math.round(seconds * this.sr));
+  }
+
+  process(inL: number, inR: number): void {
+    const yl = this.l.read(this.samples);
+    const yr = this.r.read(this.samples);
+    this.lpL = yl + (this.lpL - yl) * this.damp;
+    this.lpR = yr + (this.lpR - yr) * this.damp;
+    // input enters the left line (mono sum), echoes bounce L → R → L
+    this.l.write(0.5 * (inL + inR) + this.lpR * this.feedback);
+    this.r.write(this.lpL * this.feedback);
+    this.outL = yl;
+    this.outR = yr;
+  }
+
+  clear(): void {
+    this.l.clear();
+    this.r.clear();
+    this.lpL = 0;
+    this.lpR = 0;
   }
 }

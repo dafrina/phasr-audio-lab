@@ -15,7 +15,8 @@ export type KeysMessage =
   | { type: 'panic' }
   | { type: 'config'; config: KeysConfigData }
   | { type: 'autoKeys'; keys: string[] }
-  | { type: 'autoValue'; key: string; value: number };
+  | { type: 'autoValue'; key: string; value: number }
+  | { type: 'tempo'; bpm: number };
 
 interface QueuedEvent {
   frame: number;
@@ -98,6 +99,9 @@ export class KeysCore {
       case 'autoValue':
         this.ramps.delete(msg.key);
         this.applyParam(msg.key, msg.value);
+        break;
+      case 'tempo':
+        this.synth.setTempo(msg.bpm);
         break;
       case 'panic':
         this.queue = [];

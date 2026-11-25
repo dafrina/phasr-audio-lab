@@ -85,13 +85,14 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   Lo-Fi; voice, tone, snap, length per pad), per-pad gain, pan, tune, decay and choke groups. Replace any pad with your
   own sample (drop a file on it, or *Sample…*), or drop/load several files to fill consecutive pads. The piano roll shows
   pad names for drum tracks.
-- **Keyforge** (multi-engine keyboard instrument, 13 presets; every knob automatable):
+- **Keyforge** (multi-engine keyboard instrument, 16 presets; every knob automatable):
   - *Piano* — modal string model: up to 96 partials per note following the stiff-string inharmonicity law
     (B rising into the treble) with Railsback stretch tuning; velocity-dependent hammer spectrum and contact time,
     strike-position notch; two/three coupled string resonators per low partial for beating and the prompt/aftersound
     double decay; frequency-dependent losses (high partials die first, bass rings ~20 s, treble ~1 s); dampers that
     are slower in the bass, undamped top keys, key-off noise; restrikes hit the vibrating string; soundboard body
     modes + hammer knock, 12 sympathetic "strings" that bloom with the sustain pedal, lid filter, pitch-based stereo.
+    Tension modulation (hard strikes start a few cents sharp), per-strike variation and a recording-room ambience.
     Presets: Concert Grand, Felt Piano, Bright Upright.
   - *Electric Piano* — tine (fundamental + clamped-free beam bell modes 6.27×/17.55×) and detuned tonebar, through an
     asymmetric magnetic pickup (time derivative of flux) so hard hits bark; damper, stereo tremolo, preamp drive.
@@ -101,7 +102,8 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
     scanner, overdrive, rotary speaker (800 Hz crossover, horn/drum inertia, Doppler, AM, cabinet reflection).
     Presets: Jazz Tonewheel, Rock Organ, Gospel Full.
   - *Analog* — up to 7 detuned stereo saws + sub + noise, drive, 4-pole resonant low-pass with envelope / key /
-    velocity, mono legato glide, ensemble. Presets: Warm Pad, Glass Pad, Techno Stab, Acid Line.
+    velocity, filter motion LFO, mono legato glide, ensemble, built-in tempo-synced ping-pong delay and large FDN reverb.
+    Presets: Warm Pad, Glass Pad, Cathedral Lead, Abyss Bass Lead, Midnight Pluck (melodic techno), Techno Stab, Acid Line.
   - Realism is checked by measurement tests (`tests/keys.test.ts`): partial frequencies vs. the inharmonicity formula,
     A4 = 440 Hz, bass vs. treble T60, partial decay order, double decay, unison beating, velocity → brightness,
     dampers / undamped treble / pedal, EP bark and bell decay, tremolo rate, drawbar levels, phase-locked wheels,
@@ -111,6 +113,14 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   hearing (input timestamps are mapped through the context's output timestamp, so output latency is compensated),
   count-in notes snap to the start, the sustain pedal extends note lengths, loop passes merge, the take is drawn live,
   and one undo removes it. Web MIDI input always goes to the armed instrument track.
+- **Gucci Slipper-izer** (chord tool for any synth track — footprints button in the track header or the device panel):
+  play single keys, hear full chords. Pick a vibe (90s Deep House, Jazzy, Neo-Soul, Lo-fi Chill, Emotional Techno,
+  Pop Anthem, Gospel), a progression and a key; white keys C D E F play the progression's four chords, G A B three
+  extras, black keys spicier versions (m11, maj9♯11, 7alt…), and the octave moves the chord. Voicings gravitate to a
+  fixed centre (smooth voice leading, no hidden state), optional bass, close/wide, strum. **Auto-play**: hold one key
+  and the progression plays in rhythm (hold, stabs, house offbeat, groove, arp; ½/1/2 bars per chord), locked to the
+  song tempo. Clips store the single keys you play (recording included) and are expanded at playback/export; the piano
+  roll names the chord on every key and note; **Bake to notes** writes the chords into the clips (undoable).
 - **Add tracks** from the *+ Add track* row under the last track (Audio / TriOsc / Drum Rack / Keyforge) or the lane context menu.
 - **Piano roll navigation:** Space + drag (or middle-drag) pans, Shift + wheel scrolls horizontally, horizontal scrollbar.
 - **Milestone 6 (persistence & export): done.** Projects autosave (~1 s after each edit) to IndexedDB; audio assets go

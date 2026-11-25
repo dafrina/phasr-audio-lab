@@ -10,6 +10,7 @@ import { sanitizeAllRoutes } from './modulation';
 import { createId } from '../core/ids';
 import { MAX_EFFECT_SLOTS, MAX_TRACKS, PROJECT_SCHEMA_VERSION, type Clip, type Project, type Track } from './types';
 import { TRACK_COLORS } from './defaults';
+import { sanitizeChordTool } from '../chords/theory';
 
 type RawProject = Record<string, unknown>;
 type Migration = (p: RawProject) => RawProject;
@@ -71,6 +72,7 @@ function validateProject(raw: RawProject): Project {
         .slice(0, MAX_EFFECT_SLOTS),
       automation: [],
       modulations: [],
+      chords: kind === 'instrument' ? sanitizeChordTool(t.chords) : null,
     } satisfies Track;
   });
   // automation lanes are validated against the (already sanitized) track they belong to

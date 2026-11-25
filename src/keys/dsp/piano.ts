@@ -23,6 +23,10 @@
  *  - Soundboard: a small bank of fixed body modes (driven by the hammer
  *    knock and the strings) and 12 undamped "sympathetic strings" (combs
  *    tuned to C2…B2) that bloom when the pedal is down.
+ *  - Tension modulation: a hard strike stretches the string, so the pitch
+ *    starts a few cents sharp and settles within ~0.1 s (more in the bass).
+ *  - No two strikes are identical: small per-strike variation of level and
+ *    hammer tone, and a recording-room ambience (8-line FDN, "Room").
  *
  * A restrike of a sounding note hits the same string again (state is kept
  * and the new excitation adds to it), as on a real piano.
@@ -30,6 +34,7 @@
 import {
   BEND_SEMITONES,
   DelayLine,
+  FdnReverb,
   HeldIds,
   LN_1000,
   MAX_BLOCK,
@@ -63,7 +68,7 @@ const PROMPT_SHARE = 0.7;
 const PROMPT_RATE = 3.6;
 /** a resonator is dropped below this energy (≈ −94 dBFS amplitude) */
 const DEAD_ENERGY = 4e-10;
-const LEVEL = 0.25;
+const LEVEL = 0.22;
 
 /** fundamental T60 (seconds) by MIDI note, before the Sustain multiplier */
 const FUND_T60: readonly (readonly [number, number])[] = [
@@ -92,6 +97,7 @@ export interface PianoParams {
   resonance: number;
   body: number;
   tone: number;
+  room: number;
   width: number;
   velCurve: number;
   master: number;
@@ -199,6 +205,8 @@ class PianoVoice {
   gAR = 0.7;
   gBL = 0.7;
   gBR = 0.7;
+  /** tension-modulation pitch offset (cents), decays after the strike */
+  glide = 0;
 
   get resonating(): boolean {
     return this.active && !this.killing;
@@ -263,6 +271,9 @@ export class PianoEngine implements KeysEngine {
   private readonly lidL = new ToneFilter();
   private readonly lidR = new ToneFilter();
   private readonly master = new Smoother(0.8);
+  private readonly room: FdnReverb;
+  private readonly roomLevel = new Smoother(0);
+  private strikeCount = 0;
 
   constructor(sampleRate: number, params: PianoParams) {
     this.sr = sampleRate;
@@ -283,6 +294,10 @@ export class PianoEngine implements KeysEngine {
       this.combG[c] = Math.pow(10, (-3 * period) / sampleRate / 4.5);
     }
     this.thumpDecay = Math.exp(-1 / (0.004 * sampleRate));
+    // a medium recording room: short pre-delay, ~1.1 s decay, darker tail
+    this.room = new FdnReverb(sampleRate);
+    this.room.set(1.1, 0.62, 5200, 0.012);
+    this.roomLevel.setTime(0.05, sampleRate);
     this.sympWet.setTime(0.25, sampleRate);
     this.master.setTime(0.02, sampleRate);
     this.setParams(params as unknown as Record<string, number>);
@@ -293,6 +308,7 @@ export class PianoEngine implements KeysEngine {
     const prev = this.p;
     const p = raw as unknown as PianoParams;
     this.p = p;
+    this.roomLevel.target = p.room ?? 0;
     this.lidL.set(p.tone, this.sr, 0.6);
     this.lidR.set(p.tone, this.sr, 0.6);
     this.master.target = p.master;
@@ -402,6 +418,7 @@ export class PianoEngine implements KeysEngine {
     this.knockPending = 0;
     this.thumpEnv = 0;
     for (const c of this.combs) c.clear();
+    this.room.clear();
     this.combLp.fill(0);
   }
 
@@ -463,7 +480,7 @@ export class PianoEngine implements KeysEngine {
         }
       }
       sigma += damperS * (0.6 + 0.4 * Math.min(1, f / 600));
-      f *= this.bendRatio;
+      f *= this.bendRatio * (v.glide ? Math.pow(2, v.glide / 1200) : 1);
       if (f > nyq) f = nyq;
       const rad = Math.exp(-sigma / sr);
       const w = (TWO_PI * f) / sr;
@@ -478,6 +495,12 @@ export class PianoEngine implements KeysEngine {
     const note = v.note;
     const sr = this.sr;
     v.vel = vel;
+    // per-strike variation (deterministic sequence, so renders are reproducible)
+    const sc = ++this.strikeCount;
+    const varLevel = 1 + 0.08 * (hash01(sc, 17) - 0.5);
+    const varTone = 1 + 0.1 * (hash01(sc, 29) - 0.5);
+    const bassG = clamp((72 - note) / 50, 0, 1);
+    v.glide = vel * vel * (2 + 6 * bassG) * (0.8 + 0.4 * hash01(sc, 41));
     v.damped = false;
     const f1 = pianoFundamental(note, p.stretch);
     const B = inharmonicityB(note, p.inharm);
@@ -497,13 +520,13 @@ export class PianoEngine implements KeysEngine {
     for (let k = 1; k <= PIANO_MAX_PARTIALS; k++) {
       const f = partialFrequency(f1, k, B);
       if (f > fmax) break;
-      const a = hammerSpectrum(note, k, f, f1, vel, p);
+      const a = hammerSpectrum(note, k, f, f1, Math.min(1, vel * varTone), p);
       amps[k - 1] = a;
       energy += a * a;
       count = k;
     }
     const bass = clamp((60 - note) / 40, 0, 1);
-    const level = (LEVEL * Math.pow(Math.max(vel, 1e-3), p.velCurve) * (1 + 0.25 * bass)) / Math.sqrt(Math.max(energy, 1e-12));
+    const level = (LEVEL * varLevel * Math.pow(Math.max(vel, 1e-3), p.velCurve) * (1 + 0.25 * bass)) / Math.sqrt(Math.max(energy, 1e-12));
     let n = 0;
     const peak = (amps[0] as number) * level;
     for (let k = 1; k <= count; k++) {
@@ -542,6 +565,11 @@ export class PianoEngine implements KeysEngine {
   // -------------------------------------------------------------------------
 
   private renderVoice(v: PianoVoice, n: number): void {
+    // tension modulation settles: retune while the pitch glide is audible
+    if (v.glide !== 0) {
+      v.glide = v.glide > 0.05 ? v.glide * Math.exp(-n / (0.09 * this.sr)) : 0;
+      this.updateCoefs(v);
+    }
     const A = this.bufA;
     const Bf = this.bufB;
     A.fill(0, 0, n);
@@ -693,8 +721,16 @@ export class PianoEngine implements KeysEngine {
       const outl = l + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + sL * wet;
       const outr = r + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + sR * wet;
       const g = this.master.next();
-      outL[offset + i] = (outL[offset + i] as number) + this.lidL.process(outl) * g;
-      outR[offset + i] = (outR[offset + i] as number) + this.lidR.process(outr) * g;
+      let ol = this.lidL.process(outl);
+      let or = this.lidR.process(outr);
+      const rl = this.roomLevel.next();
+      if (rl > 1e-4) {
+        this.room.process(ol, or);
+        ol += this.room.outL * rl * 0.55;
+        or += this.room.outR * rl * 0.55;
+      }
+      outL[offset + i] = (outL[offset + i] as number) + ol * g;
+      outR[offset + i] = (outR[offset + i] as number) + or * g;
     }
   }
 }

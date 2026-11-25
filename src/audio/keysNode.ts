@@ -19,14 +19,17 @@ export class KeysInstrument implements InstrumentNode {
     return this.node;
   }
 
-  constructor(ctx: BaseAudioContext, config: KeysConfigData, events?: SynthEvent[]) {
+  private bpm: number;
+
+  constructor(ctx: BaseAudioContext, config: KeysConfigData, events?: SynthEvent[], bpm = 120) {
+    this.bpm = bpm;
     this.engine = config.engine;
     this.params = config.params;
     this.node = new AudioWorkletNode(ctx, KEYS_PROCESSOR, {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
-      processorOptions: { config: { engine: config.engine, params: config.params }, events: events ?? [] },
+      processorOptions: { config: { engine: config.engine, params: config.params }, events: events ?? [], bpm },
     });
     this.node.onprocessorerror = () => console.error('Keyforge processor error — the instrument stopped producing sound.');
   }
@@ -40,6 +43,12 @@ export class KeysInstrument implements InstrumentNode {
     this.engine = config.engine;
     this.params = config.params;
     this.post({ type: 'config', config: { engine: config.engine, params: config.params } });
+  }
+
+  setTempo(bpm: number): void {
+    if (bpm === this.bpm) return;
+    this.bpm = bpm;
+    this.post({ type: 'tempo', bpm });
   }
 
   schedule(events: SynthEvent[]): void {

@@ -8,6 +8,7 @@
  *  - Raw audio never lives in the project; clips reference assets by ID.
  */
 import type { KeysEngineType } from '../keys/params';
+import type { ChordToolConfig } from '../chords/theory';
 import type { TimeSignature } from '../core/time';
 import type { TriOscPatch } from '../synth/params';
 
@@ -265,6 +266,8 @@ export interface Track {
   effects: EffectSlot[];
   automation: AutomationLane[];
   modulations: ModRoute[];
+  /** Gucci Slipper-izer chord tool (instrument tracks); clips keep the single played notes */
+  chords?: ChordToolConfig | null;
 }
 
 export interface AssetRef {

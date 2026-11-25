@@ -25,6 +25,8 @@ export interface InstrumentNode {
   setAutomatedKeys(keys: string[]): void;
   /** jump an automated parameter to a value (used while stopped / seeking) */
   setAutomationValue(key: string, value: number): void;
+  /** song tempo for tempo-synced internals (optional) */
+  setTempo?(bpm: number): void;
 }
 
 export interface InstrumentEnv {
@@ -32,6 +34,8 @@ export interface InstrumentEnv {
   resolveAsset: (id: string) => AudioBuffer | undefined;
   /** events known up front (offline export) */
   events?: SynthEvent[];
+  /** song tempo at creation */
+  bpm?: number;
 }
 
 interface AudioFactory<T extends InstrumentType> {
@@ -62,7 +66,7 @@ export const INSTRUMENT_AUDIO: { [T in InstrumentType]: AudioFactory<T> } = {
     },
   },
   keys: {
-    create: (ctx, c, env) => new KeysInstrument(ctx, { engine: c.engine, params: c.params }, env.events),
+    create: (ctx, c, env) => new KeysInstrument(ctx, { engine: c.engine, params: c.params }, env.events, env.bpm),
     update: (node, c) => {
       if (!(node instanceof KeysInstrument)) return false;
       node.setConfig({ engine: c.engine, params: c.params });

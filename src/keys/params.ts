@@ -22,6 +22,8 @@ export interface KeysConfigData {
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const secs = (v: number) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`);
 const cents = (v: number) => `${v.toFixed(1)} ct`;
+/** delay time in beats (quarter notes) → musical name */
+const DELAY_NAMES: Record<number, string> = { 1: '1/16', 2: '1/8', 3: '1/8 dot', 4: '1/4', 5: '5/16', 6: '1/4 dot', 7: '7/16', 8: '1/2' };
 const hz = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : `${Math.round(v)} Hz`);
 
 function p(key: string, group: string, label: string, min: number, max: number, def: number, format: (v: number) => string, curve: 'linear' | 'exp' = 'linear', extra: Partial<KeysParamSpec> = {}): KeysParamSpec {
@@ -50,6 +52,7 @@ export const KEYS_ENGINES: Record<KeysEngineType, { label: string; description: 
       p('resonance', 'Body', 'Sympath.', 0, 1, 0.4, pct),
       p('body', 'Body', 'Body', 0, 1, 0.35, pct),
       p('tone', 'Body', 'Lid', 1500, 20000, 12000, hz, 'exp'),
+      p('room', 'Body', 'Room', 0, 1, 0.22, pct),
       p('width', 'Output', 'Width', 0, 1, 0.6, pct),
       p('velCurve', 'Output', 'Dynamics', 0.5, 2.5, 1.6, (v) => v.toFixed(2)),
       MASTER,
@@ -116,6 +119,11 @@ export const KEYS_ENGINES: Record<KeysEngineType, { label: string; description: 
       p('decay', 'Amp Env', 'Decay', 0.005, 8, 1, secs, 'exp'),
       p('sustainLvl', 'Amp Env', 'Sustain', 0, 1, 0.85, pct),
       p('release', 'Amp Env', 'Release', 0.005, 12, 2, secs, 'exp'),
+      p('lfoRate', 'Motion', 'Rate', 0.05, 12, 0.25, (v) => `${v.toFixed(2)} Hz`, 'exp'),
+      p('lfoDepth', 'Motion', 'Flt Mod', 0, 3, 0, (v) => `${v.toFixed(2)} oct`),
+      p('space', 'FX', 'Space', 0, 1, 0, pct),
+      p('delayMix', 'FX', 'Delay', 0, 1, 0, pct),
+      p('delayBeats', 'FX', 'Time', 0.25, 2, 0.75, (v) => DELAY_NAMES[Math.round(v * 4)] ?? `${v} beats`, 'linear', { step: 0.25 }),
       p('drive', 'Output', 'Drive', 0, 1, 0.1, pct),
       p('ensemble', 'Output', 'Ensemble', 0, 1, 0.5, pct),
       p('mono', 'Output', 'Mode', 0, 1, 0, (v) => (v >= 0.5 ? 'Mono' : 'Poly'), 'linear', { step: 1, choices: [{ value: 0, label: 'Poly' }, { value: 1, label: 'Mono' }] }),

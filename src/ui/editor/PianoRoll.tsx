@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Music, Repeat, Wand2 } from 'lucide-react';
 import { DRUM_BASE_NOTE } from '../../drums/kit';
 import { INSTRUMENTS, noteLabelFor } from '../../instruments/definitions';
+import { chordToolActive } from '../../chords/expand';
+import { chordLabel } from '../../chords/theory';
 import { INSTRUMENT_UI } from '../instruments';
 import { engine } from '../../audio/engine';
 import { PPQ, SNAP_VALUES, isBlackKey, midiNoteName, snapToTicks, ticksPerBar, ticksPerBeatUnit, type SnapValue } from '../../core/time';
@@ -229,8 +231,11 @@ export function PianoRoll({ clipId }: { clipId: string }) {
       g.fillRect(0, 0, W, H);
       const pTop = Math.min(127, yToP(RULER_H));
       const pBot = Math.max(0, yToP(H));
-      const inst = project.tracks.find((t) => t.id === c.trackId)?.instrument ?? null;
+      const ownerTrack = project.tracks.find((t) => t.id === c.trackId);
+      const inst = ownerTrack?.instrument ?? null;
       const labelOf = (p: number) => noteLabelFor(inst, p);
+      // Gucci Slipper-izer: show which chord each key / note plays
+      const chordCfg = chordToolActive(ownerTrack) ? ownerTrack.chords : null;
       const drumMode = labelOf(DRUM_BASE_NOTE) !== null;
       for (let p = pTop; p >= pBot; p--) {
         const y = pToY(p);
@@ -295,7 +300,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
         g.lineWidth = 1;
         if (w > 28 && v.rowH >= 11) {
           g.fillStyle = 'rgba(10,10,16,0.85)';
-          g.fillText(midiNoteName(n.pitch), x + 3, y + v.rowH / 2);
+          g.fillText(chordCfg ? chordLabel(chordCfg, n.pitch) : midiNoteName(n.pitch), x + 3, y + v.rowH / 2);
         }
       }
       // marquee
@@ -377,6 +382,14 @@ export function PianoRoll({ clipId }: { clipId: string }) {
           g.font = `${p % 12 === 0 ? '600 ' : ''}${Math.min(10, v.rowH - 3)}px Inter, system-ui, sans-serif`;
           g.textBaseline = 'middle';
           g.fillText(midiNoteName(p), KEYS_W - 28, y + v.rowH / 2);
+        }
+        if (chordCfg && v.rowH >= 9) {
+          g.fillStyle = black ? '#c4b5fd' : '#5b3fd6';
+          g.font = `600 ${Math.min(9, v.rowH - 3)}px Inter, system-ui, sans-serif`;
+          g.textBaseline = 'middle';
+          let txt = chordLabel(chordCfg, p);
+          while (txt.length > 1 && g.measureText(txt).width > (black ? KEYS_W * 0.6 : KEYS_W - 32)) txt = txt.slice(0, -1);
+          g.fillText(txt, 3, y + v.rowH / 2);
         }
       }
       g.fillStyle = '#101019';

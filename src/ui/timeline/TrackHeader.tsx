@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { AudioLines, Music, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { AudioLines, Footprints, Music, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { chordToolActive, chordToolAvailable } from '../../chords/expand';
+import { openSlipperizer } from '../chords/SlipperizerWindow';
 import { INSTRUMENTS } from '../../instruments/definitions';
 import { INSTRUMENT_UI } from '../instruments';
 import { PARAM_SPECS, type NumericParamSpec } from '../../synth/params';
@@ -168,6 +170,16 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
             </button>
           ) : (
             <span className="text-[10px] text-dim">Audio</span>
+          )}
+          {chordToolAvailable(track) && (
+            <button
+              type="button"
+              title={chordToolActive(track) ? 'Gucci Slipper-izer is on: single keys play chords — click to edit' : 'Gucci Slipper-izer: play single keys, hear full chord progressions'}
+              onClick={() => openSlipperizer(track.id)}
+              className={`flex h-5 w-6 shrink-0 items-center justify-center rounded ${chordToolActive(track) ? 'bg-[#d9b44a] text-black' : 'bg-panel text-muted hover:text-fg'}`}
+            >
+              <Footprints size={11} />
+            </button>
           )}
           <button
             type="button"

@@ -18,6 +18,8 @@ import { TrackChannel, dbToGainFader } from './trackChannel';
 import { Transport } from './transport';
 import { PeqUnit, isCompressorUnit } from './effects/units';
 import { automatedInstKeys, valueAt } from '../project/automation';
+import { chordToolActive, withChordsExpanded } from '../chords/expand';
+import { LiveChords } from './chordLive';
 
 export type LiveInputEvent =
   | { type: 'noteOn'; trackId: string; id: number; note: number; velocity: number; at: number }
@@ -79,7 +81,8 @@ export class AudioEngine {
       this.master = buildMaster(ctx);
       this.transport = new Transport({
         ctx,
-        getProject: () => this.requireProject(),
+        // chord-tool tracks are scheduled with their chords expanded
+        getProject: () => withChordsExpanded(this.requireProject()),
         channel: (id) => this.channels.get(id),
         audioBuffer: (id) => this.assets.get(id)?.buffer,
         metronomeOut: () => (this.master as MasterBus).metronome,
@@ -156,7 +159,8 @@ export class AudioEngine {
       } else if (force || prevTracks.get(track.id) !== track || prevAnySolo !== anySolo) {
         ch.update(track, audible);
       }
-      ch.ensureInstrument(track.kind === 'instrument' ? track.instrument : null, (id) => this.assets.get(id)?.buffer);
+      ch.ensureInstrument(track.kind === 'instrument' ? track.instrument : null, (id) => this.assets.get(id)?.buffer, p.bpm);
+      ch.instrument?.setTempo?.(p.bpm);
       if (force || !prevTracks.get(track.id) || prevTracks.get(track.id)?.automation !== track.automation || prevTracks.get(track.id)?.instrument?.type !== track.instrument?.type) {
         ch.instrument?.setAutomatedKeys(automatedInstKeys(track));
       }
@@ -191,7 +195,7 @@ export class AudioEngine {
         prev.timeSignature !== p.timeSignature ||
         prev.metronome !== p.metronome ||
         prev.tracks.length !== p.tracks.length ||
-        prev.tracks.some((tr, i) => tr.id !== p.tracks[i]?.id || tr.kind !== p.tracks[i]?.kind || tr.automation !== p.tracks[i]?.automation);
+        prev.tracks.some((tr, i) => tr.id !== p.tracks[i]?.id || tr.kind !== p.tracks[i]?.kind || tr.automation !== p.tracks[i]?.automation || tr.chords !== p.tracks[i]?.chords);
       if (contentChanged) t.reschedule();
       if (!t.isPlaying() && prev.tracks.some((tr, i) => tr.automation !== p.tracks[i]?.automation || tr.effects !== p.tracks[i]?.effects)) {
         this.applyAutomationAt(t.getTick());
@@ -222,20 +226,37 @@ export class AudioEngine {
     for (const fn of this.liveInputTaps) fn(e);
   }
 
+  /** Gucci Slipper-izer: live chord playing / auto-play for chord-tool tracks */
+  private readonly liveChords = new LiveChords({
+    ctx: () => this.ctx,
+    transport: () => this.transport,
+    instrument: (id) => this.channels.get(id)?.instrument,
+    project: () => this.project,
+  });
+
   /** `at` = when the input happened (performance.now() ms; MIDI events carry their own timestamp). */
   previewNoteOn(trackId: string, note: number, velocity = 0.8, at = performance.now()): number | null {
     const inst = this.channels.get(trackId)?.instrument;
     if (!inst) return null;
     if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume();
-    const id = nextNoteInstanceId();
-    inst.noteOn(id, note, velocity);
+    const track = this.project?.tracks.find((t) => t.id === trackId);
+    let id: number;
+    if (chordToolActive(track)) {
+      // one key → a whole chord (or the progression in auto-play); the virtual id releases it
+      const vid = this.liveChords.noteOn(trackId, track.chords, note, velocity);
+      if (vid === null) return null;
+      id = vid;
+    } else {
+      id = nextNoteInstanceId();
+      inst.noteOn(id, note, velocity);
+    }
     this.modulation?.trigger(trackId, [{ time: -1, note }]); // live notes also fire MIDI sidechains
     this.tap({ type: 'noteOn', trackId, id, note, velocity, at });
     return id;
   }
 
   previewNoteOff(trackId: string, id: number, at = performance.now()): void {
-    this.channels.get(trackId)?.instrument?.noteOff(id);
+    if (!this.liveChords.noteOff(id)) this.channels.get(trackId)?.instrument?.noteOff(id);
     this.tap({ type: 'noteOff', trackId, id, at });
   }
 
@@ -249,6 +270,7 @@ export class AudioEngine {
   }
 
   allNotesOff(trackId?: string): void {
+    this.liveChords.releaseAll(trackId);
     for (const [id, ch] of this.channels) if (!trackId || id === trackId) ch.instrument?.allNotesOff();
   }
 

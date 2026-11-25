@@ -22,6 +22,8 @@ interface UiState {
   scrollY: number;
   /** Track whose TriOsc window is open */
   synthTrackId: string | null;
+  /** track whose Gucci Slipper-izer window is open */
+  chordsTrackId: string | null;
   bottomPanel: BottomPanel;
   bottomHeight: number;
   /** Clip open in the bottom editor */
@@ -54,6 +56,7 @@ export const useUiStore = create<UiState>((set) => ({
   scrollX: 0,
   scrollY: 0,
   synthTrackId: null,
+  chordsTrackId: null,
   bottomPanel: 'none',
   bottomHeight: 300,
   editorClipId: null,

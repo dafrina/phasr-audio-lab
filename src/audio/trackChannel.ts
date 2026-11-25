@@ -129,14 +129,14 @@ export class TrackChannel {
    * Create, update or remove the track's instrument (any registered type).
    * Same-type changes are applied in place; a type change rebuilds the node.
    */
-  ensureInstrument(config: InstrumentConfig | null, resolveAsset: (id: string) => AudioBuffer | undefined = () => undefined): void {
+  ensureInstrument(config: InstrumentConfig | null, resolveAsset: (id: string) => AudioBuffer | undefined = () => undefined, bpm = 120): void {
     if (this.instrument && (!config || config.type !== this.instrumentType || !updateInstrumentNode(this.instrument, config))) {
       this.instrument.dispose();
       this.instrument = null;
       this.instrumentType = null;
     }
     if (!config || this.instrument) return;
-    this.instrument = createInstrumentNode(this.ctx, config, { resolveAsset });
+    this.instrument = createInstrumentNode(this.ctx, config, { resolveAsset, bpm });
     this.instrumentType = config.type;
     this.instrument.output.connect(this.input);
   }

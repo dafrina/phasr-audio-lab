@@ -38,6 +38,7 @@ export class KeysSynth {
   private dirty = false;
   private pedal = false;
   private bend = 0;
+  private bpm = 120;
 
   constructor(sampleRate: number, config?: KeysConfigData) {
     this.sr = sampleRate;
@@ -67,6 +68,7 @@ export class KeysSynth {
       this.engine = createEngine(config.engine, this.sr, { ...params });
       this.engine.setSustain(this.pedal);
       this.engine.setBend(this.bend);
+      this.engine.setTempo?.(this.bpm);
       this.dirty = false;
       return;
     }
@@ -99,6 +101,12 @@ export class KeysSynth {
     this.engine.setSustain(on);
   }
 
+  setTempo(bpm: number): void {
+    if (!Number.isFinite(bpm) || bpm <= 0) return;
+    this.bpm = bpm;
+    this.engine.setTempo?.(bpm);
+  }
+
   setPitchBend(value: number): void {
     this.bend = value;
     this.engine.setBend(value);
@@ -122,6 +130,7 @@ export class KeysSynth {
     if (!this.dirty) return;
     this.dirty = false;
     this.engine.setParams({ ...this.params });
+    this.engine.setTempo?.(this.bpm);
   }
 
   /** Add `count` frames at `offset` into the outputs. */
