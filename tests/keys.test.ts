@@ -223,6 +223,23 @@ describe('Keyforge piano — string physics', () => {
     expect(db(rms(slice(diff, SR, 1.2, 2)))).toBeGreaterThan(db(rms(slice(ma, SR, 1.2, 2))) - 30);
   });
 
+  it('treble notes ring with their overtones instead of plucking away', () => {
+    const note = 96;
+    const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.8), 1, SR);
+    const m = mono(L, R);
+    // overall: well under 20 dB lost in the first half second (a pluck loses more)
+    expect(db(rms(slice(m, SR, 0.005, 0.05))) - db(rms(slice(m, SR, 0.45, 0.55)))).toBeLessThan(18);
+    // the 2nd and 3rd partials are still clearly there after half a second
+    const f1 = pianoFundamental(note, 1);
+    const B = inharmonicityB(note, 1);
+    for (const k of [2, 3]) {
+      const tr = toneTrack(m, SR, partialFrequency(f1, k, B), 0.05);
+      expect(db(tr[1] as number) - db(tr[12] as number), `partial ${k}`).toBeLessThan(35);
+    }
+    // a crisp attack: real energy above 5 kHz in the first 30 ms
+    expect(energyAbove(spectrum(slice(m, SR, 0, 0.03), SR), 5000)).toBeGreaterThan(0.02);
+  });
+
   it('hard strikes start a few cents sharp and settle (tension modulation)', () => {
     const note = 40;
     const f8 = partialFrequency(pianoFundamental(note, 1), 8, inharmonicityB(note, 1));

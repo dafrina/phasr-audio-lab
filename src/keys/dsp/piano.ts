@@ -62,7 +62,7 @@ const AFTER2_SHARE = 0.07;
 const POLYPHONY = 32;
 /** keys at or above this note have no dampers */
 export const PIANO_NO_DAMPER_NOTE = 89;
-/** share of the initial amplitude in the fast "prompt" component */
+/** share of the initial amplitude in the fast "prompt" component (mid/bass; less in the treble) */
 const PROMPT_SHARE = 0.7;
 /** prompt component decays this many times faster than the aftersound */
 const PROMPT_RATE = 3.6;
@@ -77,9 +77,9 @@ const FUND_T60: readonly (readonly [number, number])[] = [
   [48, 13],
   [60, 10],
   [72, 6],
-  [84, 4],
-  [96, 2.2],
-  [108, 1.2],
+  [84, 4.5],
+  [96, 3],
+  [108, 1.6],
 ];
 
 export interface PianoParams {
@@ -139,10 +139,33 @@ function lossB3(damping: number): number {
   return 6e-7 * (0.25 + 1.5 * damping);
 }
 
+/**
+ * The f² loss law fits the bass and middle; short, stiff treble strings keep
+ * their few overtones much longer relative to the fundamental, so the
+ * frequency-dependent loss is scaled down above ~E4.
+ */
+function trebleLossScale(f1: number): number {
+  return Math.min(1, Math.pow(330 / f1, 1.1));
+}
+
+/** treble position 0 (≤ C4) … 1 (≥ C7) */
+function trebleness(note: number): number {
+  return clamp((note - 60) / 36, 0, 1);
+}
+
+/** coupled-string double decay is weaker in the treble: smaller, slower prompt component */
+export function promptShare(note: number): number {
+  return PROMPT_SHARE - 0.3 * trebleness(note);
+}
+
+export function promptRate(note: number): number {
+  return PROMPT_RATE - 1.8 * trebleness(note);
+}
+
 /** T60 of a partial at frequency f for a note whose fundamental is f1 */
 export function partialT60(note: number, f: number, f1: number, p: Pick<PianoParams, 'sustain' | 'damping'>): number {
   const s1 = LN_1000 / fundamentalT60(note, p.sustain);
-  const s = s1 + lossB3(p.damping) * Math.max(0, f * f - f1 * f1);
+  const s = s1 + lossB3(p.damping) * trebleLossScale(f1) * Math.max(0, f * f - f1 * f1);
   return LN_1000 / s;
 }
 
@@ -150,7 +173,7 @@ export function partialT60(note: number, f: number, f1: number, p: Pick<PianoPar
 export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'>): number {
   const velTone = 1 - p.hardness + p.hardness * Math.pow(vel, 1.5);
   const b = clamp(p.brightness * (0.3 + velTone), 0, 1.4);
-  const fc = f1 + (350 + 4200 * b * b) * Math.pow(f1 / 262, 0.45);
+  const fc = f1 + (350 + 4200 * b * b) * Math.pow(f1 / 262, 0.6);
   const hammer = 1 / (1 + (f / fc) * (f / fc));
   // strike point: 1/8 in the mid range, closer to the agraffe in the treble
   const x0 = p.strike * (1 - 0.3 * clamp((note - 60) / 48, 0, 1));
@@ -159,7 +182,7 @@ export function hammerSpectrum(note: number, k: number, f: number, f1: number, v
   const tilt = Math.pow(k, -0.35);
   // soundboard radiates the lowest fundamentals poorly
   const board = 1 / (1 + (70 / f) * (70 / f));
-  const air = 1 / (1 + (f / 9000) * (f / 9000));
+  const air = 1 / (1 + (f / 14000) * (f / 14000));
   return hammer * comb * tilt * board * air;
 }
 
@@ -259,6 +282,9 @@ export class PianoEngine implements KeysEngine {
   private readonly bodyB = new Float64Array(BODY_MODES.length);
   private knockPending = 0;
   private thumpEnv = 0;
+  private tickEnv = 0;
+  private tickDecay = 0;
+  private tickLp = 0;
   private thumpDecay = 0;
   private readonly noise = new Noise(0x51a7e);
   // sympathetic strings
@@ -294,6 +320,7 @@ export class PianoEngine implements KeysEngine {
       this.combG[c] = Math.pow(10, (-3 * period) / sampleRate / 4.5);
     }
     this.thumpDecay = Math.exp(-1 / (0.004 * sampleRate));
+    this.tickDecay = Math.exp(-1 / (0.0012 * sampleRate));
     // a medium recording room: short pre-delay, ~1.1 s decay, darker tail
     this.room = new FdnReverb(sampleRate);
     this.room.set(1.1, 0.62, 5200, 0.012);
@@ -417,6 +444,7 @@ export class PianoEngine implements KeysEngine {
     this.bodyIm.fill(0);
     this.knockPending = 0;
     this.thumpEnv = 0;
+    this.tickEnv = 0;
     for (const c of this.combs) c.clear();
     this.room.clear();
     this.combLp.fill(0);
@@ -472,7 +500,7 @@ export class PianoEngine implements KeysEngine {
         const d = stringDetune(note, k, p.unison) / 2400;
         if (s === S_PROMPT) {
           f *= Math.pow(2, -d);
-          sigma *= PROMPT_RATE;
+          sigma *= promptRate(note);
         } else if (s === S_AFTER) f *= Math.pow(2, d);
         else {
           f *= Math.pow(2, d * (0.2 + 0.6 * hash01(note + 101, k)));
@@ -541,8 +569,9 @@ export class PianoEngine implements KeysEngine {
         v.pid[n] = id;
         v.re[n] = this.tmpHas[id] ? (this.tmpRe[id] as number) : 0;
         v.im[n] = this.tmpHas[id] ? (this.tmpIm[id] as number) : 0;
-        const after = 1 - PROMPT_SHARE - (triple ? AFTER2_SHARE : 0);
-        v.gin[n] = !double ? a : s === S_PROMPT ? a * PROMPT_SHARE : s === S_AFTER ? a * after : a * AFTER2_SHARE;
+        const ps = promptShare(note);
+        const after = 1 - ps - (triple ? AFTER2_SHARE : 0);
+        v.gin[n] = !double ? a : s === S_PROMPT ? a * ps : s === S_AFTER ? a * after : a * AFTER2_SHARE;
         n++;
       }
     }
@@ -560,6 +589,8 @@ export class PianoEngine implements KeysEngine {
     // hammer knock into the soundboard
     this.knockPending += p.hammerNoise * Math.pow(vel, 1.3) * 0.5 * (1 + 0.5 * bass);
     this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
+    // treble: the hard hammer core hitting steel gives a short, bright "tick"
+    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.5) * trebleness(note) * 0.05;
   }
 
   // -------------------------------------------------------------------------
@@ -683,6 +714,14 @@ export class PianoEngine implements KeysEngine {
         thump = noise.next() * this.thumpEnv;
         this.thumpEnv *= this.thumpDecay;
       }
+      let tick = 0;
+      if (this.tickEnv > 1e-7) {
+        // high-passed noise burst (one-pole low-pass subtracted)
+        const nz = noise.next();
+        this.tickLp += (nz - this.tickLp) * 0.35;
+        tick = (nz - this.tickLp) * this.tickEnv;
+        this.tickEnv *= this.tickDecay;
+      }
       const bin = knock + mono * bodyFeed + thump * 0.3;
       let bodyL = 0;
       let bodyR = 0;
@@ -718,8 +757,8 @@ export class PianoEngine implements KeysEngine {
           else sL += y;
         }
       }
-      const outl = l + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + sL * wet;
-      const outr = r + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + sR * wet;
+      const outl = l + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + tick + sL * wet;
+      const outr = r + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + tick + sR * wet;
       const g = this.master.next();
       let ol = this.lidL.process(outl);
       let or = this.lidR.process(outr);
