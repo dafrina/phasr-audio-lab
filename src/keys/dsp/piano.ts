@@ -136,7 +136,8 @@ export function fundamentalT60(note: number, sustain: number): number {
 
 /** frequency-dependent loss coefficient (1/s per Hz²) */
 function lossB3(damping: number): number {
-  return 6e-7 * (0.25 + 1.5 * damping);
+  // ≈ 1.6e-7 s⁻¹/Hz² at the default: a 4 kHz partial of middle C rings ~2 s, 8 kHz ~0.7 s
+  return 1.6e-7 * (0.25 + 1.5 * damping);
 }
 
 /**
@@ -172,18 +173,23 @@ export function partialT60(note: number, f: number, f1: number, p: Pick<PianoPar
 /** relative strike amplitude of partial k (before energy normalisation) */
 export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'>): number {
   const velTone = 1 - p.hardness + p.hardness * Math.pow(vel, 1.5);
-  const b = clamp(p.brightness * (0.3 + velTone), 0, 1.4);
-  const fc = f1 + (350 + 4200 * b * b) * Math.pow(f1 / 262, 0.6);
-  const hammer = 1 / (1 + (f / fc) * (f / fc));
+  const b = clamp(p.brightness * (0.4 + 0.75 * velTone), 0, 1.4);
+  // felt hammers stiffen as they're compressed, so the spectrum falls off
+  // gently (≈ −10 dB/oct) above a velocity-dependent corner
+  const fc = f1 + (700 + 7000 * b * b) * Math.pow(f1 / 262, 0.6);
+  const hammer = 1 / (1 + Math.pow(f / fc, 1.6));
   // strike point: 1/8 in the mid range, closer to the agraffe in the treble
   const x0 = p.strike * (1 - 0.3 * clamp((note - 60) / 48, 0, 1));
   // the hammer's finite width keeps the notch from being complete
   const comb = 0.22 + 0.78 * Math.abs(Math.sin(Math.PI * k * x0));
+  // real partial levels are irregular (hammer–string interaction, soundboard
+  // radiation): ±3 dB fixed per note and partial. Perfectly smooth spectra sound synthetic.
+  const irregular = 1 + 0.7 * (hash01(note * 131 + 7, k) - 0.5);
   const tilt = Math.pow(k, -0.35);
   // soundboard radiates the lowest fundamentals poorly
   const board = 1 / (1 + (70 / f) * (70 / f));
   const air = 1 / (1 + (f / 14000) * (f / 14000));
-  return hammer * comb * tilt * board * air;
+  return hammer * comb * tilt * board * air * irregular;
 }
 
 /** detune (cents) between the two strings of partial k */
@@ -212,6 +218,8 @@ class PianoVoice {
   readonly a = new Float64Array(MAX_RES);
   readonly b = new Float64Array(MAX_RES);
   readonly gin = new Float64Array(MAX_RES);
+  /** which of the two radiation points (stereo positions) the resonator feeds */
+  readonly side = new Uint8Array(MAX_RES);
   // hammer force pulse: g(j) = j·e^{-j/τ} / norm
   pulsePos = 0;
   pulseLen = 0;
@@ -255,6 +263,19 @@ const BODY_MODES: readonly (readonly [number, number, number])[] = [
   [820, 0.05, 0.22],
   [1150, 0.04, 0.15],
   [1700, 0.03, 0.1],
+  [2250, 0.024, 0.08],
+  [2900, 0.02, 0.07],
+  [3700, 0.016, 0.06],
+  [4800, 0.012, 0.05],
+  [96, 0.18, 0.6],
+  [152, 0.15, 0.55],
+  [212, 0.12, 0.45],
+  [287, 0.1, 0.4],
+  [385, 0.09, 0.32],
+  [515, 0.07, 0.26],
+  [690, 0.06, 0.2],
+  [980, 0.045, 0.16],
+  [1400, 0.035, 0.12],
 ];
 const SYMPATHETIC_NOTES = 12;
 const SYMPATHETIC_BASE = 36;
@@ -285,6 +306,7 @@ export class PianoEngine implements KeysEngine {
   private tickEnv = 0;
   private tickDecay = 0;
   private tickLp = 0;
+  private tickLp2 = 0;
   private thumpDecay = 0;
   private readonly noise = new Noise(0x51a7e);
   // sympathetic strings
@@ -320,7 +342,7 @@ export class PianoEngine implements KeysEngine {
       this.combG[c] = Math.pow(10, (-3 * period) / sampleRate / 4.5);
     }
     this.thumpDecay = Math.exp(-1 / (0.004 * sampleRate));
-    this.tickDecay = Math.exp(-1 / (0.0012 * sampleRate));
+    this.tickDecay = Math.exp(-1 / (0.0025 * sampleRate));
     // a medium recording room: short pre-delay, ~1.1 s decay, darker tail
     this.room = new FdnReverb(sampleRate);
     this.room.set(1.1, 0.62, 5200, 0.012);
@@ -461,10 +483,11 @@ export class PianoEngine implements KeysEngine {
   private updatePan(v: PianoVoice): void {
     const w = this.p.width;
     const center = w * 0.75 * clamp((v.note - 64) / 40, -1, 1);
-    panGains(center - 0.15 * w, this.pan);
+    // partials are scattered between two radiation points (soundboard directivity)
+    panGains(center - 0.55 * w, this.pan);
     v.gAL = this.pan.l;
     v.gAR = this.pan.r;
-    panGains(center + 0.15 * w, this.pan);
+    panGains(center + 0.55 * w, this.pan);
     v.gBL = this.pan.l;
     v.gBR = this.pan.r;
   }
@@ -497,10 +520,12 @@ export class PianoEngine implements KeysEngine {
       const t60 = partialT60(note, f, f1, p);
       let sigma = LN_1000 / t60;
       if (k <= DOUBLE_PARTIALS) {
+        const sigma1 = LN_1000 / fundamentalT60(note, p.sustain);
         const d = stringDetune(note, k, p.unison) / 2400;
         if (s === S_PROMPT) {
           f *= Math.pow(2, -d);
-          sigma *= promptRate(note);
+          // bridge coupling adds a fixed extra loss (not one that scales the high-frequency losses)
+          sigma += (promptRate(note) - 1) * sigma1;
         } else if (s === S_AFTER) f *= Math.pow(2, d);
         else {
           f *= Math.pow(2, d * (0.2 + 0.6 * hash01(note + 101, k)));
@@ -567,6 +592,7 @@ export class PianoEngine implements KeysEngine {
         if (n >= MAX_RES) break;
         const id = pidOf(k, s);
         v.pid[n] = id;
+        v.side[n] = hash01(note * 977 + k, s + 3) < 0.5 ? 0 : 1;
         v.re[n] = this.tmpHas[id] ? (this.tmpRe[id] as number) : 0;
         v.im[n] = this.tmpHas[id] ? (this.tmpIm[id] as number) : 0;
         const ps = promptShare(note);
@@ -578,7 +604,8 @@ export class PianoEngine implements KeysEngine {
     v.n = n;
     this.updateCoefs(v);
     // hammer contact: shorter and sharper for loud notes and high strings
-    const tauSec = (0.00005 + 0.00022 * (1 - vel) * (1 - vel)) * Math.pow(262 / f1, 0.2);
+    // contact-pulse smoothing only; the tone colour comes from hammerSpectrum()
+    const tauSec = (0.000012 + 0.00005 * (1 - vel) * (1 - vel)) * Math.pow(262 / f1, 0.2);
     const tau = Math.max(0.6, tauSec * sr);
     v.pulseTau = tau;
     v.pulseLen = Math.ceil(9 * tau) + 1;
@@ -590,7 +617,7 @@ export class PianoEngine implements KeysEngine {
     this.knockPending += p.hammerNoise * Math.pow(vel, 1.3) * 0.5 * (1 + 0.5 * bass);
     this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
     // treble: the hard hammer core hitting steel gives a short, bright "tick"
-    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.5) * trebleness(note) * 0.05;
+    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.5) * (0.04 + 0.04 * trebleness(note));
   }
 
   // -------------------------------------------------------------------------
@@ -621,7 +648,7 @@ export class PianoEngine implements KeysEngine {
       let im = v.im[r] as number;
       const a = v.a[r] as number;
       const b = v.b[r] as number;
-      const dst = ((v.pid[r] as number) & 3) === S_AFTER ? Bf : A;
+      const dst = v.side[r] ? Bf : A;
       if (hasPulse) {
         const g = v.gin[r] as number;
         for (let i = 0; i < n; i++) {
@@ -647,6 +674,7 @@ export class PianoEngine implements KeysEngine {
         v.a[r] = v.a[last] as number;
         v.b[r] = v.b[last] as number;
         v.gin[r] = v.gin[last] as number;
+        v.side[r] = v.side[last] as number;
         v.n = last;
         continue;
       }
@@ -718,8 +746,11 @@ export class PianoEngine implements KeysEngine {
       if (this.tickEnv > 1e-7) {
         // high-passed noise burst (one-pole low-pass subtracted)
         const nz = noise.next();
-        this.tickLp += (nz - this.tickLp) * 0.35;
-        tick = (nz - this.tickLp) * this.tickEnv;
+        // band-limited (~1–8 kHz) impact noise: felt on steel plus the key action
+        this.tickLp += (nz - this.tickLp) * 0.13;
+        const hp = nz - this.tickLp;
+        this.tickLp2 += (hp - this.tickLp2) * 0.6;
+        tick = this.tickLp2 * this.tickEnv;
         this.tickEnv *= this.tickDecay;
       }
       const bin = knock + mono * bodyFeed + thump * 0.3;

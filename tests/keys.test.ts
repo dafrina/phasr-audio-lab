@@ -41,13 +41,16 @@ function slope(env: number[], dt: number): number {
   });
   return num / den;
 }
-/** max deviation (dB) of an envelope from its own straight-line fit */
+/** max deviation (dB) of an envelope from its own moving average: wobble (beating), not slow curvature */
 function roughness(env: number[]): number {
-  const s = slope(env, 1);
-  const n = env.length;
-  const my = env.reduce((a, b) => a + b, 0) / n;
-  const b = my - (s * (n - 1)) / 2;
-  return Math.max(...env.map((y, i) => Math.abs(y - (b + s * i))));
+  const half = 5;
+  let worst = 0;
+  for (let i = half; i < env.length - half; i++) {
+    let sum = 0;
+    for (let j = i - half; j <= i + half; j++) sum += env[j] as number;
+    worst = Math.max(worst, Math.abs((env[i] as number) - sum / (2 * half + 1)));
+  }
+  return worst;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +154,7 @@ describe('Keyforge piano — string physics', () => {
       const tr = toneTrack(m, SR, partialFrequency(f1, k, B), 0.1);
       return db(tr[2] as number) - db(tr[25] as number);
     };
-    expect(drop(12)).toBeGreaterThan(drop(2) + 10);
+    expect(drop(16)).toBeGreaterThan(drop(2) + 10);
     const early = centroid(spectrum(slice(m, SR, 0.02, 0.3), SR));
     const late = centroid(spectrum(slice(m, SR, 2, 2.3), SR));
     expect(late).toBeLessThan(early * 0.75);
@@ -221,6 +224,25 @@ describe('Keyforge piano — string physics', () => {
     const mc = mono(c, d);
     for (let i = 0; i < diff.length; i++) diff[i] = (mc[i] as number) - (ma[i] as number);
     expect(db(rms(slice(diff, SR, 1.2, 2)))).toBeGreaterThan(db(rms(slice(ma, SR, 1.2, 2))) - 30);
+  });
+
+  it('has a realistically bright, wide sound across the range (not dull, not mono)', () => {
+    const energyDb = (x: number) => 10 * Math.log10(Math.max(x, 1e-30));
+    for (const [note, minAbove2k] of [[48, -24], [60, -22], [72, -16]] as const) {
+      const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.8), 0.6, SR);
+      const body = spectrum(slice(mono(L, R), SR, 0.1, 0.5), SR);
+      // energy above 2 kHz relative to the whole note, after the attack
+      expect(energyDb(energyAbove(body, 2000)), `note ${note}`).toBeGreaterThan(minAbove2k);
+      let side = 0;
+      let mid = 0;
+      for (let i = 0; i < L.length; i++) {
+        side += ((L[i] as number) - (R[i] as number)) ** 2;
+        mid += ((L[i] as number) + (R[i] as number)) ** 2;
+      }
+      const width = energyDb(side / mid);
+      expect(width, `note ${note} width`).toBeGreaterThan(-24);
+      expect(width, `note ${note} width`).toBeLessThan(-6);
+    }
   });
 
   it('treble notes ring with their overtones instead of plucking away', () => {
