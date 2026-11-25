@@ -1,6 +1,9 @@
 # PHASR Audio Lab
 
 Browser DAW (8 tracks) with **TriOsc**, a custom three-oscillator subtractive synth.
+
+**Live:** https://dafrina.github.io/phasr-audio-lab/ — deployed by `.github/workflows/pages.yml` on every push to `main`
+(typecheck → tests → build with `BASE_PATH=/<repo>/` → GitHub Pages).
 React + TypeScript (strict) + Vite + Zustand + Tailwind; audio via Web Audio API and AudioWorklet.
 
 ```bash
@@ -82,7 +85,21 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   pad names for drum tracks.
 - **Add tracks** from the *+ Add track* row under the last track (Audio / TriOsc / Drum Rack) or the lane context menu.
 - **Piano roll navigation:** Space + drag (or middle-drag) pans, Shift + wheel scrolls horizontally, horizontal scrollbar.
-- **Not yet implemented (disabled in the UI with tooltips):** save/load/autosave/archives and WAV export (M6).
+- **Milestone 6 (persistence & export): done.** Projects autosave (~1 s after each edit) to IndexedDB; audio assets go
+  to the Origin Private File System where writable, else IndexedDB. The last project reopens on load. Project menu
+  (folder icon): New, Open… (browser with duplicate / export / delete), Save a copy, Export/Import `.phasr` archive
+  (a ZIP with `manifest.json` + every audio file), Export WAV…. Ctrl+S saves immediately. Missing audio and unavailable
+  storage are reported. WAV export renders offline (OfflineAudioContext) through the same planner, instruments,
+  effects, automation, sidechains and master chain as playback; whole song or loop region, 44.1–96 kHz, 16-bit PCM
+  (TPDF dither) or 32-bit float, optional release/effect tails, real progress, and the encoded file is re-parsed and
+  verified (header, length, finite samples) before download.
+- **Chorus / Flanger:** modulated short delay with feedback and stereo width; presets Chorus, Wide Chorus, Flanger,
+  Jet Flanger, Vibrato.
+- **Instrument automation:** TriOsc (amp & filter envelopes, cutoff, resonance, env amount, key tracking, LFO, glide,
+  master, per-oscillator level/fine/pan/pulse width) and Drum Rack pads (gain, pan, tune, decay) — right-click a knob →
+  Automate. TriOsc ramps are applied inside the synth worklet; drum pad values are sampled at each hit.
+- **Keyboard/mouse:** Space always drives the transport unless you're typing or deliberately Tab-focused a control;
+  the browser context menu is disabled outside text fields.
 
 ### Performance (measured, headless Chromium, this machine)
 
@@ -113,11 +130,13 @@ background thread, and the live 8-track/32-effect test kept pace with wall-clock
 - In the piano roll, Space starts/stops playback on key release (so it can double as the pan key). New notes default
   to 1/16; the piano roll has its own grid (default 1/16) separate from the arrangement snap.
 - Audio sidechain sources tap the source track before its fader and mute (so a muted track can still drive a duck).
-- Drum pads are one-shots (note length is ignored); TriOsc synth parameters still can't be modulated or automated.
+- Drum pads are one-shots (note length is ignored). Instrument parameters can be automated but not sidechain-modulated.
+- TriOsc automation updates at the worklet's block rate (128 samples ≈ 2.7 ms).
+- No multi-tab coordination: open the app in one tab at a time to avoid two tabs autosaving the same project.
 
 ## Keyboard
 
-Space play/stop · Enter stop · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+C / V copy/paste clips · Ctrl+D duplicate ·
+Space play/stop · Enter stop · Ctrl+S save · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+C / V copy/paste clips · Ctrl+D duplicate ·
 Delete remove · S split at playhead · L loop on/off · Ctrl+L loop clip content · M metronome · F9 mixer · R record · A automation mode ·
 TriOsc focused: Z–M / Q–P play notes, [ ] octave, Esc close.
 Piano roll focused: Delete, Ctrl+A/C/X/V/D, ↑↓ transpose (Shift = octave), ←→ nudge, Q quantize, Esc deselect. Shortcuts are ignored while typing in text fields.
