@@ -131,6 +131,9 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   effects, automation, sidechains and master chain as playback; whole song or loop region, 44.1–96 kHz, 16-bit PCM
   (TPDF dither) or 32-bit float, optional release/effect tails, real progress, and the encoded file is re-parsed and
   verified (header, length, finite samples) before download.
+- **MP3 export** (same dialog, *Format → MP3*): 128/192/256/320 kbps CBR at 44.1 or 48 kHz with an ID3 title tag.
+  Encoding runs in a Web Worker (a 3-minute song ≈ 5 s at 320 kbps) and the file is verified before download: every
+  MPEG frame header is parsed, the length is checked, and the browser decodes it back.
 - **Chorus / Flanger:** modulated short delay with feedback and stereo width; presets Chorus, Wide Chorus, Flanger,
   Jet Flanger, Vibrato.
 - **Instrument automation:** TriOsc (amp & filter envelopes, cutoff, resonance, env amount, key tracking, LFO, glide,
@@ -190,3 +193,8 @@ Press **?** in the app for the full list. Space play/stop · Enter stop · Ctrl+
 Delete remove · S split at playhead · L loop on/off · Ctrl+L loop clip content · M metronome · F9 mixer · R record · A automation mode ·
 TriOsc / Keyforge focused: Z–M / Q–P play notes, [ ] octave, Esc close.
 Piano roll focused: Delete, Ctrl+A/C/X/V/D, ↑↓ transpose (Shift = octave), ←→ nudge, Q quantize, Esc deselect. Shortcuts are ignored while typing in text fields.
+
+## Third-party code
+
+MP3 encoding uses [@breezystack/lamejs](https://github.com/shijinyu/lamejs) (a JavaScript port of LAME), licensed under the
+LGPL-3.0; it is loaded as a separate chunk only when exporting MP3.

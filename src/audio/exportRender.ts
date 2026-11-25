@@ -48,6 +48,8 @@ export interface ExportResult {
   peakDb: number;
   /** checks run on the encoded file */
   verified: { header: boolean; length: boolean; finite: boolean };
+  /** the rendered (trimmed) samples, for other encoders such as MP3 */
+  audio: { left: Float32Array; right: Float32Array };
 }
 
 const SILENCE = Math.pow(10, -90 / 20);
@@ -213,6 +215,7 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
     tailSec: Math.max(0, outFrames / sr - range.seconds),
     peakDb: peak > 0 ? 20 * Math.log10(peak) : -Infinity,
     verified,
+    audio: { left: L, right: R },
   };
 }
 

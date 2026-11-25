@@ -275,7 +275,7 @@ export function Toolbar() {
         <MixerButton />
         <MidiButton />
         <div className="mx-1 h-6 w-px bg-line" />
-        <IconButton title="Export WAV…" onClick={openExportDialog}>
+        <IconButton title="Export audio (WAV / MP3)…" onClick={openExportDialog}>
           <Download size={14} />
         </IconButton>
         <div className="ml-1 flex items-center gap-1.5" title="Master output level">

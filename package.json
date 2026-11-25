@@ -13,6 +13,7 @@
     "bench": "vitest run --config bench/vitest.config.ts --disableConsoleIntercept"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "lucide-react": "^1.80.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

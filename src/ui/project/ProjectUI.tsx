@@ -3,7 +3,8 @@ import { Check, Copy, Download, FilePlus2, FolderOpen, HardDrive, Loader2, Packa
 import { engine } from '../../audio/engine';
 import { exportRange, type ExportRangeMode } from '../../audio/exportPlan';
 import { renderProjectToWav, type ExportResult } from '../../audio/exportRender';
-import type { WavFormat } from '../../audio/wav';
+import { MP3_BITRATES, type Mp3Bitrate } from '../../audio/mp3';
+import { encodeMp3Async, verifyMp3, type Mp3Verification } from '../../audio/mp3Export';
 import { formatSeconds } from '../../core/time';
 import { storageEstimate, type ProjectMeta } from '../../persistence/db';
 import { downloadBlob, safeFileName } from '../../persistence/download';
@@ -97,7 +98,7 @@ export function ProjectControls() {
           {item(<Package size={13} />, 'Export project archive (.phasr)', () => void exportArchive())}
           {item(<Upload size={13} />, 'Import project archive…', () => importInput.current?.click())}
           <div className="my-1 h-px bg-line" />
-          {item(<Download size={13} />, 'Export WAV…', () => setDialog('export'))}
+          {item(<Download size={13} />, 'Export audio (WAV / MP3)…', () => setDialog('export'))}
         </div>
       )}
       <input
@@ -208,10 +209,16 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
   const project = useProjectStore((s) => s.project);
   const [range, setRange] = useState<ExportRangeMode>(project.loop.enabled ? 'loop' : 'song');
   const [sr, setSr] = useState(engine.ctx?.sampleRate === 48000 ? 48000 : 44100);
-  const [format, setFormat] = useState<WavFormat>('pcm16');
+  const [format, setFormat] = useState<'pcm16' | 'float32' | 'mp3'>('pcm16');
+  const [kbps, setKbps] = useState<Mp3Bitrate>(320);
   const [tail, setTail] = useState(true);
   const [progress, setProgress] = useState<number | null>(null);
+  const [phase, setPhase] = useState('Rendering');
   const [result, setResult] = useState<ExportResult | null>(null);
+  const [mp3, setMp3] = useState<{ bytes: number; kbps: number; check: Mp3Verification } | null>(null);
+  const isMp3 = format === 'mp3';
+  // MP3 carries at most 48 kHz
+  const rate = isMp3 && sr > 48000 ? 48000 : sr;
   let rangeText = '';
   let rangeOk = true;
   try {
@@ -223,13 +230,35 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
   }
   const run = async () => {
     setResult(null);
+    setMp3(null);
     setProgress(0);
+    setPhase('Rendering');
+    const name = `${safeFileName(getProject().name)}${range === 'loop' ? ' (loop)' : ''}`;
     try {
-      const res = await renderProjectToWav(getProject(), engine.assets, { sampleRate: sr, range, tail, format, onProgress: setProgress });
+      // MP3: render to float first (0–70 %), then encode (70–100 %)
+      const res = await renderProjectToWav(getProject(), engine.assets, {
+        sampleRate: rate,
+        range,
+        tail,
+        format: isMp3 ? 'float32' : format,
+        onProgress: (f) => setProgress(isMp3 ? f * 0.7 : f),
+      });
       setResult(res);
       const ok = res.verified.header && res.verified.length && res.verified.finite;
-      if (!ok) uiToast('error', 'The rendered file failed verification and was not downloaded.');
-      else downloadBlob(new Blob([res.wav], { type: 'audio/wav' }), `${safeFileName(getProject().name)}${range === 'loop' ? ' (loop)' : ''}.wav`);
+      if (!ok) {
+        uiToast('error', 'The rendered file failed verification and was not downloaded.');
+        return;
+      }
+      if (!isMp3) {
+        downloadBlob(new Blob([res.wav], { type: 'audio/wav' }), `${name}.wav`);
+        return;
+      }
+      setPhase('Encoding MP3');
+      const bytes = await encodeMp3Async(res.audio.left, res.audio.right, rate, kbps, getProject().name, (f) => setProgress(0.7 + f * 0.3));
+      const check = await verifyMp3(bytes, res.durationSec, rate);
+      setMp3({ bytes: bytes.length, kbps, check });
+      if (!check.ok) uiToast('error', 'The MP3 failed verification and was not downloaded.');
+      else downloadBlob(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'audio/mpeg' }), `${name}.mp3`);
     } catch (e) {
       uiToast('error', `Export failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -239,7 +268,7 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
   const busy = progress !== null;
   const row = 'flex items-center justify-between gap-3 py-1.5';
   return (
-    <Modal title="Export WAV" onClose={() => !busy && onClose()} width={440}>
+    <Modal title="Export audio" onClose={() => !busy && onClose()} width={440}>
       <div className="flex flex-col p-3 text-[12px]">
         <div className={row}>
           <span className="text-muted">Range</span>
@@ -251,21 +280,34 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
         <div className={`-mt-1 pb-1 text-right text-[10px] ${rangeOk ? 'text-dim' : 'text-bad'}`}>{rangeText}</div>
         <div className={row}>
           <span className="text-muted">Sample rate</span>
-          <select value={sr} onChange={(e) => setSr(Number(e.target.value))} disabled={busy}>
+          <select value={rate} onChange={(e) => setSr(Number(e.target.value))} disabled={busy}>
             {[44100, 48000, 88200, 96000].map((r) => (
-              <option key={r} value={r}>
-                {(r / 1000).toFixed(1)} kHz
+              <option key={r} value={r} disabled={isMp3 && r > 48000}>
+                {(r / 1000).toFixed(1)} kHz{isMp3 && r > 48000 ? ' (WAV only)' : ''}
               </option>
             ))}
           </select>
         </div>
         <div className={row}>
           <span className="text-muted">Format</span>
-          <select value={format} onChange={(e) => setFormat(e.target.value as WavFormat)} disabled={busy}>
-            <option value="pcm16">16-bit PCM (dithered)</option>
-            <option value="float32">32-bit float</option>
+          <select value={format} onChange={(e) => setFormat(e.target.value as 'pcm16' | 'float32' | 'mp3')} disabled={busy} data-testid="export-format">
+            <option value="pcm16">WAV · 16-bit PCM (dithered)</option>
+            <option value="float32">WAV · 32-bit float</option>
+            <option value="mp3">MP3 (smaller, for sharing)</option>
           </select>
         </div>
+        {isMp3 && (
+          <div className={row}>
+            <span className="text-muted">MP3 quality</span>
+            <select value={kbps} onChange={(e) => setKbps(Number(e.target.value) as Mp3Bitrate)} disabled={busy} data-testid="export-bitrate">
+              {MP3_BITRATES.map((k) => (
+                <option key={k} value={k}>
+                  {k} kbps{k === 320 ? ' (best)' : k === 128 ? ' (smallest)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <label className={`${row} cursor-pointer`}>
           <span className="text-muted">Include release &amp; effect tails</span>
           <input type="checkbox" checked={tail} onChange={(e) => setTail(e.target.checked)} disabled={busy} />
@@ -277,7 +319,7 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
               <div className="h-full bg-accent transition-[width]" style={{ width: `${Math.round((progress ?? 0) * 100)}%` }} />
             </div>
             <div className="mt-1 flex items-center gap-1 text-[10px] text-muted">
-              <Loader2 size={11} className="animate-spin" /> Rendering… {Math.round((progress ?? 0) * 100)}%
+              <Loader2 size={11} className="animate-spin" /> {phase}… {Math.round((progress ?? 0) * 100)}%
             </div>
           </div>
         )}
@@ -287,11 +329,18 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
               <Check size={12} className="text-ok" /> Exported {formatSeconds(result.durationSec)} · {(result.sampleRate / 1000).toFixed(1)} kHz · stereo
             </div>
             <div className="text-[10px] text-muted">
-              Range {formatSeconds(result.rangeSec)} + tail {result.tailSec.toFixed(2)} s · {result.frames.toLocaleString()} frames · peak {Number.isFinite(result.peakDb) ? `${result.peakDb.toFixed(1)} dBFS` : 'silent'} · {(result.wav.byteLength / 1e6).toFixed(1)} MB
+              Range {formatSeconds(result.rangeSec)} + tail {result.tailSec.toFixed(2)} s · {result.frames.toLocaleString()} frames · peak {Number.isFinite(result.peakDb) ? `${result.peakDb.toFixed(1)} dBFS` : 'silent'}{mp3 ? '' : ` · ${(result.wav.byteLength / 1e6).toFixed(1)} MB`}
             </div>
-            <div className="text-[10px] text-muted">
-              Verified: header {result.verified.header ? '✓' : '✗'} · length {result.verified.length ? '✓' : '✗'} · samples {result.verified.finite ? '✓' : '✗'}
-            </div>
+            {mp3 ? (
+              <div className="text-[10px] text-muted">
+                MP3 {mp3.kbps} kbps · {(mp3.bytes / 1e6).toFixed(1)} MB · {mp3.check.info.frames.toLocaleString()} frames · structure {mp3.check.info.wellFormed ? '✓' : '✗'} · decodes{' '}
+                {mp3.check.decodes === null ? '—' : mp3.check.decodes ? '✓' : '✗'}
+              </div>
+            ) : (
+              <div className="text-[10px] text-muted">
+                Verified: header {result.verified.header ? '✓' : '✗'} · length {result.verified.length ? '✓' : '✗'} · samples {result.verified.finite ? '✓' : '✗'}
+              </div>
+            )}
           </div>
         )}
         <div className="mt-3 flex justify-end gap-2">
