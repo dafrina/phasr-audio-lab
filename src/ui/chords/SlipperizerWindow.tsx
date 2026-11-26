@@ -4,6 +4,7 @@
  * Built for people who don't know music theory: chords are shown as pads
  * on the keys that trigger them, and everything can be auditioned by click.
  */
+import { DanglingSlippers } from './DanglingSlippers';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Footprints, Power, Wand2, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
@@ -49,6 +50,15 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
   const clipCount = useProjectStore((s) => Object.values(s.project.clips).filter((c) => c.trackId === trackId && c.kind === 'midi').length);
   const setUi = useUiStore((s) => s.set);
   const root = useRef<HTMLDivElement>(null);
+  const [winH, setWinH] = useState(400);
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWinH(el.offsetHeight));
+    ro.observe(el);
+    setWinH(el.offsetHeight);
+    return () => ro.disconnect();
+  }, []);
   const [pos, setPos] = useState(() => ({ x: Math.max(8, (window.innerWidth - WIN_W) / 2), y: Math.max(56, window.innerHeight - 640) }));
   const dragWin = useRef<{ dx: number; dy: number } | null>(null);
   const [padDown, setPadDown] = useState<number | null>(null);
@@ -118,6 +128,7 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
   );
 
   return (
+    <>
     <div
       ref={root}
       tabIndex={-1}
@@ -334,5 +345,8 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
 
       <KeyboardStrip trackId={trackId} kb={kb} low={48} high={84} />
     </div>
+    {/* the charm: a pair of slippers dangling from the window's bottom edge */}
+    <DanglingSlippers x={pos.x + 64} y={pos.y + winH} />
+    </>
   );
 }
