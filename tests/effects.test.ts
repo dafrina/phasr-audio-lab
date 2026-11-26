@@ -241,3 +241,30 @@ describe('send channels', () => {
     expect(estimateTailSeconds({ ...sending, sends: sending.sends.map((b, k) => (k === 0 ? { ...b, mute: true } : b)) }, () => true)).toBeLessThan(base + 0.5);
   });
 });
+
+describe('Auto-Filter', () => {
+  it('has sane defaults, sanitizes saved settings and syncs its LFO to the tempo', async () => {
+    const { createEffectSlot, sanitizeEffect, autoFilterLfoHz } = await import('../src/audio/effects/specs');
+    const s = createEffectSlot('autofilter');
+    if (s.type !== 'autofilter') throw new Error('type');
+    expect(s.params).toMatchObject({ mode: 'lowpass', sync: true, division: 4, mix: 1 });
+    const bad = sanitizeEffect({ id: 'x', type: 'autofilter', enabled: true, params: { mode: 'weird', cutoff: 1e9, reso: -3, lfoDepth: 99, shape: 'zigzag', division: 3, rate: 0 } });
+    expect(bad).toMatchObject({ type: 'autofilter', params: { mode: 'lowpass', cutoff: 18000, reso: 0, lfoDepth: 4, shape: 'sine', division: 4, rate: 0.05 } });
+    // one cycle per bar at 120 BPM = 0.5 Hz; free rate as set
+    expect(autoFilterLfoHz({ ...s.params, sync: true, division: 4 }, 120)).toBeCloseTo(0.5);
+    expect(autoFilterLfoHz({ ...s.params, sync: false, rate: 3 }, 120)).toBe(3);
+  });
+
+  it('cutoff, resonance, LFO amount and mix can be automated; cutoff (octaves) and wet level sidechained', async () => {
+    const { createEffectSlot } = await import('../src/audio/effects/specs');
+    const { automatableParams } = await import('../src/project/automation');
+    const { createTrack } = await import('../src/project/defaults');
+    const { isModulatable, modParamInfo } = await import('../src/project/modulation');
+    const slot = createEffectSlot('autofilter');
+    expect(automatableParams(slot).map((p) => p.key)).toEqual(['cutoff', 'reso', 'lfoDepth', 'mix']);
+    const t = { ...createTrack('audio', 0), effects: [slot] };
+    expect(isModulatable(t, { kind: 'fx', slotId: slot.id, param: 'cutoff' })).toBe(true);
+    expect(isModulatable(t, { kind: 'fx', slotId: slot.id, param: 'reso' })).toBe(false);
+    expect(modParamInfo(t, { kind: 'fx', slotId: slot.id, param: 'cutoff' })?.depth.format(2)).toBe('+2.00 oct');
+  });
+});

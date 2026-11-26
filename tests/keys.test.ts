@@ -609,3 +609,60 @@ describe('idle: a silent Keyforge costs nothing and wakes on the next note', () 
     expect(db(peak(slice(L, SR, 1.45, 1.7)))).toBeGreaterThan(db(peak(slice(L, SR, 0, 0.2))) - 30);
   });
 });
+
+describe('808 sub bass', () => {
+  const c808 = (over: Record<string, number> = {}) => cfg('sub808', { click: 0, drive: 0, ...over });
+  const pitchAt = (L: Float32Array, R: Float32Array, from: number, to: number, near: number) => peakNear(spectrum(slice(mono(L, R), SR, from, to), SR, 1 << 16), near, near * 0.3).f;
+
+  it('starts with a pitch knock above the note and settles on the note', () => {
+    const [L, R] = renderKeys(c808({ pitchAmt: 12, pitchDecay: 0.04, glide: 0 }), hit(36, 0.9, 0, 1.5), 1.2, SR);
+    const f1 = pianoFundamental(36, 0); // C2 ≈ 65.4 Hz
+    expect(pitchAt(L, R, 0.4, 1.1, f1)).toBeGreaterThan(f1 * 0.98);
+    expect(pitchAt(L, R, 0.4, 1.1, f1)).toBeLessThan(f1 * 1.02);
+    // the first few ms are clearly higher (the knock)
+    const early = peakNear(spectrum(slice(mono(L, R), SR, 0, 0.03), SR, 1 << 15), f1 * 1.6, f1 * 0.7).f;
+    expect(early).toBeGreaterThan(f1 * 1.2);
+  });
+
+  it('legato: an overlapping note slides there without a new attack; a separate note jumps', () => {
+    const score: ScoreEvent[] = [
+      { t: 0, type: 'on', id: 1, note: 36, vel: 0.9 },
+      { t: 0.5, type: 'on', id: 2, note: 43, vel: 0.9 }, // still holding 36 → slide to G2
+      { t: 1.2, type: 'off', id: 2 },
+      { t: 1.25, type: 'off', id: 1 },
+    ];
+    const [L, R] = renderKeys(c808({ pitchAmt: 0, glide: 0.1, decay: 6 }), score, 1.2, SR);
+    const g2 = pianoFundamental(43, 0);
+    expect(Math.abs(pitchAt(L, R, 0.8, 1.15, g2) / g2 - 1)).toBeLessThan(0.02);
+    // no new attack: the level just after the slide isn't above the level just before it
+    expect(db(rms(slice(mono(L, R), SR, 0.5, 0.55)))).toBeLessThan(db(rms(slice(mono(L, R), SR, 0.44, 0.49))) + 1);
+  });
+
+  it('releasing the top key returns to the key still held (mono, last note wins)', () => {
+    const score: ScoreEvent[] = [
+      { t: 0, type: 'on', id: 1, note: 36, vel: 0.9 },
+      { t: 0.3, type: 'on', id: 2, note: 48, vel: 0.9 },
+      { t: 0.6, type: 'off', id: 2 },
+    ];
+    const [L, R] = renderKeys(c808({ pitchAmt: 0, glide: 0, decay: 6 }), score, 1.1, SR);
+    const c2 = pianoFundamental(36, 0);
+    expect(Math.abs(pitchAt(L, R, 0.7, 1.05, c2) / c2 - 1)).toBeLessThan(0.02);
+  });
+
+  it('"Always" slides between separate notes too; the decay follows the Decay knob', () => {
+    const score: ScoreEvent[] = [
+      { t: 0, type: 'on', id: 1, note: 36, vel: 0.9 },
+      { t: 0.2, type: 'off', id: 1 },
+      { t: 0.3, type: 'on', id: 2, note: 48, vel: 0.9 },
+    ];
+    const [L, R] = renderKeys(c808({ pitchAmt: 0, glide: 0.3, glideMode: 1, release: 2, decay: 6 }), score, 0.36, SR);
+    // 30 ms after the second note it is still on its way up (far from both)
+    const c3 = pianoFundamental(48, 0);
+    const mid = peakNear(spectrum(slice(mono(L, R), SR, 0.3, 0.36), SR, 1 << 14), c3 * 0.75, c3 * 0.3).f;
+    expect(mid).toBeLessThan(c3 * 0.95);
+    const short = renderKeys(c808({ decay: 0.3 }), hit(36, 0.9, 0, 3), 1, SR);
+    const long = renderKeys(c808({ decay: 4 }), hit(36, 0.9, 0, 3), 1, SR);
+    const at = (x: [Float32Array, Float32Array]) => db(rms(slice(mono(x[0], x[1]), SR, 0.8, 0.95)));
+    expect(at(long)).toBeGreaterThan(at(short) + 20);
+  });
+});

@@ -43,6 +43,13 @@ export const KEYS_PRESETS: KeysPreset[] = [
     lfoRate: 0.2, lfoDepth: 0.2, space: 0.5, delayMix: 0.45, delayBeats: 0.75, drive: 0.25, ensemble: 0.3, master: 0.85,
   }),
   preset('Acid Line', 'analog', 'Techno', { unison: 1, detune: 0, spread: 0, sub: 0, noise: 0, cutoff: 260, reso: 0.85, envAmt: 0.55, keyTrack: 0.3, velFilter: 0.8, fAttack: 0.001, fDecay: 0.28, fSustain: 0.05, fRelease: 0.1, attack: 0.001, decay: 0.5, sustainLvl: 0.7, release: 0.06, drive: 0.6, ensemble: 0, mono: 1, glide: 0.06, master: 0.65 }),
+  // 808 sub basses
+  preset('Trap 808', 'sub808', '808', { decay: 2.6, glide: 0.12, drive: 0.35, pitchAmt: 7, click: 0.3 }),
+  preset('Long Boom', 'sub808', '808', { decay: 5, release: 0.6, drive: 0.12, tone: 2200, pitchAmt: 5, click: 0.15, punch: 0.25 }),
+  preset('Distorted 808', 'sub808', '808', { decay: 2.2, drive: 0.85, tone: 7000, punch: 0.6, click: 0.45, glide: 0.1 }),
+  preset('Slide 808', 'sub808', '808', { decay: 3, glide: 0.22, glideMode: 1, drive: 0.3, pitchAmt: 4 }),
+  preset('Techno Sub', 'sub808', '808', { decay: 0.55, release: 0.08, pitchAmt: 3, pitchDecay: 0.03, click: 0.1, punch: 0.5, drive: 0.1, tone: 1800, glide: 0 }),
+  preset('Kick-Bass', 'sub808', '808', { decay: 0.4, release: 0.05, pitchAmt: 20, pitchDecay: 0.035, click: 0.7, punch: 0.8, drive: 0.4, glide: 0 }),
 ];
 
 export function keysPreset(name: string): KeysPreset | undefined {

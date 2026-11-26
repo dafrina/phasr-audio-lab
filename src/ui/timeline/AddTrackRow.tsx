@@ -37,6 +37,14 @@ export function AddTrackRow({ count }: { count: number }) {
             </button>
           );
         })}
+        <button
+          type="button"
+          title="Add an 808 sub bass (a Keyforge track on the Trap 808 preset): long booming sine with knock, drive and glide — play overlapping notes to slide"
+          onClick={() => addNewTrack('keys', { keysPreset: 'Trap 808', name: '808' })}
+          className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 text-[11px] font-semibold text-[#f97316] hover:bg-line-2"
+        >
+          808
+        </button>
       </div>
     </div>
   );

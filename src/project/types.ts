@@ -132,7 +132,27 @@ export type InstrumentConfig =
   | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string }
   | { type: 'sampler'; zones: SamplerZone[]; params: SamplerParams; autoMap: boolean; presetName: string };
 
-export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'chorus';
+export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'autofilter';
+
+export type AutoFilterMode = 'lowpass' | 'highpass' | 'bandpass';
+export type LfoShape = 'sine' | 'triangle' | 'square' | 'sawtooth';
+/** Auto-Filter: a resonant 24 dB/oct filter whose cutoff an LFO (tempo-synced or free) sweeps. */
+export interface AutoFilterParams {
+  mode: AutoFilterMode;
+  /** Hz */
+  cutoff: number;
+  /** 0..1 */
+  reso: number;
+  /** LFO sweep, octaves either side of the cutoff */
+  lfoDepth: number;
+  shape: LfoShape;
+  sync: boolean;
+  /** LFO period in beats when synced */
+  division: number;
+  /** Hz when free */
+  rate: number;
+  mix: number;
+}
 
 export interface EqParams {
   lowGain: number;
@@ -205,7 +225,8 @@ export type EffectSlot =
   | { id: string; enabled: boolean; type: 'delay'; params: DelayParams }
   | { id: string; enabled: boolean; type: 'reverb'; params: ReverbParams }
   | { id: string; enabled: boolean; type: 'peq'; params: PeqParams }
-  | { id: string; enabled: boolean; type: 'chorus'; params: ChorusParams };
+  | { id: string; enabled: boolean; type: 'chorus'; params: ChorusParams }
+  | { id: string; enabled: boolean; type: 'autofilter'; params: AutoFilterParams };
 
 /** What an automation lane controls. Effect params use a key like 'lowGain' or 'b3.freq'. */
 export type AutomationTarget =

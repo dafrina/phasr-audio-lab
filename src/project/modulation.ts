@@ -126,6 +126,9 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
       return [wetParam(), { key: 'preDelay', label: 'Pre-delay', depth: msDepth(200, 40) }];
     case 'chorus':
       return [wetParam(), { key: 'rate', label: 'Rate', depth: octDepth }, { key: 'depth', label: 'Depth', depth: msDepth(10, 2) }];
+    case 'autofilter':
+      // the sidechain opens (or with negative depth closes) the filter, in octaves
+      return [{ key: 'cutoff', label: 'Cutoff', depth: { ...octDepth, min: -6, max: 6, default: 2 } }, wetParam()];
   }
 }
 

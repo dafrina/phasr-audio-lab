@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Power, Save, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import {
+  AUTOFILTER_MODES,
+  AUTOFILTER_SPECS,
   CHORUS_SPECS,
+  LFO_DIVISIONS,
+  LFO_SHAPES,
   COMP_SPECS,
   DELAY_DIVISIONS,
   DELAY_SPECS,
@@ -15,7 +19,7 @@ import {
   saveUserEffectPresets,
   type EffectPreset,
 } from '../../audio/effects/specs';
-import type { EffectSlot, EqParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, EffectSlot, EqParams, LfoShape } from '../../project/types';
 import { moveEffect, removeEffect, replaceEffectParams, setEffectEnabled, setEffectParams } from '../../state/effectActions';
 import { useProjectStore } from '../../state/projectStore';
 import { uiToast } from '../../state/uiStore';
@@ -27,6 +31,7 @@ const TYPE_COLOR: Record<EffectSlot['type'], string> = {
   eq: '#22d3ee',
   peq: '#f472b6',
   chorus: '#60a5fa',
+  autofilter: '#e879f9',
   compressor: '#facc15',
   delay: '#4ade80',
   reverb: '#9b8aff',
@@ -128,6 +133,7 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
           </>
         )}
         {slot.type === 'delay' && <DelayBody trackId={trackId} slot={slot} color={color} set={set} />}
+        {slot.type === 'autofilter' && <AutoFilterBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'chorus' && (
           <>
             <div className="flex justify-between">
@@ -194,6 +200,115 @@ function DelayBody({ trackId, slot, color, set }: { trackId: string; slot: Extra
         <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'mix' }} spec={DELAY_SPECS.mix} value={p.mix} color={color} onChange={(v) => set({ mix: v }, 'mix')} />
       </div>
     </>
+  );
+}
+
+function AutoFilterBody({ trackId, slot, color, set }: { trackId: string; slot: Extract<EffectSlot, { type: 'autofilter' }>; color: string; set: (p: Partial<EffectSlot['params']>, k: string) => void }) {
+  const p = slot.params;
+  const knob = (key: 'cutoff' | 'reso' | 'lfoDepth' | 'mix', k: string) => (
+    <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: key }} spec={AUTOFILTER_SPECS[key]} value={p[key]} color={color} onChange={(v) => set({ [key]: v } as Partial<AutoFilterParams>, k)} />
+  );
+  return (
+    <>
+      <FilterCurve params={p} color={color} />
+      <div className="flex items-center gap-1 text-[10px]">
+        <select value={p.mode} onChange={(e) => set({ mode: e.target.value as AutoFilterMode }, 'mode')} title="Filter type (24 dB/oct)" className="flex-1">
+          {AUTOFILTER_MODES.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        <select value={p.shape} onChange={(e) => set({ shape: e.target.value as LfoShape }, 'shape')} title="LFO shape" className="w-[64px]">
+          {LFO_SHAPES.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex justify-between">
+        {knob('cutoff', 'cut')}
+        {knob('reso', 'res')}
+        {knob('lfoDepth', 'lfo')}
+        {knob('mix', 'mix')}
+      </div>
+      <div className="flex items-center gap-1 text-[10px]">
+        <button
+          type="button"
+          title="Sync the LFO to the project tempo"
+          onClick={() => set({ sync: !p.sync }, 'sync')}
+          className={`h-5 rounded px-1.5 font-semibold uppercase tracking-wide ${p.sync ? 'text-black' : 'bg-panel-3 text-muted'}`}
+          style={p.sync ? { background: color } : undefined}
+        >
+          Sync
+        </button>
+        {p.sync ? (
+          <select value={p.division} onChange={(e) => set({ division: Number(e.target.value) }, 'div')} title="One LFO cycle lasts…" className="flex-1">
+            {LFO_DIVISIONS.map((d) => (
+              <option key={d.label} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="flex flex-1 justify-center">
+            <Knob spec={AUTOFILTER_SPECS.rate} value={p.rate} size={22} color={color} onChange={(v) => set({ rate: v }, 'rate')} />
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Auto-Filter response at the cutoff, with the LFO's sweep range shaded. */
+function FilterCurve({ params, color }: { params: AutoFilterParams; color: string }) {
+  const W = 224;
+  const H = 54;
+  const nodes = useRef<BiquadFilterNode[] | null>(null);
+  const [path, setPath] = useState('');
+  const fx = (f: number) => (Math.log10(Math.max(20, f) / 20) / 3) * W;
+  useEffect(() => {
+    const ctx = engine.ctx;
+    if (!ctx) return;
+    nodes.current ??= [new BiquadFilterNode(ctx), new BiquadFilterNode(ctx)];
+    const [a, b] = nodes.current as [BiquadFilterNode, BiquadFilterNode];
+    const bp = params.mode === 'bandpass';
+    for (const n of [a, b]) {
+      n.type = params.mode;
+      n.frequency.value = params.cutoff;
+    }
+    a.Q.value = bp ? 0.7 + params.reso * 2 : 20 * Math.log10(0.5412);
+    b.Q.value = bp ? 0.7 + params.reso * 9 : 20 * Math.log10(1.3066) + params.reso * 16;
+    const N = 120;
+    const freqs = new Float32Array(N);
+    for (let i = 0; i < N; i++) freqs[i] = 20 * Math.pow(1000, i / (N - 1));
+    const total = new Float32Array(N).fill(0);
+    const mag = new Float32Array(N);
+    const phase = new Float32Array(N);
+    for (const n of [a, b]) {
+      n.getFrequencyResponse(freqs, mag, phase);
+      for (let i = 0; i < N; i++) total[i] = (total[i] as number) + 20 * Math.log10(Math.max(1e-6, mag[i] as number));
+    }
+    const pts: string[] = [];
+    for (let i = 0; i < N; i++) {
+      const x = (i / (N - 1)) * W;
+      // 0 dB a third of the way down; −36 dB at the bottom
+      const y = H * 0.33 - ((total[i] as number) / 36) * (H * 0.67);
+      pts.push(`${i ? 'L' : 'M'}${x.toFixed(1)},${Math.min(H, Math.max(1, y)).toFixed(1)}`);
+    }
+    setPath(pts.join(' '));
+  }, [params]);
+  const lo = params.cutoff / Math.pow(2, params.lfoDepth);
+  const hi = params.cutoff * Math.pow(2, params.lfoDepth);
+  return (
+    <svg width={W} height={H} className="rounded bg-base" aria-label="Filter response">
+      {params.lfoDepth > 0.01 && <rect x={fx(lo)} y={0} width={Math.max(1, fx(hi) - fx(lo))} height={H} fill={color} opacity={0.12} />}
+      {[100, 1000, 10000].map((f) => (
+        <line key={f} x1={fx(f)} x2={fx(f)} y1={0} y2={H} stroke="#1f1f2e" />
+      ))}
+      <path d={path} fill="none" stroke={color} strokeWidth={1.5} />
+    </svg>
   );
 }
 

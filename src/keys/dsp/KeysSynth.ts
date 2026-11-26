@@ -9,6 +9,7 @@ import { MAX_BLOCK, type KeysEngine } from './common';
 import { EPianoEngine, type EPianoParams } from './epiano';
 import { OrganEngine, type OrganParams } from './organ';
 import { PianoEngine, type PianoParams } from './piano';
+import { Sub808Engine, type Sub808Params } from './sub808';
 
 const SWAP_FADE_SEC = 0.06;
 
@@ -22,6 +23,8 @@ export function createEngine(type: KeysEngineType, sampleRate: number, params: R
       return new OrganEngine(sampleRate, params as unknown as OrganParams);
     case 'analog':
       return new AnalogEngine(sampleRate, params as unknown as AnalogParams);
+    case 'sub808':
+      return new Sub808Engine(sampleRate, params as unknown as Sub808Params);
   }
 }
 

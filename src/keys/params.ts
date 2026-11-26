@@ -5,7 +5,7 @@
  */
 import type { NumericParamSpec } from '../synth/params';
 
-export type KeysEngineType = 'piano' | 'epiano' | 'organ' | 'analog';
+export type KeysEngineType = 'piano' | 'epiano' | 'organ' | 'analog' | 'sub808';
 
 export interface KeysParamSpec extends NumericParamSpec {
   key: string;
@@ -133,6 +133,24 @@ export const KEYS_ENGINES: Record<KeysEngineType, { label: string; description: 
       p('ensemble', 'Output', 'Ensemble', 0, 1, 0.5, pct),
       p('mono', 'Output', 'Mode', 0, 1, 0, (v) => (v >= 0.5 ? 'Mono' : 'Poly'), 'linear', { step: 1, choices: [{ value: 0, label: 'Poly' }, { value: 1, label: 'Mono' }] }),
       p('glide', 'Output', 'Glide', 0, 1, 0, (v) => (v <= 0.0005 ? 'Off' : secs(v))),
+      MASTER,
+    ],
+  },
+  sub808: {
+    label: '808',
+    description: 'Sub bass: a sine with a pitch knock, click, long decay, drive — and 808 glide (overlapping notes slide).',
+    color: '#f97316',
+    params: [
+      p('pitchAmt', 'Knock', 'Pitch', 0, 24, 7, (v) => `+${v.toFixed(1)} st`),
+      p('pitchDecay', 'Knock', 'Time', 0.005, 0.3, 0.05, secs, 'exp'),
+      p('click', 'Knock', 'Click', 0, 1, 0.3, pct),
+      p('punch', 'Knock', 'Punch', 0, 1, 0.4, pct),
+      p('decay', 'Body', 'Decay', 0.1, 8, 1.8, secs, 'exp'),
+      p('release', 'Body', 'Release', 0.01, 3, 0.25, secs, 'exp'),
+      p('glide', 'Glide', 'Time', 0, 1, 0.12, (v) => (v <= 0.0005 ? 'Off' : secs(v))),
+      p('glideMode', 'Glide', 'Slide', 0, 1, 0, (v) => (v >= 0.5 ? 'Always' : 'Legato'), 'linear', { step: 1, choices: [{ value: 0, label: 'Legato' }, { value: 1, label: 'Always' }] }),
+      p('drive', 'Tone', 'Drive', 0, 1, 0.25, pct),
+      p('tone', 'Tone', 'Tone', 150, 12000, 4000, hz, 'exp'),
       MASTER,
     ],
   },

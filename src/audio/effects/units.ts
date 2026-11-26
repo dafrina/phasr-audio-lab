@@ -7,10 +7,10 @@
  * All parameter changes use setTargetAtTime smoothing to avoid zipper noise.
  */
 import { dbToGain } from '../../core/ids';
-import type { ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
 import { parseBandKey } from '../../project/automation';
 import { generateImpulse } from './impulse';
-import { MAX_DELAY_SECONDS, PEQ_BANDS, delayTimeSeconds, mixGains } from './specs';
+import { MAX_DELAY_SECONDS, PEQ_BANDS, autoFilterLfoHz, delayTimeSeconds, mixGains } from './specs';
 
 const SMOOTH = 0.02;
 const EQ_LOW_FREQ = 220;
@@ -848,6 +848,133 @@ class ChorusUnit extends BaseUnit {
   }
 }
 
+/**
+ * Auto-Filter: two cascaded biquads (24 dB/oct; the resonance sits on the
+ * second) whose cutoff an LFO sweeps through their detune (in octaves, so the
+ * sweep is musical). Synced LFOs follow the tempo. Dry/wet like the others,
+ * with a sidechain-able cutoff (octaves) and wet level.
+ */
+export class AutoFilterUnit extends BaseUnit {
+  readonly type = 'autofilter' as const;
+  private readonly f1: BiquadFilterNode;
+  private readonly f2: BiquadFilterNode;
+  private readonly lfo: OscillatorNode;
+  private readonly lfoGain: GainNode;
+  private readonly dGain: GainNode;
+  private readonly wGain: GainNode;
+  private readonly wetDuck: GainNode;
+  private mode: AutoFilterMode | null = null;
+
+  constructor(ctx: BaseAudioContext, id: string) {
+    super(ctx, id);
+    this.f1 = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 900, Q: 0 });
+    this.f2 = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 900, Q: 0 });
+    this.lfo = new OscillatorNode(ctx, { type: 'sine', frequency: 0.5 });
+    this.lfoGain = new GainNode(ctx, { gain: 0 });
+    this.dGain = new GainNode(ctx);
+    this.wGain = new GainNode(ctx);
+    this.wetDuck = new GainNode(ctx, { gain: 1 });
+    this.src.connect(this.dGain);
+    this.dGain.connect(this.wet);
+    this.src.connect(this.f1);
+    this.f1.connect(this.f2);
+    this.f2.connect(this.wGain);
+    this.wGain.connect(this.wetDuck);
+    this.wetDuck.connect(this.wet);
+    this.lfo.connect(this.lfoGain);
+    this.lfoGain.connect(this.f1.detune);
+    this.lfoGain.connect(this.f2.detune);
+    this.lfo.start();
+  }
+
+  /** resonance 0..1 → the biquads' Q (dB for low/high-pass, linear for band-pass) */
+  private q(reso: number, mode: AutoFilterMode): { q1: number; q2: number } {
+    if (mode === 'bandpass') return { q1: 0.7 + reso * 2, q2: 0.7 + reso * 9 };
+    // 24 dB/oct Butterworth stages (0.54, 1.31) with the peak added on the second
+    return { q1: 20 * Math.log10(0.5412), q2: 20 * Math.log10(1.3066) + reso * 16 };
+  }
+
+  update(slot: EffectSlot, bpm: number, auto: ReadonlySet<string> = NONE): void {
+    if (slot.type !== 'autofilter') return;
+    const p: AutoFilterParams = slot.params;
+    const im = !this.initialized;
+    const typeChanged = this.mode !== p.mode;
+    if (typeChanged) {
+      this.f1.type = p.mode;
+      this.f2.type = p.mode;
+      this.mode = p.mode;
+    }
+    if (!auto.has('cutoff')) {
+      setParam(this.f1.frequency, p.cutoff, this.ctx, im);
+      setParam(this.f2.frequency, p.cutoff, this.ctx, im);
+    }
+    if (!auto.has('reso') || typeChanged) {
+      const { q1, q2 } = this.q(p.reso, p.mode);
+      setParam(this.f1.Q, q1, this.ctx, im || typeChanged);
+      setParam(this.f2.Q, q2, this.ctx, im || typeChanged);
+    }
+    if (this.lfo.type !== p.shape) this.lfo.type = p.shape;
+    setParam(this.lfo.frequency, autoFilterLfoHz(p, bpm), this.ctx, im);
+    if (!auto.has('lfoDepth')) setParam(this.lfoGain.gain, p.lfoDepth * 1200, this.ctx, im);
+    if (!auto.has('mix')) {
+      const g = mixGains(p.mix);
+      setParam(this.dGain.gain, g.dry, this.ctx, im);
+      setParam(this.wGain.gain, g.wet, this.ctx, im);
+    }
+    this.setEnabled(slot.enabled);
+    this.initialized = true;
+  }
+
+  automationParams(key: string): ParamTarget[] {
+    switch (key) {
+      case 'cutoff':
+        return [this.f1, this.f2].map((f) => ({ param: f.frequency, map: (v: number) => Math.min(20000, Math.max(20, v)), exp: true }));
+      case 'reso':
+        return [{ param: this.f2.Q, map: (v: number) => this.q(v, this.mode ?? 'lowpass').q2 }];
+      case 'lfoDepth':
+        return [{ param: this.lfoGain.gain, map: (v: number) => Math.max(0, v) * 1200 }];
+      case 'mix':
+        return [
+          { param: this.dGain.gain, map: (v) => mixGains(v).dry },
+          { param: this.wGain.gain, map: (v) => mixGains(v).wet },
+        ];
+      default:
+        return [];
+    }
+  }
+
+  override modulationInputs(key: string): ModInput[] {
+    // cutoff in octaves (through detune: the sidechain opens / closes the filter musically)
+    if (key === 'cutoff') return [this.f1, this.f2].map((f) => ({ param: f.detune, scale: (d: number) => d * 1200 }));
+    if (key === 'mix') return [{ param: this.wetDuck.gain, scale: wetDuckScale }];
+    return [];
+  }
+
+  /** magnitude response of the filter at its current settings (for the device's curve) */
+  response(freqs: Float32Array<ArrayBuffer>, out: Float32Array<ArrayBuffer>, cents = 0): void {
+    const mag = new Float32Array(freqs.length);
+    const ph = new Float32Array(freqs.length);
+    out.fill(1);
+    for (const f of [this.f1, this.f2]) {
+      const d = f.detune.value;
+      f.detune.value = d + cents;
+      f.getFrequencyResponse(freqs, mag, ph);
+      f.detune.value = d;
+      for (let i = 0; i < out.length; i++) out[i] = (out[i] as number) * (mag[i] as number);
+    }
+  }
+
+  override dispose(): void {
+    super.dispose();
+    try {
+      this.lfo.stop();
+    } catch {
+      // already stopped
+    }
+    for (const n of [this.f1, this.f2, this.lfo, this.lfoGain, this.dGain, this.wGain, this.wetDuck]) n.disconnect();
+  }
+}
+
 export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: number, automated?: ReadonlySet<string>): EffectUnit {
   let unit: BaseUnit;
   switch (slot.type) {
@@ -859,6 +986,9 @@ export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: n
       break;
     case 'chorus':
       unit = new ChorusUnit(ctx, slot.id);
+      break;
+    case 'autofilter':
+      unit = new AutoFilterUnit(ctx, slot.id);
       break;
     case 'compressor':
       unit = new CompressorUnit(ctx, slot.id);
