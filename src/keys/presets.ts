@@ -13,7 +13,8 @@ function preset(name: string, engine: KeysEngineType, category: string, o: Recor
 }
 
 export const KEYS_PRESETS: KeysPreset[] = [
-  preset('Concert Grand', 'piano', 'Piano'),
+  // full body and a bigger room: the default grand is loud enough to need a little less output
+  preset('Concert Grand', 'piano', 'Piano', { master: 0.74 }),
   preset('Felt Piano', 'piano', 'Piano', { brightness: 0.18, hardness: 0.25, hammerNoise: 0.6, sustain: 0.8, damping: 0.75, unison: 0.8, body: 0.5, tone: 4200, releaseNoise: 0.45, width: 0.4, velCurve: 1.3, room: 0.32, master: 0.6 }),
   preset('Bright Upright', 'piano', 'Piano', { brightness: 0.8, hardness: 0.7, hammerNoise: 0.45, sustain: 0.7, damping: 0.35, unison: 3.2, inharm: 1.4, stretch: 1.2, body: 0.45, tone: 16000, width: 0.35, room: 0.12 }),
   preset('Classic Tine EP', 'epiano', 'Electric Piano'),

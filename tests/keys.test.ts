@@ -156,7 +156,8 @@ describe('Keyforge piano', () => {
 
   it('physics: high partials decay faster than low ones (spectrum darkens over time)', () => {
     const note = 48;
-    const [L, R] = renderKeys(cfg('piano', { unison: 0 }), hit(note, 1), 3, SR);
+    // strings only: the board's and room's own ringing (Body/Room) would mask the partial decay
+    const [L, R] = renderKeys(cfg('piano', { unison: 0, body: 0.45, room: 0.5 }), hit(note, 1), 3, SR);
     const m = mono(L, R);
     const f1 = pianoFundamental(note, 1);
     const B = inharmonicityB(note, 1);
@@ -195,7 +196,7 @@ describe('Keyforge piano', () => {
 
   it('physics: harder strikes are brighter, not just louder', () => {
     const c = (vel: number) => {
-      const [L, R] = renderKeys(cfg('piano'), hit(60, vel), 0.6, SR);
+      const [L, R] = renderKeys(cfg('piano', { body: 0.45, room: 0.5 }), hit(60, vel), 0.6, SR);
       return spectrum(slice(mono(L, R), SR, 0.01, 0.5), SR);
     };
     const soft = c(0.25);
@@ -255,7 +256,8 @@ describe('Keyforge piano', () => {
       }
       const width = energyDb(side / mid);
       expect(width, `note ${note} width`).toBeGreaterThan(-24);
-      expect(width, `note ${note} width`).toBeLessThan(-6);
+      // (upper bound: not phasey; Body at 100 % — the chosen default — spreads the board to about −5 dB)
+      expect(width, `note ${note} width`).toBeLessThan(-4);
     }
   });
 
