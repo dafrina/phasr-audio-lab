@@ -15,7 +15,8 @@ import { recorder } from '../../audio/recorder';
 import { useRecordingStore } from '../../state/recordingStore';
 import { midiNoteName } from '../../core/time';
 import { useWindowZ } from '../common/windowStack';
-import { ARP_DIRECTIONS, ARP_PRESETS, ARP_RATES, SEQ_STEPS, arpPreset, defaultArp, type ArpConfig, type SeqStep } from '../../arp/arp';
+import { ARP_DIRECTIONS, ARP_PRESETS, ARP_RATES, SEQ_STEPS, arpPreset, defaultArp, type ArpConfig, type ArpScale, type SeqStep } from '../../arp/arp';
+import { PitchLane } from './PitchLane';
 import { arpActive, bakeArp } from '../../arp/expand';
 import { getProject, updateTrack, useProjectStore } from '../../state/projectStore';
 import { uiToast, useUiStore } from '../../state/uiStore';
@@ -162,7 +163,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
 
   const set = (part: Partial<ArpConfig>, key: string) => {
     const cur = getProject().tracks.find((t) => t.id === trackId)?.arp ?? cfg;
-    updateTrack(trackId, { arp: { ...cur, ...part, presetName: part.presetName ?? (key === 'enabled' || key === 'latch' ? cur.presetName : 'Custom') } }, 'Edit Arp-Ape-ator', { coalesce: `arp-${trackId}-${key}` });
+    updateTrack(trackId, { arp: { ...cur, ...part, presetName: part.presetName ?? (key === 'enabled' || key === 'latch' || key === 'scale' ? cur.presetName : 'Custom') } }, 'Edit Arp-Ape-ator', { coalesce: `arp-${trackId}-${key}` });
   };
   const setStep = (i: number, part: Partial<SeqStep>, key: string) => {
     const cur = getProject().tracks.find((t) => t.id === trackId)?.arp ?? cfg;
@@ -399,6 +400,12 @@ export function ArpWindow({ trackId }: { trackId: string }) {
               playStep={playStep}
               setStep={setStep}
               velDrag={velDrag}
+              trackId={trackId}
+              onSteps={(fn) => {
+                const cur = getProject().tracks.find((t) => t.id === trackId)?.arp ?? cfg;
+                set({ steps: fn(cur.steps) }, 'melody');
+              }}
+              onScale={(s) => set({ scale: s }, 'scale')}
               recCursor={stepRec?.cursor ?? null}
               onPickRecStep={(i) => {
                 const next = { cursor: i, root: stepRecRef.current?.root ?? null };
@@ -428,7 +435,13 @@ function StepGrid({
   velDrag,
   recCursor,
   onPickRecStep,
+  trackId,
+  onSteps,
+  onScale,
 }: {
+  trackId: string;
+  onSteps: (fn: (steps: SeqStep[]) => SeqStep[]) => void;
+  onScale: (s: ArpScale) => void;
   cfg: ArpConfig;
   playStep: number;
   setStep: (i: number, part: Partial<SeqStep>, key: string) => void;
@@ -482,6 +495,7 @@ function StepGrid({
           </button>
         ))}
       </div>
+      <PitchLane trackId={trackId} cfg={cfg} cols={cols} onSteps={onSteps} onScale={onScale} />
       <div className={ROW} style={cols}>
         {rowLabel('Velocity', 'Drag up / down')}
         {cfg.steps.map((s, i) => (
@@ -540,24 +554,6 @@ function StepGrid({
           >
             {s.prob >= 1 ? '·' : `${Math.round(s.prob * 100)}%`}
           </button>
-        ))}
-      </div>
-      <div className={ROW} style={cols}>
-        {rowLabel('Pitch', 'Semitones above / below the held key (wheel or click ±)')}
-        {cfg.steps.map((s, i) => (
-          <div
-            key={i}
-            className={`flex h-6 select-none flex-col items-center justify-center rounded bg-panel-3 text-[10px] ${!s.on || i >= cfg.length ? 'opacity-20' : 'text-fg'}`}
-            title="Pitch: semitones from the held key — scroll, or click the top / bottom half"
-            onWheel={(e) => s.on && setStep(i, { transpose: Math.max(-24, Math.min(24, s.transpose + (e.deltaY < 0 ? 1 : -1))) }, 'tr')}
-            onClick={(e) => {
-              if (!s.on) return;
-              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              setStep(i, { transpose: Math.max(-24, Math.min(24, s.transpose + (e.clientY < r.top + r.height / 2 ? 1 : -1))) }, 'tr');
-            }}
-          >
-            {s.transpose > 0 ? `+${s.transpose}` : s.transpose}
-          </div>
         ))}
       </div>
     </div>

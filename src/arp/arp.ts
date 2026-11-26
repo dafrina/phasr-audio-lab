@@ -15,6 +15,39 @@
 
 export type ArpDirection = 'up' | 'down' | 'updown' | 'random' | 'played';
 export type ArpMode = 'arp' | 'seq';
+/** the sequencer's melody lane snaps step pitches to this scale (relative to the held key); playback ignores it */
+export type ArpScale = 'chromatic' | 'major' | 'minor' | 'dorian' | 'phrygian' | 'penta';
+
+export const ARP_SCALES: { value: ArpScale; label: string; degrees: number[] }[] = [
+  { value: 'chromatic', label: 'Chromatic', degrees: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+  { value: 'major', label: 'Major', degrees: [0, 2, 4, 5, 7, 9, 11] },
+  { value: 'minor', label: 'Minor', degrees: [0, 2, 3, 5, 7, 8, 10] },
+  { value: 'dorian', label: 'Dorian', degrees: [0, 2, 3, 5, 7, 9, 10] },
+  { value: 'phrygian', label: 'Phrygian', degrees: [0, 1, 3, 5, 7, 8, 10] },
+  { value: 'penta', label: 'Minor penta', degrees: [0, 3, 5, 7, 10] },
+];
+
+/** is a step transpose (semitones from the held key) in the scale */
+export function inScale(scale: ArpScale, semis: number): boolean {
+  const d = ARP_SCALES.find((s) => s.value === scale)?.degrees ?? ARP_SCALES[0]!.degrees;
+  return d.includes(((semis % 12) + 12) % 12);
+}
+
+/** the scale note nearest to `semis` (ties go up), within −24..24 */
+export function snapToScale(scale: ArpScale, semis: number): number {
+  const t = Math.max(-24, Math.min(24, Math.round(semis)));
+  for (let k = 0; k <= 6; k++) {
+    if (t + k <= 24 && inScale(scale, t + k)) return t + k;
+    if (t - k >= -24 && inScale(scale, t - k)) return t - k;
+  }
+  return t;
+}
+
+/** move `semis` by `dir` scale steps */
+export function stepInScale(scale: ArpScale, semis: number, dir: 1 | -1): number {
+  for (let t = semis + dir; t >= -24 && t <= 24; t += dir) if (inScale(scale, t)) return t;
+  return semis;
+}
 
 export interface SeqStep {
   on: boolean;
@@ -50,6 +83,8 @@ export interface ArpConfig {
   /** sequencer pattern length 1..16 */
   length: number;
   steps: SeqStep[];
+  /** melody-lane snapping (UI only) */
+  scale: ArpScale;
   presetName: string;
 }
 
@@ -88,6 +123,7 @@ export function defaultArp(): ArpConfig {
     latch: false,
     length: 16,
     steps: Array.from({ length: SEQ_STEPS }, (_, i) => defaultStep(i % 2 === 0)),
+    scale: 'chromatic',
     presetName: 'Up 1/16 × 2 oct',
   };
 }
@@ -219,6 +255,7 @@ export function sanitizeArp(raw: unknown): ArpConfig | null {
         transpose: Math.round(num(q.transpose, -24, 24, 0)),
       };
     }),
+    scale: ARP_SCALES.some((x) => x.value === r.scale) ? (r.scale as ArpScale) : 'chromatic',
     presetName: typeof r.presetName === 'string' ? r.presetName.slice(0, 40) : 'Custom',
   };
 }

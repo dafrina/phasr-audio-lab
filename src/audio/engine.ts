@@ -268,6 +268,17 @@ export class AudioEngine {
     return () => this.liveArp.listeners.delete(fn);
   }
 
+  /** Play one plain note on a track for a moment (the arp / Slipper-izer skipped): auditioning a step's pitch. */
+  auditionNote(trackId: string, note: number, velocity = 0.8, ms = 180): void {
+    const inst = this.channels.get(trackId)?.instrument;
+    if (!inst || !this.ctx) return;
+    if (this.ctx.state !== 'running') void this.ctx.resume();
+    const id = nextNoteInstanceId();
+    const t = this.ctx.currentTime;
+    inst.noteOn(id, note, velocity, t);
+    inst.noteOff(id, t + ms / 1000);
+  }
+
   /** tracks whose keys play plain notes for now (the arp / Slipper-izer skipped): step recording */
   readonly toolBypass = new Set<string>();
 

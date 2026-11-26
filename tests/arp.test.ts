@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARP_PRESETS, defaultArp, defaultStep, expandHeld, sanitizeArp, stepNotes, type ArpConfig, type HeldNote } from '../src/arp/arp';
+import { ARP_PRESETS, defaultArp, defaultStep, expandHeld, inScale, sanitizeArp, snapToScale, stepInScale, stepNotes, type ArpConfig, type HeldNote } from '../src/arp/arp';
 import { arpClip, bakeArp, withToolsExpanded } from '../src/arp/expand';
 import { createMidiClip, createProject, createTrack } from '../src/project/defaults';
 import { INSTRUMENTS } from '../src/instruments/definitions';
@@ -108,5 +108,32 @@ describe('saved settings', () => {
     expect(s.steps).toHaveLength(16);
     expect(s.steps[0]).toMatchObject({ on: true, ratchet: 4, transpose: 24 });
     for (const pr of ARP_PRESETS) expect(sanitizeArp(JSON.parse(JSON.stringify(pr)))).toEqual(pr);
+  });
+});
+
+describe('melody lane scales', () => {
+  it('snaps to the nearest scale note (ties go up) and stays in range', () => {
+    expect(snapToScale('chromatic', 6)).toBe(6);
+    expect(snapToScale('minor', 4)).toBe(5); // E → F (E♭ and F are equally near: up wins)
+    expect(snapToScale('minor', 11)).toBe(12);
+    expect(snapToScale('minor', -1)).toBe(0); // the B below: −2 (B♭) and 0 tie, up wins
+    expect(snapToScale('penta', 1)).toBe(0);
+    expect(snapToScale('major', 24)).toBe(24);
+    expect(snapToScale('major', 30)).toBe(24);
+    for (let t = -24; t <= 24; t++) expect(inScale('dorian', snapToScale('dorian', t))).toBe(true);
+  });
+  it('nudges by scale steps', () => {
+    expect(stepInScale('minor', 0, 1)).toBe(2);
+    expect(stepInScale('minor', 2, 1)).toBe(3);
+    expect(stepInScale('penta', 0, -1)).toBe(-2);
+    expect(stepInScale('major', 24, 1)).toBe(24);
+  });
+  it('the scale is kept and sanitized, playback ignores it', () => {
+    expect(sanitizeArp({ ...defaultArp(), scale: 'phrygian' })?.scale).toBe('phrygian');
+    expect(sanitizeArp({ ...defaultArp(), scale: 'nope' })?.scale).toBe('chromatic');
+    expect(sanitizeArp({ ...defaultArp(), scale: undefined })?.scale).toBe('chromatic');
+    const held: HeldNote[] = [{ pitch: 60, velocity: 100, order: 1 }];
+    const a: ArpConfig = { ...defaultArp(), mode: 'seq' };
+    expect(stepNotes({ ...a, scale: 'minor' }, held, 0, 0, 240)).toEqual(stepNotes(a, held, 0, 0, 240));
   });
 });
