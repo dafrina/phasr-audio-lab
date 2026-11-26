@@ -93,9 +93,11 @@ const FUND_T60: readonly (readonly [number, number])[] = [
   [48, 12],
   [60, 9],
   [72, 6.5],
-  [84, 4.5],
-  [96, 4.5],
-  [108, 2.6],
+  // treble: short strings lose their energy fast — a held high note fades into the room instead of
+  // sounding on like an electronic tone (C6 ~3.5 s, C7 ~2 s, C8 under a second)
+  [84, 3.6],
+  [96, 2.2],
+  [108, 0.9],
 ];
 
 export interface PianoParams {
@@ -186,7 +188,9 @@ function trebleness(note: number): number {
 /** coupled-string double decay is weaker in the treble: smaller, slower prompt component */
 export function promptShare(note: number): number {
   const low = clamp((70 - note) / 4, 0, 1);
-  return low * (PROMPT_SHARE - 0.4 * trebleness(note)) + (1 - low) * (0.6 - 0.25 * trebleness(note));
+  // top octaves: a large fast part (recorded E6 loses ~22 dB in 0.3 s, then a quiet tail lingers)
+  const top = clamp((note - 80) / 12, 0, 1);
+  return low * (PROMPT_SHARE - 0.4 * trebleness(note)) + (1 - low) * (0.6 - 0.25 * trebleness(note) + 0.15 * top);
 }
 
 /**
@@ -218,7 +222,8 @@ export function promptRate(note: number): number {
   // strong prompt decay up to ~F♯4 (fitted to recorded C♯4/E4); from ~A♯4 up the gentler
   // values that matched the recorded G4/C5
   const low = clamp((70 - note) / 4, 0, 1);
-  return low * (PROMPT_RATE - 5.0 * trebleness(note)) + (1 - low) * (2.6 - 1.1 * trebleness(note));
+  const top = clamp((note - 80) / 12, 0, 1);
+  return low * (PROMPT_RATE - 5.0 * trebleness(note)) + (1 - low) * (2.6 - 1.1 * trebleness(note) + 6 * top);
 }
 
 /** T60 of a partial at frequency f for a note whose fundamental is f1 */

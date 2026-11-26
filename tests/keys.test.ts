@@ -285,7 +285,8 @@ describe('Keyforge piano', () => {
       const toneC = centroid(spectrum(slice(m, SR, 0.1, 0.3), SR));
       // recorded grand (held keys C4…C5): hit/tone centroid 1.08–1.89 — a heavy felt hammer's low
       // impact keeps the onset from being much brighter than the tone
-      expect(hitC, `note ${note} vel ${vel}`).toBeGreaterThan(toneC * 1.05);
+      // (top octave: recorded E6 0.95 — its tone is as bright as its strike)
+      expect(hitC, `note ${note} vel ${vel}`).toBeGreaterThan(toneC * (note >= 88 ? 0.9 : 1.05));
     }
   });
 
@@ -293,8 +294,9 @@ describe('Keyforge piano', () => {
     const note = 96;
     const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.8), 1, SR);
     const m = mono(L, R);
-    // overall: well under 20 dB lost in the first half second (a pluck loses more)
-    expect(db(rms(slice(m, SR, 0.005, 0.05))) - db(rms(slice(m, SR, 0.45, 0.55)))).toBeLessThan(18);
+    // overall: a held high note does fade fast (recorded E6: ~22–23 dB down after 0.3–0.6 s, then a
+    // quiet tail), but a pluck loses far more
+    expect(db(rms(slice(m, SR, 0.005, 0.05))) - db(rms(slice(m, SR, 0.45, 0.55)))).toBeLessThan(28);
     // the 2nd and 3rd partials are still clearly there after half a second
     const f1 = pianoFundamental(note, 1);
     const B = inharmonicityB(note, 1);
