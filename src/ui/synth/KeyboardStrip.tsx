@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { engine } from '../../audio/engine';
 import { BendWheel, PianoKeyboard } from './PianoKeyboard';
+import { isTypingTarget } from '../shortcuts';
 
 /** Physical key codes → semitones above the base C. */
 const KEY_MAP: Record<string, number> = {
@@ -48,6 +49,8 @@ export function useComputerKeyboard(trackId: string, onEscape: () => void, veloc
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // dropdowns, text and number fields keep their own keys (type-ahead, arrows, typing)
+    if (isTypingTarget(e.target)) return;
     if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
       e.preventDefault();
       setOctave((o) => o + (e.code === 'BracketRight' ? 1 : -1));
@@ -74,6 +77,9 @@ export function useComputerKeyboard(trackId: string, onEscape: () => void, veloc
     refresh();
   };
   const releaseAll = () => {
+    // Nothing held → no state change. (Re-rendering here, on blur, used to reset a native
+    // dropdown to its old value just before the browser delivered the new selection.)
+    if (!held.current.size) return;
     for (const h of held.current.values()) engine.previewNoteOff(trackId, h.id);
     held.current.clear();
     setActive(new Set());

@@ -67,9 +67,9 @@ const POLYPHONY = 32;
 /** keys at or above this note have no dampers */
 export const PIANO_NO_DAMPER_NOTE = 89;
 /** share of the initial amplitude in the fast "prompt" component (mid/bass; less in the treble) */
-const PROMPT_SHARE = 0.6;
+const PROMPT_SHARE = 0.75;
 /** prompt component decays this many times faster than the aftersound */
-const PROMPT_RATE = 2.6;
+const PROMPT_RATE = 4.5;
 /** a resonator is dropped below this energy (≈ −94 dBFS amplitude) */
 const DEAD_ENERGY = 4e-10;
 const LEVEL = 0.145;
@@ -78,11 +78,13 @@ const WOOD_GAIN = 2.2;
 
 /** fundamental T60 (seconds) by MIDI note, before the Sustain multiplier */
 const FUND_T60: readonly (readonly [number, number])[] = [
-  [21, 26],
-  [36, 21],
-  [48, 15],
-  [60, 10],
-  [72, 6],
+  // (recorded A♯0: the whole note fades ≈ 6–7 dB/s, i.e. ~9–10 s)
+  [21, 10],
+  [36, 13],
+  // middle fitted to recorded held notes (C♯4–G4 fundamentals fade ~9–24 dB/s): ~3–6 s
+  [48, 12],
+  [60, 9],
+  [72, 6.5],
   [84, 4.5],
   [96, 4.5],
   [108, 2.6],
@@ -172,7 +174,7 @@ function trebleness(note: number): number {
 
 /** coupled-string double decay is weaker in the treble: smaller, slower prompt component */
 export function promptShare(note: number): number {
-  return PROMPT_SHARE - 0.25 * trebleness(note);
+  return PROMPT_SHARE - 0.4 * trebleness(note);
 }
 
 /**
@@ -196,17 +198,22 @@ export function swellAmount(note: number): number {
 }
 
 export function promptWeight(k: number): number {
-  return clamp(1.4 - 0.45 * (k - 1), 0.3, 1.4);
+  // the fundamental takes the fast decay; the 2nd partial only a little (recorded C♯4/E4: it barely decays)
+  return k <= 1 ? 1.4 : k === 2 ? 0.9 : 0.3;
 }
 
 export function promptRate(note: number): number {
-  return PROMPT_RATE - 1.1 * trebleness(note);
+  return PROMPT_RATE - 3.0 * trebleness(note);
 }
 
 /** T60 of a partial at frequency f for a note whose fundamental is f1 */
 export function partialT60(note: number, f: number, f1: number, p: Pick<PianoParams, 'sustain' | 'damping'>): number {
   const s1 = LN_1000 / fundamentalT60(note, p.sustain);
-  const s = s1 + lossB3(p.damping) * trebleLossScale(f1) * Math.max(0, f * f - f1 * f1);
+  // soundboard coupling loss is largest for the fundamental and smaller for the upper partials
+  // (recorded held notes: the fundamental fades fastest, the overtones linger — "damped but clean")
+  // (bass: partials up to ~250 Hz still sit where the soundboard takes energy readily)
+  const coupling = clamp(1 / (1 + 0.3 * Math.max(0, f / Math.max(f1, 250) - 1)), 0.45, 1);
+  const s = s1 * coupling + lossB3(p.damping) * trebleLossScale(f1) * Math.max(0, f * f - f1 * f1);
   return LN_1000 / s;
 }
 
@@ -231,7 +238,7 @@ export function hammerTreble(note: number): number {
  * their fundamental).
  */
 export function hammerCorner(f1: number, b: number, treb: number): { fc: number; slope: number; open: number } {
-  const absCorner = (300 + 7600 * b * b) * Math.pow(f1 / 262, f1 < 262 ? 0.6 : 0.3);
+  const absCorner = (300 + 7600 * b * b) * Math.pow(f1 / 262, f1 < 262 ? 0.35 : 0.3);
   const harmonicCap = f1 * (0.9 + 2.2 * b + 20 * (1 - treb) * (1 - treb));
   // `open`: the uncapped corner — the instant of impact itself is not limited by the contact time
   // soft (uncompressed) felt also rolls off more steeply: pp sounds rounder, not just quieter
@@ -312,6 +319,14 @@ class PianoVoice {
   readonly a = new Float64Array(MAX_RES);
   readonly b = new Float64Array(MAX_RES);
   readonly gin = new Float64Array(MAX_RES);
+  /**
+   * Quadrature part of the excitation. A hammer launches a wave along a stiff
+   * string: high partials travel faster (dispersion), so they reach the
+   * bridge spread over a few milliseconds instead of all starting in phase.
+   * All-in-phase partials form a click at the onset — the sound of a string
+   * released from a bent shape (a plucked guitar). Spread most in the bass.
+   */
+  readonly ginQ = new Float64Array(MAX_RES);
   /** which of the two radiation points (stereo positions) the resonator feeds */
   readonly side = new Uint8Array(MAX_RES);
   // hammer force pulse: g(j) = j·e^{-j/τ} / norm
@@ -778,8 +793,9 @@ export class PianoEngine implements KeysEngine {
         v.re[n] = this.tmpHas[id] ? (this.tmpRe[id] as number) : 0;
         v.im[n] = this.tmpHas[id] ? (this.tmpIm[id] as number) : 0;
         // positive: fast-decaying prompt part; negative (3rd–8th partials): the partial swells in
-        const ps = k >= 3 && k <= 8 ? -swellAmount(note) : Math.min(0.85 - (triple ? after2Share(note) : 0), promptShare(note) * promptWeight(k));
-        const a2 = after2Share(note);
+        const ps = k >= 3 && k <= 8 ? -swellAmount(note) : Math.min(0.8, promptShare(note) * promptWeight(k));
+        // the third string shares what the prompt part leaves
+        const a2 = ps > 0 ? Math.min(after2Share(note), (1 - ps) * 0.45) : after2Share(note);
         const after = 1 - ps - (triple ? a2 : 0);
         v.gin[n] = !double ? a : s === S_PROMPT ? a * ps : s === S_AFTER ? a * after : a * a2;
         n++;
@@ -829,6 +845,16 @@ export class PianoEngine implements KeysEngine {
       }
     }
     v.n = n;
+    // dispersion: rotate each resonator's excitation phase (deterministic per note and partial)
+    const spread = clamp((76 - note) / 40, 0, 1);
+    for (let r = 0; r < n; r++) {
+      const id = v.pid[r] as number;
+      const k = id >> 3;
+      const phi = spread * Math.PI * (k > 1 ? 0.35 + 0.65 * hash01(note * 53 + k, 211) : 0) * Math.min(1, (k - 1) / 6);
+      const g = v.gin[r] as number;
+      v.gin[r] = g * Math.cos(phi);
+      v.ginQ[r] = g * Math.sin(phi);
+    }
     this.updateCoefs(v);
     // hammer contact: shorter and sharper for loud notes and high strings
     // contact-pulse smoothing only; the tone colour comes from hammerSpectrum()
@@ -844,11 +870,12 @@ export class PianoEngine implements KeysEngine {
     // key bottoming and the hammer knock through the wooden action and soundboard:
     // a big part of what makes a struck key sound like a key (most audible in the treble)
     // the woody part of the key/action knock; in the top octaves the impact is mostly a bright tick (below)
-    this.knockPending += p.hammerNoise * Math.pow(vel, 1.1) * (1.5 + 0.5 * bass) * (1 - 0.55 * trebleness(note));
+    // (bass: no thump spike ahead of the string — recorded low notes start ~12 dB under their swell)
+    this.knockPending += p.hammerNoise * Math.pow(vel, 1.1) * (1.5 - 1.1 * bass) * (1 - 0.55 * trebleness(note));
     this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
     // treble: the hard hammer core hitting steel gives a short, bright "tick"
     // broadband impact noise: felt + action; lower and fuller in the bass and middle, a bright tick up top
-    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.2) * (0.1 + 0.08 * trebleness(note));
+    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.2) * (0.1 - 0.07 * bass + 0.08 * trebleness(note));
     this.tickHpA = 0.04 + 0.09 * trebleness(note);
   }
 
@@ -883,9 +910,11 @@ export class PianoEngine implements KeysEngine {
       const dst = v.side[r] ? Bf : A;
       if (hasPulse) {
         const g = v.gin[r] as number;
+        const gq = v.ginQ[r] as number;
         for (let i = 0; i < n; i++) {
-          const nr = a * re - b * im + g * (pulse[i] as number);
-          im = b * re + a * im;
+          const x = pulse[i] as number;
+          const nr = a * re - b * im + g * x;
+          im = b * re + a * im + gq * x;
           re = nr;
           dst[i] = (dst[i] as number) + im;
         }
@@ -906,6 +935,7 @@ export class PianoEngine implements KeysEngine {
         v.a[r] = v.a[last] as number;
         v.b[r] = v.b[last] as number;
         v.gin[r] = v.gin[last] as number;
+        v.ginQ[r] = v.ginQ[last] as number;
         v.side[r] = v.side[last] as number;
         v.n = last;
         continue;

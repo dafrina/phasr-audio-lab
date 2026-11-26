@@ -8,6 +8,7 @@ import { getProject, setInstrumentConfig, useProjectStore } from '../../state/pr
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
 import { AutoKnob } from '../common/AutoKnob';
+import { isTypingTarget } from '../shortcuts';
 
 type DrumConfig = Extract<InstrumentConfig, { type: 'drumrack' }>;
 
@@ -120,6 +121,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
 
   const onKey = (e: React.KeyboardEvent, down: boolean) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTypingTarget(e.target)) return;
     if (e.code === 'Escape' && down) return close();
     const i = KEY_PADS[e.code];
     if (i === undefined) return;
