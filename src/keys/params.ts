@@ -133,6 +133,8 @@ export const KEYS_ENGINES: Record<KeysEngineType, { label: string; description: 
       p('ensemble', 'Output', 'Ensemble', 0, 1, 0.5, pct),
       p('mono', 'Output', 'Mode', 0, 1, 0, (v) => (v >= 0.5 ? 'Mono' : 'Poly'), 'linear', { step: 1, choices: [{ value: 0, label: 'Poly' }, { value: 1, label: 'Mono' }] }),
       p('glide', 'Output', 'Glide', 0, 1, 0, (v) => (v <= 0.0005 ? 'Off' : secs(v))),
+      p('pitchEnv', 'Pitch', 'Env', -24, 24, 0, (v) => (Math.abs(v) < 0.05 ? 'Off' : `${v > 0 ? '+' : ''}${v.toFixed(1)} st`), 'linear', { bipolar: true }),
+      p('pitchTime', 'Pitch', 'Time', 0.005, 2, 0.15, secs, 'exp'),
       MASTER,
     ],
   },

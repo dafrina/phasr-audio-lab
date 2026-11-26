@@ -65,6 +65,10 @@ export interface AnalogParams {
   ensemble: number;
   mono: number;
   glide: number;
+  /** semitones the pitch starts away from the note (−24..24; 0 = off) */
+  pitchEnv: number;
+  /** seconds for the pitch to arrive */
+  pitchTime: number;
   master: number;
 }
 
@@ -85,6 +89,8 @@ class AnalogVoice {
   /** current and target pitch in semitones (glide) */
   pitch = 60;
   target = 60;
+  /** pitch envelope offset (semitones), decaying to 0 */
+  pEnv = 0;
   readonly oscs: OscState[] = [];
   readonly sub = new OscState();
   readonly amp = new Envelope();
@@ -275,6 +281,8 @@ export class AnalogEngine implements KeysEngine {
     }
     v.amp.trigger();
     v.fenv.trigger();
+    // pitch envelope: start away from the note (a hoover's dive, a zap's fall) and arrive
+    v.pEnv = this.p.pitchEnv ?? 0;
   }
 
   noteOff(id: number): void {
@@ -367,7 +375,11 @@ export class AnalogEngine implements KeysEngine {
     while (pos < count) {
       const n = Math.min(CONTROL, count - pos);
       v.pitch = v.target + (v.pitch - v.target) * glideCoef;
-      const freq = midiToHz(v.pitch + this.bend);
+      const freq = midiToHz(v.pitch + this.bend + v.pEnv);
+      if (v.pEnv !== 0) {
+        v.pEnv *= Math.exp(-n / (Math.max(0.005, this.p.pitchTime ?? 0.15) * 0.25 * sr));
+        if (Math.abs(v.pEnv) < 0.001) v.pEnv = 0;
+      }
       bL.fill(0, 0, n);
       bR.fill(0, 0, n);
       for (let i = 0; i < u; i++) {

@@ -689,3 +689,22 @@ describe('808 sub bass', () => {
     expect(at(long)).toBeGreaterThan(at(short) + 20);
   });
 });
+
+describe('Analog pitch envelope', () => {
+  it('starts the set number of semitones away and arrives at the note within its time', () => {
+    const c = cfg('analog', { unison: 1, detune: 0, sub: 0, noise: 0, cutoff: 12000, envAmt: 0, ensemble: 0, space: 0, delayMix: 0, attack: 0.001, sustainLvl: 1, pitchEnv: 12, pitchTime: 0.2 });
+    const [L, R] = renderKeys(c, hit(48, 0.9, 0, 1), 0.8, SR);
+    const f = pianoFundamental(48, 0);
+    const at = (a: number, b: number, near: number) => peakNear(spectrum(slice(mono(L, R), SR, a, b), SR, 1 << 15), near, near * 0.25).f;
+    // first 15 ms: near an octave up; after the time: on the note
+    expect(at(0, 0.015, f * 1.9)).toBeGreaterThan(f * 1.6);
+    expect(Math.abs(at(0.4, 0.75, f) / f - 1)).toBeLessThan(0.01);
+  });
+
+  it('Off (0) leaves the pitch alone from the first sample', () => {
+    const c = cfg('analog', { unison: 1, detune: 0, sub: 0, noise: 0, cutoff: 12000, envAmt: 0, ensemble: 0, space: 0, delayMix: 0, attack: 0.001, sustainLvl: 1 });
+    const [L, R] = renderKeys(c, hit(48, 0.9, 0, 1), 0.3, SR);
+    const f = pianoFundamental(48, 0);
+    expect(Math.abs(peakNear(spectrum(slice(mono(L, R), SR, 0, 0.05), SR, 1 << 15), f, f * 0.25).f / f - 1)).toBeLessThan(0.02);
+  });
+});
