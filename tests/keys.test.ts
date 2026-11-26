@@ -139,7 +139,8 @@ describe('Keyforge piano', () => {
 
   it('guard rail: bass notes sustain much longer than treble notes', () => {
     const rate = (note: number) => {
-      const [L, R] = renderKeys(cfg('piano'), hit(note, 0.8), 4, SR);
+      // the strings only (room and sympathetic ring have their own, longer tails)
+      const [L, R] = renderKeys(cfg('piano', { room: 0, resonance: 0 }), hit(note, 0.8), 4, SR);
       return slope(envelopeDb(slice(mono(L, R), SR, 1.5, 3.5), SR, 0.1), 0.1);
     };
     const bass = rate(36);

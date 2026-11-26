@@ -62,7 +62,7 @@ const PHANTOM_MAX = 10;
 const HIT_MAX = 40;
 const MAX_RES = PIANO_MAX_PARTIALS + DOUBLE_PARTIALS + TRIPLE_PARTIALS + PHANTOM_MAX + HIT_MAX + 2;
 /** share of the second aftersound string (beating in the tail) */
-const AFTER2_SHARE = 0.1;
+const AFTER2_SHARE = 0.18;
 const POLYPHONY = 32;
 /** keys at or above this note have no dampers */
 export const PIANO_NO_DAMPER_NOTE = 89;
@@ -78,9 +78,9 @@ const WOOD_GAIN = 2.2;
 
 /** fundamental T60 (seconds) by MIDI note, before the Sustain multiplier */
 const FUND_T60: readonly (readonly [number, number])[] = [
-  [21, 20],
-  [36, 16],
-  [48, 13],
+  [21, 26],
+  [36, 21],
+  [48, 15],
   [60, 10],
   [72, 6],
   [84, 4.5],
@@ -158,7 +158,7 @@ function lossB3(damping: number): number {
 function trebleLossScale(f1: number): number {
   // above ~E4: less loss (short stiff strings keep their few overtones);
   // in the bass: more (wound strings lose their upper partials within a second or two)
-  return f1 >= 330 ? Math.pow(330 / f1, 1.1) : Math.min(4, Math.pow(330 / f1, 0.8));
+  return f1 >= 330 ? Math.pow(330 / f1, 1.1) : Math.min(3, Math.pow(330 / f1, 0.65));
 }
 
 /** treble position 0 (≤ C4) … 1 (≥ C7) */
@@ -242,7 +242,7 @@ function stringDetune(note: number, k: number, unison: number): number {
 
 /** level of the third string in the treble */
 function after2Share(note: number): number {
-  return AFTER2_SHARE + 0.12 * trebleness(note);
+  return AFTER2_SHARE + 0.06 * trebleness(note);
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +391,8 @@ export class PianoEngine implements KeysEngine {
   private tickDecay = 0;
   private tickLp = 0;
   private tickLp2 = 0;
+  /** high-pass corner of the impact noise (set by the latest strike's register) */
+  private tickHpA = 0.13;
   private thumpDecay = 0;
   private readonly noise = new Noise(0x51a7e);
   // sympathetic strings
@@ -597,7 +599,8 @@ export class PianoEngine implements KeysEngine {
     const B = inharmonicityB(note, p.inharm);
     // damper: fast in the treble, slower and growlier in the bass
     const bass = clamp((60 - note) / 40, 0, 1);
-    const damperT60 = (0.07 + 0.45 * bass) * (1.65 - p.damper);
+    // felt dampers take a moment to stop a string: ~0.15 s in the middle, longer in the bass
+    const damperT60 = (0.16 + 0.55 * bass) * (1.65 - p.damper);
     const damperS = v.damped ? LN_1000 / damperT60 : 0;
     const sr = this.sr;
     const nyq = sr * 0.47;
@@ -615,7 +618,11 @@ export class PianoEngine implements KeysEngine {
         const sigma1 = LN_1000 / fundamentalT60(note, p.sustain);
         const d = stringDetune(note, k, p.unison) / 2400;
         if (s === S_PROMPT) {
-          f *= Math.pow(2, -d);
+          // prompt and aftersound are two decay modes of the same coupled strings: (nearly) the same
+          // pitch. A large offset between them made deep beat nulls that sounded like a dying pluck;
+          // the shimmer comes from the third string below.
+          // (the top octaves keep their classic wider split — that shimmer is what made them convincing)
+          f *= Math.pow(2, d * (0.8 - 1.8 * clamp((note - 86) / 8, 0, 1)));
           // bridge coupling adds a fixed extra loss (not one that scales the high-frequency losses)
           sigma += (promptRate(note) - 1) * sigma1;
         } else if (s === S_AFTER) f *= Math.pow(2, d);
@@ -626,7 +633,8 @@ export class PianoEngine implements KeysEngine {
         } else {
           // third string: on either side of the other two
           const h = hash01(note + 101, k);
-          f *= Math.pow(2, d * (h < 0.5 ? -1 : 1) * (0.4 + 0.6 * h));
+          // the third string sits on the other side of the pair: a gentle, steady shimmer
+          f *= Math.pow(2, -d * (0.5 + 0.5 * h));
           sigma *= 1.15;
         }
       }
@@ -718,7 +726,12 @@ export class PianoEngine implements KeysEngine {
         const h0 = 1 / (1 + Math.pow(f / hc.fc, hc.slope));
         // plus a little extra on the lower partials: the strike is also louder, not only brighter
         // (the hit isn't subject to the steep bass tilt of the sustained tone: heavy bass hammers still crack)
-        const ratio = Math.min(10, (Math.max(0, hf / h0 - 1) + 0.25) * Math.pow(k, 0.5 * bassTilt));
+        // The hit only reads as a separate bright "tink" well above the tone; on overtones inside
+        // the tone (≲ 3 kHz) it just makes the note itself fall away quickly — a pluck. So below the
+        // top octaves it is confined to high frequencies, and the impact there is broadband noise instead.
+        const inTone = clamp((92 - note) / 12, 0, 1);
+        const band = Math.pow(clamp((f - 2500) / 4000, 0, 1), 1.5);
+        const ratio = Math.min(10, (Math.max(0, hf / h0 - 1) + 0.25) * Math.pow(k, 0.5 * bassTilt)) * (1 - inTone + inTone * band);
         if (ratio > 0.05) {
           const id = pidOf(k, S_HIT);
           v.pid[n] = id;
@@ -769,7 +782,9 @@ export class PianoEngine implements KeysEngine {
     this.knockPending += p.hammerNoise * Math.pow(vel, 1.1) * (1.5 + 0.5 * bass) * (1 - 0.55 * trebleness(note));
     this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
     // treble: the hard hammer core hitting steel gives a short, bright "tick"
-    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.2) * (0.04 + 0.14 * trebleness(note));
+    // broadband impact noise: felt + action; lower and fuller in the bass and middle, a bright tick up top
+    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.2) * (0.1 + 0.08 * trebleness(note));
+    this.tickHpA = 0.04 + 0.09 * trebleness(note);
   }
 
   // -------------------------------------------------------------------------
@@ -900,7 +915,7 @@ export class PianoEngine implements KeysEngine {
         // high-passed noise burst (one-pole low-pass subtracted)
         const nz = noise.next();
         // band-limited (~1–8 kHz) impact noise: felt on steel plus the key action
-        this.tickLp += (nz - this.tickLp) * 0.13;
+        this.tickLp += (nz - this.tickLp) * this.tickHpA;
         const hp = nz - this.tickLp;
         this.tickLp2 += (hp - this.tickLp2) * 0.6;
         tick = this.tickLp2 * this.tickEnv;
