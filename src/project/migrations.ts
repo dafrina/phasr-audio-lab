@@ -100,7 +100,14 @@ function validateProject(raw: RawProject): Project {
     timeSignature: { numerator: n(ts.numerator, 4, 1, 16), denominator: [2, 4, 8, 16].includes(ts.denominator as number) ? (ts.denominator as number) : 4 },
     tracks,
     clips,
-    master: { volumeDb: n(master.volumeDb, 0, -60, 6), limiter: master.limiter !== false },
+    master: {
+      volumeDb: n(master.volumeDb, 0, -60, 6),
+      limiter: master.limiter !== false,
+      effects: (Array.isArray(master.effects) ? master.effects : [])
+        .map(sanitizeEffect)
+        .filter((e): e is NonNullable<typeof e> => e !== null)
+        .slice(0, MAX_EFFECT_SLOTS),
+    },
     loop: { enabled: loop.enabled === true, start: n(loop.start, 0, 0), end: n(loop.end, 15360, 1) },
     metronome: raw.metronome === true,
     countInBars: n(raw.countInBars, 1, 0, 4),

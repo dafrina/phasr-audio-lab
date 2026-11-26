@@ -17,6 +17,8 @@ export const PROJECT_SCHEMA_VERSION = 1;
 /** 12: measured headroom with busy Keyforge tracks and 4 effects each (see README → Performance) */
 export const MAX_TRACKS = 12;
 export const MAX_EFFECT_SLOTS = 4;
+/** Stands in for a track id where an API addresses "a chain": the master bus's effects. */
+export const MASTER_ID = '__master__';
 
 export type TrackKind = 'audio' | 'instrument';
 
@@ -296,7 +298,8 @@ export interface Project {
   timeSignature: TimeSignature;
   tracks: Track[];
   clips: Record<string, Clip>;
-  master: { volumeDb: number; limiter: boolean };
+  /** master bus: insert effects (before the fader) → volume → safety limiter */
+  master: { volumeDb: number; limiter: boolean; effects: EffectSlot[] };
   loop: LoopRegion;
   metronome: boolean;
   countInBars: number;

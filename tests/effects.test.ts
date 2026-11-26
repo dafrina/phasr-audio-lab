@@ -138,3 +138,46 @@ describe('compressor makeup compensation', () => {
     expect(autoMakeupCompensationDb(-20, 1)).toBeCloseTo(0, 9);
   });
 });
+
+describe('master effects', () => {
+  it('a new project has an empty master chain; saved chains are sanitized and capped at 4', async () => {
+    const { createEffectSlot } = await import('../src/audio/effects/specs');
+    expect(createProject().master.effects).toEqual([]);
+    const p = createProject();
+    const raw = JSON.parse(JSON.stringify({ ...p, master: { volumeDb: -2, limiter: true, effects: [createEffectSlot('compressor'), { type: 'bogus' }, createEffectSlot('eq'), createEffectSlot('peq'), createEffectSlot('reverb'), createEffectSlot('delay')] } }));
+    const m = migrateProject(raw);
+    expect(m.master.effects.map((e) => e.type)).toEqual(['compressor', 'eq', 'peq', 'reverb']);
+    // older projects without the field
+    const old = JSON.parse(JSON.stringify({ ...p, master: { volumeDb: 0, limiter: false } }));
+    expect(migrateProject(old).master).toEqual({ volumeDb: 0, limiter: false, effects: [] });
+  });
+
+  it('master effects are added, edited, bypassed and removed through the same commands as track effects (undoable)', async () => {
+    const { useProjectStore } = await import('../src/state/projectStore');
+    const fx = await import('../src/state/effectActions');
+    const { MASTER_ID } = await import('../src/project/types');
+    useProjectStore.getState().loadProject(createProject());
+    const comp = fx.addEffect(MASTER_ID, 'compressor');
+    expect(comp).not.toBeNull();
+    fx.setEffectParams(MASTER_ID, comp!.id, { ratio: 2 });
+    fx.setEffectEnabled(MASTER_ID, comp!.id, false);
+    let m = useProjectStore.getState().project.master;
+    expect(m.effects[0]).toMatchObject({ type: 'compressor', enabled: false, params: { ratio: 2 } });
+    for (let i = 0; i < 3; i++) fx.addEffect(MASTER_ID, 'eq');
+    expect(fx.addEffect(MASTER_ID, 'eq')).toBeNull(); // 4 max
+    fx.removeEffect(MASTER_ID, comp!.id);
+    m = useProjectStore.getState().project.master;
+    expect(m.effects.map((e) => e.type)).toEqual(['eq', 'eq', 'eq']);
+    useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project.master.effects).toHaveLength(4);
+  });
+
+  it('a reverb on the master lengthens the export tail', async () => {
+    const { createEffectSlot } = await import('../src/audio/effects/specs');
+    const { estimateTailSeconds } = await import('../src/audio/exportPlan');
+    const p = createProject();
+    const dry = estimateTailSeconds(p, () => true);
+    const wet = estimateTailSeconds({ ...p, master: { ...p.master, effects: [createEffectSlot('reverb')] } }, () => true);
+    expect(wet).toBeGreaterThan(dry + 1);
+  });
+});

@@ -61,6 +61,8 @@ export function estimateTailSeconds(p: Project, trackAudible: (t: Track) => bool
     const fx = t.effects.reduce((a, s) => a + effectTailSeconds(s, p.bpm), 0);
     tail = Math.max(tail, inst + fx);
   }
+  // the master's own reverb / delay rings on after every track
+  tail += (p.master.effects ?? []).reduce((a, s) => a + effectTailSeconds(s, p.bpm), 0);
   return Math.min(MAX_TAIL, tail + 0.25);
 }
 

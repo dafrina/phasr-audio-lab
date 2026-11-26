@@ -1,7 +1,7 @@
 /** Store commands for insert effects. Every change is an undoable project edit. */
 import { createEffectSlot, EFFECT_LABELS } from '../audio/effects/specs';
 import { addEffectSlot, moveEffectSlot, removeEffectSlot, updateEffectSlot, withParams } from '../project/effectOps';
-import { MAX_EFFECT_SLOTS, type EffectSlot, type EffectType, type Project } from '../project/types';
+import { MASTER_ID, MAX_EFFECT_SLOTS, type EffectSlot, type EffectType, type Project } from '../project/types';
 import { useProjectStore, type CommitOptions } from './projectStore';
 import { uiToast } from './uiStore';
 
@@ -10,6 +10,15 @@ function editChain(trackId: string, label: string, fn: (chain: EffectSlot[]) => 
   useProjectStore.getState().commit(
     label,
     (p: Project) => {
+      if (trackId === MASTER_ID) {
+        const cur = p.master.effects ?? [];
+        const next = fn(cur);
+        if (!next) {
+          ok = false;
+          return p;
+        }
+        return next === cur ? p : { ...p, master: { ...p.master, effects: next } };
+      }
       const track = p.tracks.find((t) => t.id === trackId);
       if (!track) return p;
       const next = fn(track.effects);
@@ -29,13 +38,17 @@ export function addEffect(trackId: string, type: EffectType, index?: number): Ef
   const slot = createEffectSlot(type);
   const ok = editChain(trackId, `Add ${EFFECT_LABELS[type]}`, (c) => addEffectSlot(c, slot, index));
   if (!ok) {
-    uiToast('error', `A track can hold at most ${MAX_EFFECT_SLOTS} effects.`);
+    uiToast('error', `${trackId === MASTER_ID ? 'The master' : 'A track'} can hold at most ${MAX_EFFECT_SLOTS} effects.`);
     return null;
   }
   return slot;
 }
 
 export function removeEffect(trackId: string, slotId: string): void {
+  if (trackId === MASTER_ID) {
+    editChain(MASTER_ID, 'Remove effect', (c) => removeEffectSlot(c, slotId));
+    return;
+  }
   // removing an effect also removes the automation lanes that targeted it (one undo step)
   useProjectStore.getState().commit('Remove effect', (p: Project) => ({
     ...p,

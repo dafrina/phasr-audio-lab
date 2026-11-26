@@ -46,7 +46,7 @@ export function createProject(name = 'Untitled Project'): Project {
     timeSignature: { numerator: 4, denominator: 4 },
     tracks,
     clips: {},
-    master: { volumeDb: 0, limiter: true },
+    master: { volumeDb: 0, limiter: true, effects: [] },
     loop: { enabled: false, start: 0, end: barsToTicks(4, { numerator: 4, denominator: 4 }) },
     metronome: false,
     countInBars: 1,

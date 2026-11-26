@@ -11,7 +11,7 @@ import {
   peqHasQ,
 } from '../../audio/effects/specs';
 import { automatedKeys, valueAt } from '../../project/automation';
-import type { EffectSlot, PeqBand, PeqBandType, PeqSlope } from '../../project/types';
+import { MASTER_ID, type EffectSlot, type PeqBand, type PeqBandType, type PeqSlope } from '../../project/types';
 import type { PeqBandOffset } from '../../audio/effects/units';
 import { automate, writeAutomation, endAutomationGesture } from '../../state/automationActions';
 import { setEffectParams } from '../../state/effectActions';
@@ -44,7 +44,9 @@ const FREQS = (() => {
 })();
 
 function liveSlot(trackId: string, slotId: string): PeqSlot | null {
-  const s = getProject().tracks.find((t) => t.id === trackId)?.effects.find((e) => e.id === slotId);
+  const p = getProject();
+  const chain = trackId === MASTER_ID ? p.master.effects : p.tracks.find((t) => t.id === trackId)?.effects;
+  const s = chain?.find((e) => e.id === slotId);
   return s && s.type === 'peq' ? s : null;
 }
 
@@ -101,8 +103,9 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
   const setBand = (i: number, part: Partial<PeqBand>, key: string) => {
     const s = liveSlot(trackId, slot.id);
     const track = getProject().tracks.find((t) => t.id === trackId);
-    if (!s || !track) return;
-    const auto = automatedKeys(track, slot.id);
+    if (!s) return;
+    // (the master's effects have no automation lanes)
+    const auto = track ? automatedKeys(track, slot.id) : new Set<string>();
     const staticPart: Partial<PeqBand> = {};
     for (const [k, v] of Object.entries(part) as [keyof PeqBand, PeqBand[keyof PeqBand]][]) {
       const autoKey = `b${i}.${k}`;

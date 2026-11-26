@@ -4,8 +4,9 @@
  * React; the UI talks to it through `syncProject()` (driven by a store
  * subscription) and a few imperative calls (preview notes, meters, import).
  */
+import { EffectChain } from './effectChain';
 import { nextNoteInstanceId } from '../core/ids';
-import type { Project, Track } from '../project/types';
+import { MASTER_ID, type Project, type Track } from '../project/types';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
 import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
 import recorderWorkletUrl from './worklets/recorder.worklet.ts?worker&url';
@@ -30,6 +31,8 @@ export type EngineStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 interface MasterBus {
   input: GainNode;
+  /** master insert effects, before the fader */
+  fx: EffectChain;
   gain: GainNode;
   limiter: DynamicsCompressorNode;
   out: GainNode;
@@ -143,6 +146,8 @@ export class AudioEngine {
       master.gain.gain.setTargetAtTime(dbToGainFader(p.master.volumeDb), ctx.currentTime, 0.015);
       setLimiter(master, p.master.limiter);
     }
+    // (tempo-synced master delays follow the BPM)
+    if (force || !prev || prev.master !== p.master || prev.bpm !== p.bpm) master.fx.sync(p.master.effects ?? [], p.bpm);
 
     const anySolo = p.tracks.some((t) => t.solo);
     const seen = new Set<string>();
@@ -337,8 +342,13 @@ export class AudioEngine {
   }
 
   /** Live Spectra EQ unit (for its curve and analyser), if present. */
+  /** an effect unit on a track's chain, or on the master's (trackId = MASTER_ID) */
+  private effectUnitOf(trackId: string, slotId: string) {
+    return trackId === MASTER_ID ? this.master?.fx.unit(slotId) : this.channels.get(trackId)?.effectUnit(slotId);
+  }
+
   peqUnit(trackId: string, slotId: string): PeqUnit | null {
-    const u = this.channels.get(trackId)?.effectUnit(slotId);
+    const u = this.effectUnitOf(trackId, slotId);
     return u instanceof PeqUnit ? u : null;
   }
 
@@ -349,7 +359,7 @@ export class AudioEngine {
 
   /** Current gain reduction (dB, ≤ 0) of a compressor slot, for the UI. */
   compressorReduction(trackId: string, slotId: string): number {
-    const u = this.channels.get(trackId)?.effectUnit(slotId);
+    const u = this.effectUnitOf(trackId, slotId);
     return u && isCompressorUnit(u) ? u.reduction() : 0;
   }
 
@@ -360,19 +370,21 @@ export class AudioEngine {
 
 function buildMaster(ctx: AudioContext): MasterBus {
   const input = new GainNode(ctx);
+  const fx = new EffectChain(ctx, true);
   const gain = new GainNode(ctx);
   // Safety limiter: a fast, hard-knee compressor just under 0 dBFS.
   const limiter = new DynamicsCompressorNode(ctx, { threshold: -1, knee: 0, ratio: 20, attack: 0.002, release: 0.12 });
   const out = new GainNode(ctx);
   const meter = new StereoMeter(ctx, true);
   const metronome = new GainNode(ctx, { gain: 0.8 });
-  input.connect(gain);
+  input.connect(fx.input);
+  fx.output.connect(gain);
   gain.connect(limiter);
   limiter.connect(out);
   out.connect(ctx.destination);
   out.connect(meter.input);
   metronome.connect(ctx.destination); // metronome bypasses the master (and export)
-  return { input, gain, limiter, out, meter, metronome, limiterOn: true };
+  return { input, fx, gain, limiter, out, meter, metronome, limiterOn: true };
 }
 
 function setLimiter(m: MasterBus, on: boolean): void {

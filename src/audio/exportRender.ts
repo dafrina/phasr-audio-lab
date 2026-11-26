@@ -11,6 +11,7 @@
  * Progress is real: the render is suspended at regular points in time.
  */
 
+import { EffectChain } from './effectChain';
 import { nextNoteInstanceId } from '../core/ids';
 import { ticksPerBar, ticksPerBeatUnit } from '../core/time';
 import type { Project } from '../project/types';
@@ -66,10 +67,12 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
   await ctx.audioWorklet.addModule(keysWorkletUrl);
   await ctx.audioWorklet.addModule(modsourceWorkletUrl);
 
-  // master: volume → (safety limiter) → output. The metronome is never exported.
-  const masterIn = new GainNode(ctx);
+  // master: insert effects → volume → (safety limiter) → output. The metronome is never exported.
+  const masterFx = new EffectChain(ctx, false);
+  masterFx.sync(project.master.effects ?? [], project.bpm);
+  const masterIn = masterFx.input;
   const masterGain = new GainNode(ctx, { gain: dbToGainFader(project.master.volumeDb) });
-  masterIn.connect(masterGain);
+  masterFx.output.connect(masterGain);
   if (project.master.limiter) {
     const lim = new DynamicsCompressorNode(ctx, { threshold: -1, knee: 0, ratio: 20, attack: 0.002, release: 0.12 });
     masterGain.connect(lim);

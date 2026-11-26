@@ -3,6 +3,8 @@ import { AudioLines, Music, SlidersHorizontal, SlidersVertical, X } from 'lucide
 import { useProjectStore } from '../../state/projectStore';
 import { useUiStore, type BottomPanel as PanelKind } from '../../state/uiStore';
 import { TrackDevicePanel } from '../effects/TrackDevicePanel';
+import { MasterDevicePanel } from '../effects/MasterDevicePanel';
+import { MASTER_ID } from '../../project/types';
 import { Mixer } from '../mixer/Mixer';
 import { AudioClipEditor } from './AudioClipEditor';
 import { PianoRoll } from './PianoRoll';
@@ -29,9 +31,10 @@ export function BottomPanel() {
   useEffect(() => {
     if (clipId && !clip) set({ editorClipId: null, ...(mode === 'editor' ? { bottomPanel: 'none' as const } : {}) });
   }, [clipId, clip, mode, set]);
+  const isMaster = trackId === MASTER_ID;
   useEffect(() => {
-    if (mode === 'track' && !track) set({ bottomPanel: 'none', fxTrackId: null });
-  }, [mode, track, set]);
+    if (mode === 'track' && !track && !isMaster) set({ bottomPanel: 'none', fxTrackId: null });
+  }, [mode, track, isMaster, set]);
 
   if (mode === 'none' || (mode === 'editor' && !clip)) return null;
   const maxH = Math.max(MIN_H, window.innerHeight - 220);
@@ -75,7 +78,7 @@ export function BottomPanel() {
           icon={clip?.kind === 'audio' ? <AudioLines size={12} /> : <Music size={12} />}
         />
         <Tab kind="mixer" label="Mixer" icon={<SlidersVertical size={12} />} />
-        <Tab kind="track" disabled={!track} label={track ? `${track.name} devices` : 'Track devices'} icon={<SlidersHorizontal size={12} />} />
+        <Tab kind="track" disabled={!track && !isMaster} label={isMaster ? 'Master devices' : track ? `${track.name} devices` : 'Track devices'} icon={<SlidersHorizontal size={12} />} />
         <button
           type="button"
           title="Close panel"
@@ -88,7 +91,8 @@ export function BottomPanel() {
       <div className="min-h-0 flex-1">
         {mode === 'editor' && clip && clipId && (clip.kind === 'midi' ? <PianoRoll clipId={clipId} /> : <AudioClipEditor clipId={clipId} />)}
         {mode === 'mixer' && <Mixer />}
-        {mode === 'track' && track && <TrackDevicePanel trackId={track.id} />}
+        {mode === 'track' && isMaster && <MasterDevicePanel />}
+        {mode === 'track' && !isMaster && track && <TrackDevicePanel trackId={track.id} />}
       </div>
     </div>
   );

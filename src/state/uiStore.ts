@@ -1,4 +1,5 @@
 /** Ephemeral UI state (selection, zoom, panels). Never saved with the project. */
+import { MASTER_ID } from '../project/types';
 import { create } from 'zustand';
 import type { SnapValue } from '../core/time';
 
@@ -77,7 +78,9 @@ export const useUiStore = create<UiState>((set) => ({
 }));
 
 export function openTrackDevices(trackId: string): void {
-  useUiStore.getState().set({ fxTrackId: trackId, selectedTrackId: trackId, bottomPanel: 'track' });
+  // the master isn't a track: opening its devices leaves the track selection alone
+  if (trackId === MASTER_ID) useUiStore.getState().set({ fxTrackId: trackId, bottomPanel: 'track' });
+  else useUiStore.getState().set({ fxTrackId: trackId, selectedTrackId: trackId, bottomPanel: 'track' });
 }
 
 export function toggleMixer(): void {

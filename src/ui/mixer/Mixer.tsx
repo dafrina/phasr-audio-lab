@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { AudioLines, Music, Shield } from 'lucide-react';
 import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
-import { MAX_EFFECT_SLOTS, type EffectType, type Track } from '../../project/types';
+import { MASTER_ID, MAX_EFFECT_SLOTS, type EffectSlot, type EffectType, type Track } from '../../project/types';
 import { addEffect, setEffectEnabled } from '../../state/effectActions';
 import { updateProjectFields, updateTrack, useProjectStore } from '../../state/projectStore';
 import { openTrackDevices, useUiStore } from '../../state/uiStore';
@@ -41,6 +41,7 @@ export function Mixer() {
       {tracks.length === 0 && <div className="p-4 text-muted">No tracks.</div>}
       <div className="ml-auto flex w-[104px] shrink-0 flex-col items-center gap-1.5 rounded-md border border-line-2 bg-panel-3 px-1.5 py-1.5">
         <div className="flex w-full items-center justify-center gap-1 text-[11px] font-semibold tracking-[0.14em] text-fg">MASTER</div>
+        <FxSlots ownerId={MASTER_ID} effects={master.effects ?? []} />
         <button
           type="button"
           title={master.limiter ? 'Safety limiter on (catches peaks above -1 dBFS). Click to bypass.' : 'Safety limiter bypassed. Click to enable.'}
@@ -87,53 +88,7 @@ function ChannelStrip({ track, index, faderH }: { track: Track; index: number; f
         </span>
         <span className="font-mono text-[9px] text-dim">{index + 1}</span>
       </div>
-      <div className="flex w-full flex-col gap-0.5" title="Insert effects (click to edit)">
-        {Array.from({ length: MAX_EFFECT_SLOTS }, (_, i) => {
-          const slot = track.effects[i];
-          if (slot) {
-            return (
-              <div key={slot.id} className="flex h-[18px] items-center gap-1 rounded bg-base px-1">
-                <button
-                  type="button"
-                  title={slot.enabled ? 'Bypass' : 'Enable'}
-                  onClick={() => setEffectEnabled(track.id, slot.id, !slot.enabled)}
-                  className={`h-2 w-2 shrink-0 rounded-full ${slot.enabled ? 'bg-ok' : 'bg-dim'}`}
-                />
-                <button
-                  type="button"
-                  onClick={() => openTrackDevices(track.id)}
-                  className={`min-w-0 flex-1 truncate text-left text-[10px] ${slot.enabled ? 'text-fg' : 'text-dim line-through'}`}
-                >
-                  {EFFECT_LABELS[slot.type]}
-                </button>
-              </div>
-            );
-          }
-          if (i === track.effects.length) {
-            return (
-              <select
-                key={`empty-${i}`}
-                value=""
-                title="Add an insert effect"
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  addEffect(track.id, e.target.value as EffectType);
-                  openTrackDevices(track.id);
-                }}
-                className="h-[18px] w-full !bg-base !py-0 text-[10px] !text-dim"
-              >
-                <option value="">+ add…</option>
-                {EFFECT_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {EFFECT_LABELS[t]}
-                  </option>
-                ))}
-              </select>
-            );
-          }
-          return <div key={`empty-${i}`} className="h-[18px] rounded bg-base/50" />;
-        })}
-      </div>
+      <FxSlots ownerId={track.id} effects={track.effects} />
       <AutoKnob
         trackId={track.id}
         target={PAN_TARGET}
@@ -163,5 +118,58 @@ function ChannelStrip({ track, index, faderH }: { track: Track; index: number; f
       </div>
       <div className={`font-mono text-[10px] ${vol.automated ? 'text-[#f472b6]' : 'text-muted'}`}>{formatDb(vol.value)} dB</div>
     </div>
+  );
+}
+
+/** The insert-effect slots of a strip (a track's, or the master's with ownerId = MASTER_ID). */
+function FxSlots({ ownerId, effects }: { ownerId: string; effects: readonly EffectSlot[] }) {
+  return (
+      <div className="flex w-full flex-col gap-0.5" title="Insert effects (click to edit)">
+        {Array.from({ length: MAX_EFFECT_SLOTS }, (_, i) => {
+          const slot = effects[i];
+          if (slot) {
+            return (
+              <div key={slot.id} className="flex h-[18px] items-center gap-1 rounded bg-base px-1">
+                <button
+                  type="button"
+                  title={slot.enabled ? 'Bypass' : 'Enable'}
+                  onClick={() => setEffectEnabled(ownerId, slot.id, !slot.enabled)}
+                  className={`h-2 w-2 shrink-0 rounded-full ${slot.enabled ? 'bg-ok' : 'bg-dim'}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => openTrackDevices(ownerId)}
+                  className={`min-w-0 flex-1 truncate text-left text-[10px] ${slot.enabled ? 'text-fg' : 'text-dim line-through'}`}
+                >
+                  {EFFECT_LABELS[slot.type]}
+                </button>
+              </div>
+            );
+          }
+          if (i === effects.length) {
+            return (
+              <select
+                key={`empty-${i}`}
+                value=""
+                title="Add an insert effect"
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  addEffect(ownerId, e.target.value as EffectType);
+                  openTrackDevices(ownerId);
+                }}
+                className="h-[18px] w-full !bg-base !py-0 text-[10px] !text-dim"
+              >
+                <option value="">+ add…</option>
+                {EFFECT_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {EFFECT_LABELS[t]}
+                  </option>
+                ))}
+              </select>
+            );
+          }
+          return <div key={`empty-${i}`} className="h-[18px] rounded bg-base/50" />;
+        })}
+      </div>
   );
 }
