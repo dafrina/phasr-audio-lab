@@ -55,6 +55,20 @@ export const KEYS_PRESETS: KeysPreset[] = [
   preset('Laser Zap', 'analog', 'Electronic', { unison: 2, detune: 10, spread: 0.5, sub: 0, noise: 0, cutoff: 5000, reso: 0.5, envAmt: 0.2, fAttack: 0.001, fDecay: 0.2, fSustain: 0.3, attack: 0.001, decay: 0.25, sustainLvl: 0, release: 0.1, pitchEnv: 24, pitchTime: 0.12, delayMix: 0.35, delayBeats: 0.75, space: 0.2, drive: 0.2, ensemble: 0.4, master: 0.8 }),
   // the 90s house organ bass (M1-style): bright, percussive, no rotary
   preset('90s House Organ', 'organ', 'Organ', { db0: 8, db1: 8, db2: 6, db3: 0, db4: 4, db5: 0, db6: 0, db7: 0, db8: 0, perc: 1, percHarm: 2, percDecay: 0.2, percLevel: 0.7, rotor: 0, rotorMix: 0, drive: 0.3, click: 0.35, master: 0.9 }),
+  // low end: basses that hold up in the sub range (Analog)
+  preset('Rolling Techno Bass', 'analog', 'Bass', { unison: 1, detune: 0, spread: 0, sub: 0.5, noise: 0, cutoff: 300, reso: 0.35, envAmt: 0.45, keyTrack: 0.3, velFilter: 0.5, fAttack: 0.001, fDecay: 0.12, fSustain: 0, fRelease: 0.08, attack: 0.001, decay: 0.25, sustainLvl: 0, release: 0.06, drive: 0.4, ensemble: 0, mono: 1, glide: 0, master: 1 }),
+  preset('Berlin Rumble', 'analog', 'Bass', { unison: 2, detune: 9, spread: 0.2, sub: 0.8, noise: 0.01, cutoff: 180, reso: 0.25, envAmt: 0.1, keyTrack: 0.2, fAttack: 0.01, fDecay: 0.8, fSustain: 0.6, attack: 0.005, decay: 1, sustainLvl: 1, release: 0.4, lfoRate: 0.12, lfoDepth: 0.6, drive: 0.55, space: 0.3, ensemble: 0, mono: 1, glide: 0.03, master: 1.3 }),
+  preset('Acid Sub', 'analog', 'Bass', { unison: 1, detune: 0, spread: 0, sub: 0.35, noise: 0, cutoff: 180, reso: 0.88, envAmt: 0.65, keyTrack: 0.3, velFilter: 0.8, fAttack: 0.001, fDecay: 0.2, fSustain: 0.05, fRelease: 0.1, attack: 0.001, decay: 0.5, sustainLvl: 0.7, release: 0.06, drive: 0.7, ensemble: 0, mono: 1, glide: 0.08, master: 1.04 }),
+  preset('Growl Bass', 'analog', 'Bass', { unison: 3, detune: 22, spread: 0.3, sub: 0.4, noise: 0, cutoff: 350, reso: 0.6, envAmt: 0.15, keyTrack: 0.2, attack: 0.003, decay: 1, sustainLvl: 1, release: 0.12, lfoRate: 6, lfoDepth: 1.2, drive: 0.85, ensemble: 0, mono: 1, glide: 0.04, master: 1.5 }),
+  preset('Deep House Bass', 'analog', 'Bass', { unison: 1, detune: 0, spread: 0, sub: 0.9, noise: 0, cutoff: 400, reso: 0.1, envAmt: 0.2, keyTrack: 0.3, velFilter: 0.3, fAttack: 0.001, fDecay: 0.3, fSustain: 0.3, attack: 0.002, decay: 0.6, sustainLvl: 0.5, release: 0.15, drive: 0.2, ensemble: 0, mono: 1, glide: 0, master: 1.1 }),
+  preset('Sub Pluck', 'analog', 'Bass', { unison: 1, detune: 0, spread: 0, sub: 0.9, noise: 0, cutoff: 250, reso: 0.2, envAmt: 0.5, keyTrack: 0.3, velFilter: 0.4, fAttack: 0.001, fDecay: 0.1, fSustain: 0, attack: 0.001, decay: 0.3, sustainLvl: 0.2, release: 0.1, drive: 0.25, ensemble: 0, mono: 1, glide: 0, master: 1.1 }),
+  preset('Detroit Bass', 'analog', 'Bass', { unison: 2, detune: 6, spread: 0.3, sub: 0.45, noise: 0, cutoff: 600, reso: 0.3, envAmt: 0.35, keyTrack: 0.3, velFilter: 0.4, fAttack: 0.001, fDecay: 0.3, fSustain: 0.35, attack: 0.002, decay: 0.6, sustainLvl: 0.7, release: 0.12, drive: 0.2, ensemble: 0.5, mono: 1, glide: 0.03, master: 0.95 }),
+  preset('Neuro Reese', 'analog', 'Bass', { unison: 4, detune: 36, spread: 0.4, sub: 0.45, noise: 0, cutoff: 700, reso: 0.4, envAmt: 0.1, keyTrack: 0.2, attack: 0.003, decay: 1, sustainLvl: 1, release: 0.2, lfoRate: 0.8, lfoDepth: 1, drive: 0.8, ensemble: 0, mono: 1, glide: 0.05, master: 1.5 }),
+  preset('Hypnotic Drone', 'analog', 'Bass', { unison: 5, detune: 20, spread: 0.8, sub: 0.3, noise: 0.02, cutoff: 300, reso: 0.5, envAmt: 0.05, keyTrack: 0.2, attack: 0.8, decay: 1, sustainLvl: 1, release: 3, lfoRate: 0.07, lfoDepth: 1.5, space: 0.5, drive: 0.3, ensemble: 0.6, master: 0.63 }),
+  preset('Electro Bass', 'analog', 'Bass', { unison: 1, detune: 0, spread: 0, sub: 0.3, noise: 0, cutoff: 900, reso: 0.3, envAmt: 0.3, keyTrack: 0.3, velFilter: 0.5, fAttack: 0.001, fDecay: 0.15, fSustain: 0.2, attack: 0.001, decay: 0.3, sustainLvl: 0.4, release: 0.08, pitchEnv: 5, pitchTime: 0.03, drive: 0.5, ensemble: 0, mono: 1, glide: 0, master: 1.27 }),
+  preset('Synthwave Bass', 'analog', 'Bass', { unison: 2, detune: 8, spread: 0.4, sub: 0.4, noise: 0, cutoff: 900, reso: 0.2, envAmt: 0.35, keyTrack: 0.3, velFilter: 0.4, fAttack: 0.001, fDecay: 0.2, fSustain: 0.3, attack: 0.001, decay: 0.3, sustainLvl: 0.5, release: 0.1, ensemble: 0.4, drive: 0.15, mono: 1, glide: 0, master: 0.95 }),
+  // organ: the 16' sine-ish foot pedal bass of deep house
+  preset('Organ Sub Bass', 'organ', 'Bass', { db0: 8, db1: 0, db2: 6, db3: 0, db4: 0, db5: 0, db6: 0, db7: 0, db8: 0, perc: 0, rotor: 0, rotorMix: 0, drive: 0.2, click: 0.2, master: 1.5 }),
   // 808 sub basses
   preset('Trap 808', 'sub808', '808', { decay: 2.6, glide: 0.12, drive: 0.35, pitchAmt: 7, click: 0.3 }),
   preset('Long Boom', 'sub808', '808', { decay: 5, release: 0.6, drive: 0.12, tone: 2200, pitchAmt: 5, click: 0.15, punch: 0.25 }),
@@ -62,6 +76,10 @@ export const KEYS_PRESETS: KeysPreset[] = [
   preset('Slide 808', 'sub808', '808', { decay: 3, glide: 0.22, glideMode: 1, drive: 0.3, pitchAmt: 4 }),
   preset('Techno Sub', 'sub808', '808', { decay: 0.55, release: 0.08, pitchAmt: 3, pitchDecay: 0.03, click: 0.1, punch: 0.5, drive: 0.1, tone: 1800, glide: 0 }),
   preset('Sub Drop', 'sub808', '808', { pitchAmt: 24, pitchDecay: 0.3, click: 0, punch: 0.2, decay: 3.5, release: 0.8, drive: 0.2, tone: 3000, glide: 0, master: 0.5 }),
+  preset('Clean Sub', 'sub808', '808', { pitchAmt: 2, pitchDecay: 0.02, click: 0, punch: 0.1, decay: 6, release: 0.3, drive: 0, tone: 1200, glide: 0, master: 0.8 }),
+  preset('Rumble 808', 'sub808', '808', { pitchAmt: 6, pitchDecay: 0.05, click: 0.2, punch: 0.7, decay: 1.2, release: 0.2, drive: 0.9, tone: 1500, glide: 0.05, master: 0.42 }),
+  preset('Drill Slide', 'sub808', '808', { pitchAmt: 4, pitchDecay: 0.05, click: 0.25, punch: 0.4, decay: 4, release: 0.4, drive: 0.5, tone: 5000, glide: 0.3, glideMode: 1, master: 0.45 }),
+  preset('Short Punch 808', 'sub808', '808', { pitchAmt: 10, pitchDecay: 0.04, click: 0.5, punch: 0.7, decay: 0.7, release: 0.1, drive: 0.4, tone: 6000, glide: 0, master: 0.48 }),
   preset('Kick-Bass', 'sub808', '808', { decay: 0.4, release: 0.05, pitchAmt: 20, pitchDecay: 0.035, click: 0.7, punch: 0.8, drive: 0.4, glide: 0 }),
 ];
 
