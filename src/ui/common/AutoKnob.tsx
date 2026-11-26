@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { engine } from '../../audio/engine';
 import { sameTarget, valueAt } from '../../project/automation';
-import { isBusId, type AutomationTarget } from '../../project/types';
+import { isPlainChain, type AutomationTarget } from '../../project/types';
 import { automate, deleteLane, endAutomationGesture, setLaneEnabled, showLane, writeAutomation } from '../../state/automationActions';
 import { useProjectStore } from '../../state/projectStore';
 import type { NumericParamSpec } from '../../synth/params';
@@ -94,7 +94,7 @@ export function AutoKnob({ trackId, target, spec, value, onChange, label, size, 
       className="relative"
       onContextMenu={(e) => {
         // the master's and send channels' effects aren't automated or sidechained (yet): a plain knob there
-        if (disabled || isBusId(trackId)) return;
+        if (disabled || isPlainChain(trackId)) return;
         e.preventDefault();
         e.stopPropagation();
         setMenu({ x: e.clientX, y: e.clientY });
@@ -108,7 +108,7 @@ export function AutoKnob({ trackId, target, spec, value, onChange, label, size, 
         label={label}
         disabled={disabled}
         color={auto.automated ? '#f472b6' : color}
-        title={title ?? `${label ?? spec.label}: ${spec.format(auto.value)}${auto.automated ? ' — automated (moving it writes automation at the playhead)' : ''}${routes.length ? ' — sidechain-modulated' : ''}${isBusId(trackId) ? '' : ' · right-click to automate or sidechain'}`}
+        title={title ?? `${label ?? spec.label}: ${spec.format(auto.value)}${auto.automated ? ' — automated (moving it writes automation at the playhead)' : ''}${routes.length ? ' — sidechain-modulated' : ''}${isPlainChain(trackId) ? '' : ' · right-click to automate or sidechain'}`}
         onChange={(v) => {
           if (auto.automated) writeAutomation(trackId, target, v, gesture.current || `auto-${trackId}`);
           else onChange(v);

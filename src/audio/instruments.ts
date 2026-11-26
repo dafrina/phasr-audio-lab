@@ -28,6 +28,8 @@ export interface InstrumentNode {
   setAutomationValue(key: string, value: number): void;
   /** song tempo for tempo-synced internals (optional) */
   setTempo?(bpm: number): void;
+  /** the instrument's own send outputs to send channels A / B (drum pads), optional */
+  sendOutputs?(): AudioNode[];
 }
 
 export interface InstrumentEnv {

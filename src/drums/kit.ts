@@ -2,6 +2,7 @@
  * Drum rack kit model: pad layout, factory kits and validation (pure).
  * Pad i is played by MIDI note DRUM_BASE_NOTE + i (36 = C1, the usual kick note).
  */
+import { sanitizeEffect } from '../audio/effects/specs';
 import type { DrumKit, DrumPad, DrumPadSource, DrumVoiceType } from '../project/types';
 import type { NumericParamSpec } from '../synth/params';
 
@@ -51,7 +52,7 @@ function synth(voice: DrumVoiceType, tone = 0.5, snap = 0.5, length = 0.4): Drum
 }
 
 function pad(name: string, source: DrumPadSource, o: Partial<DrumPad> = {}): DrumPad {
-  return { name, source, gain: 0, pan: 0, tune: 0, decay: 4, choke: 0, ...o };
+  return { name, source, gain: 0, pan: 0, tune: 0, decay: 4, choke: 0, eq: null, sends: [0, 0], ...o };
 }
 
 /** GM-flavoured layout: kick on 36, snare on 38, hats 42/46 sharing a choke group. */
@@ -99,6 +100,12 @@ function rec(v: unknown): Record<string, unknown> {
 }
 
 /** Validate an untrusted kit; missing pads fall back to the default kit. */
+function sanitizePadEq(raw: unknown): DrumPad['eq'] {
+  if (!raw) return null;
+  const e = sanitizeEffect(raw);
+  return e && e.type === 'peq' ? e : null;
+}
+
 export function sanitizeKit(input: unknown): DrumKit {
   const d = defaultKit();
   const padsIn = Array.isArray(rec(input).pads) ? (rec(input).pads as unknown[]) : [];
@@ -119,6 +126,11 @@ export function sanitizeKit(input: unknown): DrumKit {
       tune: clamp(p.tune, DRUM_SPECS.tune),
       decay: clamp(p.decay, DRUM_SPECS.decay),
       choke: Math.min(DRUM_CHOKE_GROUPS, Math.max(0, Math.round(typeof p.choke === 'number' ? p.choke : 0))),
+      eq: sanitizePadEq(p.eq),
+      sends: [0, 1].map((j) => {
+        const v = Array.isArray(p.sends) ? (p.sends as unknown[])[j] : 0;
+        return typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+      }),
     } satisfies DrumPad;
   });
   return { pads };

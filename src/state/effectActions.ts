@@ -1,7 +1,7 @@
 /** Store commands for insert effects. Every change is an undoable project edit. */
 import { createEffectSlot, EFFECT_LABELS } from '../audio/effects/specs';
 import { addEffectSlot, moveEffectSlot, removeEffectSlot, updateEffectSlot, withParams } from '../project/effectOps';
-import { MASTER_ID, MAX_EFFECT_SLOTS, SEND_IDS, isBusId, type EffectSlot, type EffectType, type Project } from '../project/types';
+import { MASTER_ID, MAX_EFFECT_SLOTS, SEND_IDS, isBusId, isPlainChain, parsePadChainId, type EffectSlot, type EffectType, type Project } from '../project/types';
 import { useProjectStore, type CommitOptions } from './projectStore';
 import { uiToast } from './uiStore';
 
@@ -18,6 +18,24 @@ function editChain(trackId: string, label: string, fn: (chain: EffectSlot[]) => 
           return p;
         }
         return next === cur ? p : { ...p, master: { ...p.master, effects: next } };
+      }
+      // a drum pad's own EQ: a chain of at most one Spectra EQ
+      const pad = parsePadChainId(trackId);
+      if (pad) {
+        const track = p.tracks.find((t) => t.id === pad.trackId);
+        const inst = track?.instrument;
+        if (!track || inst?.type !== 'drumrack') return p;
+        const cur = inst.kit.pads[pad.pad]?.eq;
+        const chain = cur ? [cur] : [];
+        const next = fn(chain);
+        if (!next || next.length > 1 || (next[0] && next[0].type !== 'peq')) {
+          ok = false;
+          return p;
+        }
+        if (next === chain) return p;
+        const eq = (next[0] as Extract<EffectSlot, { type: 'peq' }> | undefined) ?? null;
+        const pads = inst.kit.pads.map((pd, j) => (j === pad.pad ? { ...pd, eq } : pd));
+        return { ...p, tracks: p.tracks.map((t) => (t.id === pad.trackId ? { ...t, instrument: { ...inst, kit: { pads } } } : t)) };
       }
       const k = (SEND_IDS as readonly string[]).indexOf(trackId);
       if (k >= 0) {
@@ -49,14 +67,14 @@ export function addEffect(trackId: string, type: EffectType, index?: number): Ef
   const slot = createEffectSlot(type);
   const ok = editChain(trackId, `Add ${EFFECT_LABELS[type]}`, (c) => addEffectSlot(c, slot, index));
   if (!ok) {
-    uiToast('error', `${trackId === MASTER_ID ? 'The master' : isBusId(trackId) ? 'A send channel' : 'A track'} can hold at most ${MAX_EFFECT_SLOTS} effects.`);
+    uiToast('error', parsePadChainId(trackId) ? 'A pad has one Spectra EQ.' : `${trackId === MASTER_ID ? 'The master' : isBusId(trackId) ? 'A send channel' : 'A track'} can hold at most ${MAX_EFFECT_SLOTS} effects.`);
     return null;
   }
   return slot;
 }
 
 export function removeEffect(trackId: string, slotId: string): void {
-  if (isBusId(trackId)) {
+  if (isPlainChain(trackId)) {
     editChain(trackId, 'Remove effect', (c) => removeEffectSlot(c, slotId));
     return;
   }
@@ -108,4 +126,21 @@ export function setTrackSend(trackId: string, k: number, level: number, coalesce
 /** Fader / mute of send channel k. */
 export function updateSendBus(k: number, fields: { volumeDb?: number; mute?: boolean }, label: string, coalesce?: string): void {
   useProjectStore.getState().commit(label, (p: Project) => ({ ...p, sends: p.sends.map((b, j) => (j === k ? { ...b, ...fields } : b)) }), coalesce ? { coalesce } : {});
+}
+
+/** A drum pad's send level (0..1) to send channel k. */
+export function setPadSend(trackId: string, pad: number, k: number, level: number, coalesce?: string): void {
+  const v = Math.max(0, Math.min(1, level));
+  useProjectStore.getState().commit(
+    'Pad send',
+    (p: Project) => ({
+      ...p,
+      tracks: p.tracks.map((t) => {
+        if (t.id !== trackId || t.instrument?.type !== 'drumrack') return t;
+        const pads = t.instrument.kit.pads.map((pd, j) => (j === pad ? { ...pd, sends: [0, 1].map((x) => (x === k ? v : (pd.sends?.[x] ?? 0))) } : pd));
+        return { ...t, instrument: { ...t.instrument, kit: { pads } } };
+      }),
+    }),
+    coalesce ? { coalesce } : {},
+  );
 }

@@ -11,7 +11,7 @@ import {
   peqHasQ,
 } from '../../audio/effects/specs';
 import { automatedKeys, valueAt } from '../../project/automation';
-import { MASTER_ID, SEND_IDS, type EffectSlot, type PeqBand, type PeqBandType, type PeqSlope } from '../../project/types';
+import { MASTER_ID, SEND_IDS, parsePadChainId, type EffectSlot, type PeqBand, type PeqBandType, type PeqSlope } from '../../project/types';
 import type { PeqBandOffset } from '../../audio/effects/units';
 import { automate, writeAutomation, endAutomationGesture } from '../../state/automationActions';
 import { setEffectParams } from '../../state/effectActions';
@@ -46,7 +46,10 @@ const FREQS = (() => {
 function liveSlot(trackId: string, slotId: string): PeqSlot | null {
   const p = getProject();
   const sk = (SEND_IDS as readonly string[]).indexOf(trackId);
-  const chain = trackId === MASTER_ID ? p.master.effects : sk >= 0 ? p.sends[sk]?.effects : p.tracks.find((t) => t.id === trackId)?.effects;
+  const pad = parsePadChainId(trackId);
+  const padInst = pad ? p.tracks.find((t) => t.id === pad.trackId)?.instrument : undefined;
+  const padEq = pad && padInst?.type === 'drumrack' ? padInst.kit.pads[pad.pad]?.eq : undefined;
+  const chain = pad ? (padEq ? [padEq] : []) : trackId === MASTER_ID ? p.master.effects : sk >= 0 ? p.sends[sk]?.effects : p.tracks.find((t) => t.id === trackId)?.effects;
   const s = chain?.find((e) => e.id === slotId);
   return s && s.type === 'peq' ? s : null;
 }

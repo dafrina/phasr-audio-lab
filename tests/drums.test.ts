@@ -111,3 +111,78 @@ describe('instrument registry', () => {
     expect(r).toMatchObject({ source: 'midi', note: 36, depth: -12, target: { kind: 'track', param: 'volumeDb' } });
   });
 });
+
+describe('per-pad EQ, pad sends and split to own track', () => {
+  const setup = () => {
+    const p = createProject();
+    const drums = createTrack('instrument', 0, INSTRUMENTS.drumrack.createConfig());
+    drums.name = 'Drums';
+    const notes = [
+      { id: 'k1', pitch: DRUM_BASE_NOTE, start: 0, length: 100, velocity: 120 },
+      { id: 'h1', pitch: DRUM_BASE_NOTE + 6, start: 240, length: 60, velocity: 90 },
+      { id: 'k2', pitch: DRUM_BASE_NOTE, start: 960, length: 100, velocity: 110 },
+    ];
+    const clip = { id: 'c1', kind: 'midi' as const, trackId: drums.id, name: 'Beat', start: 0, length: 3840, loopLength: 3840, loop: false, notes };
+    useProjectStore.getState().loadProject({ ...p, tracks: [drums], clips: { c1: clip } });
+    return drums.id;
+  };
+
+  it('a pad EQ and pad sends survive save/load; junk is dropped', () => {
+    const kit = defaultKit();
+    const raw = JSON.parse(JSON.stringify({ pads: kit.pads.map((pd, i) => (i === 0 ? { ...pd, eq: { id: 'e', type: 'peq', enabled: true, params: { bands: [], output: 2 } }, sends: [0.5, 9] } : i === 1 ? { ...pd, eq: { type: 'reverb' } } : pd)) }));
+    const k = sanitizeKit(raw);
+    expect(k.pads[0]?.eq?.type).toBe('peq');
+    expect(k.pads[0]?.eq?.params.output).toBe(2);
+    expect(k.pads[0]?.sends).toEqual([0.5, 1]);
+    expect(k.pads[1]?.eq).toBeNull();
+    expect(k.pads[2]?.sends).toEqual([0, 0]);
+  });
+
+  it('a pad gets exactly one Spectra EQ through the normal effect commands (undoable)', async () => {
+    const fx = await import('../src/state/effectActions');
+    const { padChainId } = await import('../src/project/types');
+    const tid = setup();
+    const id = padChainId(tid, 0);
+    expect(fx.addEffect(id, 'peq')).not.toBeNull();
+    expect(fx.addEffect(id, 'peq')).toBeNull(); // one per pad
+    expect(fx.addEffect(padChainId(tid, 1), 'reverb')).toBeNull(); // EQ only
+    const pad0 = () => {
+      const i = useProjectStore.getState().project.tracks[0]!.instrument;
+      return i?.type === 'drumrack' ? i.kit.pads[0] : undefined;
+    };
+    const slot = pad0()!.eq!;
+    fx.setEffectEnabled(id, slot.id, false);
+    expect(pad0()!.eq!.enabled).toBe(false);
+    fx.setPadSend(tid, 0, 1, 0.6);
+    expect(pad0()!.sends).toEqual([0, 0.6]);
+    fx.removeEffect(id, slot.id);
+    expect(pad0()!.eq).toBeNull();
+    useProjectStore.getState().undo();
+    expect(pad0()!.eq?.type).toBe('peq');
+  });
+
+  it('split to own track moves that pad’s notes, its EQ (as an insert) and its sends — one undo', async () => {
+    const fx = await import('../src/state/effectActions');
+    const { padChainId } = await import('../src/project/types');
+    const { splitPadToTrack } = await import('../src/ui/actions');
+    const tid = setup();
+    fx.addEffect(padChainId(tid, 0), 'peq');
+    fx.setPadSend(tid, 0, 0, 0.4);
+    splitPadToTrack(tid, 0);
+    const p = useProjectStore.getState().project;
+    expect(p.tracks.map((t) => t.name)).toEqual(['Drums', p.tracks[1]!.name]);
+    const kick = p.tracks[1]!;
+    expect(kick.instrument?.type).toBe('drumrack');
+    expect(kick.effects.map((e) => e.type)).toEqual(['peq']);
+    expect(kick.sends).toEqual([0.4, 0]);
+    const clips = Object.values(p.clips) as { trackId: string; notes: { pitch: number }[] }[];
+    const onKick = clips.filter((c) => c.trackId === kick.id).flatMap((c) => c.notes);
+    const onDrums = clips.filter((c) => c.trackId === tid).flatMap((c) => c.notes);
+    expect(onKick.map((n) => n.pitch)).toEqual([DRUM_BASE_NOTE, DRUM_BASE_NOTE]);
+    expect(onDrums.map((n) => n.pitch)).toEqual([DRUM_BASE_NOTE + 6]);
+    useProjectStore.getState().undo();
+    const back = useProjectStore.getState().project;
+    expect(back.tracks).toHaveLength(1);
+    expect((Object.values(back.clips)[0] as { notes: unknown[] }).notes).toHaveLength(3);
+  });
+});

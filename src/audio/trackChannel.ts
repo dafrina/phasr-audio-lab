@@ -12,7 +12,7 @@ import { createInstrumentNode, updateInstrumentNode, type InstrumentNode } from 
 import { automatedKeys, isTrackParamAutomated } from '../project/automation';
 import { createEffectUnit, type EffectUnit, type ModInput, type ParamTarget } from './effects/units';
 import { StereoMeter } from './meter';
-import { sendGain } from './sendBus';
+import { sendGain } from './sendGain';
 
 const PARAM_SMOOTH = 0.015;
 
@@ -58,6 +58,10 @@ export class TrackChannel {
   private readonly realtime: boolean;
   /** post-fader send taps to the send channels (created on first use) */
   private readonly sendTaps: (GainNode | null)[] = [];
+  /** an instrument's own sends (drum pads) → track fader level → mute → send channels */
+  private readonly instSendVol: GainNode[] = [];
+  private readonly instSendGate: GainNode[] = [];
+  private instSendDest: (AudioNode | null)[] = [];
 
   constructor(ctx: BaseAudioContext, track: Track, destination: AudioNode, realtime: boolean) {
     this.ctx = ctx;
@@ -77,6 +81,13 @@ export class TrackChannel {
     this.gate.connect(destination);
     this.meter = new StereoMeter(ctx, realtime);
     this.gate.connect(this.meter.input);
+    for (let k = 0; k < 2; k++) {
+      const v = new GainNode(ctx, { gain: dbToGainFader(track.volumeDb) });
+      const g = new GainNode(ctx, { gain: 1 });
+      v.connect(g);
+      this.instSendVol.push(v);
+      this.instSendGate.push(g);
+    }
   }
 
   /** Sync fader/pan/instrument from track data (cheap; safe to call often). */
@@ -95,6 +106,10 @@ export class TrackChannel {
       if (!autoVol) this.volume.gain.setTargetAtTime(vol, t, PARAM_SMOOTH);
       if (!autoPan) this.panner.pan.setTargetAtTime(track.pan, t, PARAM_SMOOTH);
       this.gate.gain.setTargetAtTime(gate, t, PARAM_SMOOTH);
+    }
+    for (let k = 0; k < this.instSendVol.length; k++) {
+      (this.instSendVol[k] as GainNode).gain.setTargetAtTime(vol, t, immediate ? 0.0001 : PARAM_SMOOTH);
+      (this.instSendGate[k] as GainNode).gain.setTargetAtTime(gate, t, immediate ? 0.0001 : PARAM_SMOOTH);
     }
   }
 
@@ -142,6 +157,14 @@ export class TrackChannel {
     this.instrument = createInstrumentNode(this.ctx, config, { resolveAsset, bpm });
     this.instrumentType = config.type;
     this.instrument.output.connect(this.input);
+    this.connectInstrumentSends();
+  }
+
+  private connectInstrumentSends(): void {
+    this.instrument?.sendOutputs?.().forEach((o, k) => {
+      const v = this.instSendVol[k];
+      if (v) o.connect(v);
+    });
   }
 
   /** Attach an already-created instrument (offline rendering passes events up front). */
@@ -150,6 +173,7 @@ export class TrackChannel {
     this.instrument = inst;
     this.instrumentType = type;
     inst.output.connect(this.input);
+    this.connectInstrumentSends();
   }
 
   /**
@@ -270,6 +294,13 @@ export class TrackChannel {
    */
   setSends(levels: readonly number[], inputs: readonly AudioNode[], immediate = false): void {
     inputs.forEach((dest, k) => {
+      // the instrument's own sends (drum pads) reach the same send channel
+      const ig = this.instSendGate[k];
+      if (ig && this.instSendDest[k] !== dest) {
+        if (this.instSendDest[k]) ig.disconnect();
+        ig.connect(dest);
+        this.instSendDest[k] = dest;
+      }
       const g = sendGain(levels[k] ?? 0);
       let tap = this.sendTaps[k] ?? null;
       if (!tap) {
@@ -286,6 +317,7 @@ export class TrackChannel {
 
   dispose(): void {
     for (const t of this.sendTaps) t?.disconnect();
+    for (const n of [...this.instSendVol, ...this.instSendGate]) n.disconnect();
     this.stopSources(this.ctx.currentTime);
     this.instrument?.dispose();
     this.instrument = null;

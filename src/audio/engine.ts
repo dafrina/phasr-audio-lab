@@ -6,7 +6,7 @@
  */
 import { EffectChain } from './effectChain';
 import { nextNoteInstanceId } from '../core/ids';
-import { MASTER_ID, SEND_IDS, type Project, type Track } from '../project/types';
+import { MASTER_ID, SEND_IDS, parsePadChainId, type Project, type Track } from '../project/types';
 import { SendBusNode } from './sendBus';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
 import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
@@ -358,6 +358,11 @@ export class AudioEngine {
     if (trackId === MASTER_ID) return this.master?.fx.unit(slotId);
     const k = (SEND_IDS as readonly string[]).indexOf(trackId);
     if (k >= 0) return this.sendBuses[k]?.fx.unit(slotId);
+    const pad = parsePadChainId(trackId);
+    if (pad) {
+      const inst = this.channels.get(pad.trackId)?.instrument;
+      return inst instanceof DrumRackInstrument ? (inst.padEqUnit(pad.pad) ?? undefined) : undefined;
+    }
     return this.channels.get(trackId)?.effectUnit(slotId);
   }
 

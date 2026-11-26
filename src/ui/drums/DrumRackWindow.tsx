@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Drum, FolderOpen, RotateCcw, Sparkles, X } from 'lucide-react';
+import { Drum, FolderOpen, RotateCcw, Send, SlidersHorizontal, Sparkles, Split, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import { DRUM_CHOKE_GROUPS, DRUM_PADS, DRUM_SPECS, DRUM_VOICES, FACTORY_KITS, defaultKit, padNote } from '../../drums/kit';
 import { midiNoteName } from '../../core/time';
@@ -9,6 +9,14 @@ import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
 import { AutoKnob } from '../common/AutoKnob';
 import { useLiveKeys } from '../liveKeys';
+import { EffectDevice } from '../effects/EffectDevice';
+import { SEND_SPEC } from '../mixer/Mixer';
+import { addEffect, setPadSend } from '../../state/effectActions';
+import { EFFECT_LABELS } from '../../audio/effects/specs';
+import { SEND_IDS, padChainId, sendLabel } from '../../project/types';
+import { openTrackDevices } from '../../state/uiStore';
+import { splitPadToTrack } from '../actions';
+
 
 type DrumConfig = Extract<InstrumentConfig, { type: 'drumrack' }>;
 
@@ -34,9 +42,10 @@ function isAudioFile(f: File): boolean {
 export function DrumRackWindow({ trackId }: { trackId: string }) {
   const track = useProjectStore((s) => s.project.tracks.find((t) => t.id === trackId));
   const assets = useProjectStore((s) => s.project.assets);
+  const sendBuses = useProjectStore((s) => s.project.sends);
   const setUi = useUiStore((s) => s.set);
   const [sel, setSel] = useState(0);
-  const [pos, setPos] = useState(() => ({ x: Math.max(8, (window.innerWidth - 900) / 2), y: Math.max(56, window.innerHeight - 560) }));
+  const [pos, setPos] = useState(() => ({ x: Math.max(8, (window.innerWidth - 900) / 2), y: Math.max(56, window.innerHeight - 790) }));
   const dragWin = useRef<{ dx: number; dy: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const padEls = useRef<(HTMLButtonElement | null)[]>([]);
@@ -257,6 +266,15 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
                   </span>
                 </span>
                 {p.choke > 0 && <span className="absolute right-1 top-1 rounded bg-base px-1 text-[8px] text-muted">C{p.choke}</span>}
+                <span className="absolute bottom-[18px] right-1 flex gap-0.5">
+                  {p.eq && (
+                    <span className={`rounded px-1 text-[8px] font-semibold ${p.eq.enabled ? 'bg-[#f472b6] text-black' : 'bg-base text-dim'}`} title="This pad has its own EQ">
+                      EQ
+                    </span>
+                  )}
+                  {(p.sends?.[0] ?? 0) > 0 && <span className="h-1.5 w-1.5 self-center rounded-full bg-[#38bdf8]" title="Sends to A" />}
+                  {(p.sends?.[1] ?? 0) > 0 && <span className="h-1.5 w-1.5 self-center rounded-full bg-[#fb923c]" title="Sends to B" />}
+                </span>
               </button>
             );
           })}
@@ -376,6 +394,58 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
           <div className="mt-auto text-[10px] leading-snug text-dim">
             Each pad plays MIDI note {midiNoteName(padNote(0))}–{midiNoteName(padNote(DRUM_PADS - 1))} in the piano roll. Drop one audio file on a pad to replace it, or several to fill pads from there.
           </div>
+        </div>
+      </div>
+      {/* the pad's own mixing: detailed EQ, sends, or a track of its own */}
+      <div className="flex items-start gap-2 overflow-x-auto border-t border-line bg-panel-2/40 px-2 py-2">
+        {pad.eq ? (
+          <EffectDevice trackId={padChainId(trackId, sel)} slot={pad.eq} index={0} count={1} />
+        ) : (
+          <button
+            type="button"
+            onClick={() => addEffect(padChainId(trackId, sel), 'peq')}
+            className="flex h-[150px] w-[150px] shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-line-2 text-[11px] text-muted hover:border-accent hover:text-fg"
+            title="Give this pad its own full Spectra EQ (8 bands, presets like Kick Punch, live spectrum)"
+          >
+            <SlidersHorizontal size={18} />
+            + Spectra EQ
+            <span className="text-[9px] text-dim">for {pad.name} only</span>
+          </button>
+        )}
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-col items-center gap-1 rounded-md border border-line bg-panel p-2" title="Send this pad (after its EQ) to a shared send channel — e.g. only the hats into a chorus">
+            <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted">
+              <Send size={11} /> Pad sends
+            </span>
+            <div className="flex gap-2">
+              {[0, 1].map((k) => {
+                const bus = sendBuses[k];
+                return (
+                  <Knob
+                    key={k}
+                    spec={SEND_SPEC}
+                    value={pad.sends?.[k] ?? 0}
+                    size={30}
+                    label={k === 0 ? 'Send A' : 'Send B'}
+                    color={k === 0 ? '#38bdf8' : '#fb923c'}
+                    title={`Send ${pad.name} to ${bus ? sendLabel(bus, (t) => EFFECT_LABELS[t]) : 'send ' + (k ? 'B' : 'A')}: ${SEND_SPEC.format(pad.sends?.[k] ?? 0)}`}
+                    onChange={(v) => setPadSend(trackId, sel, k, v < 0.01 ? 0 : v, `padsend-${trackId}-${sel}-${k}`)}
+                  />
+                );
+              })}
+            </div>
+            <button type="button" onClick={() => openTrackDevices(SEND_IDS[0])} className="text-[9px] text-dim hover:text-fg">
+              edit send channels…
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => splitPadToTrack(trackId, sel)}
+            className="flex h-7 items-center justify-center gap-1 rounded bg-panel-3 px-2 text-[11px] text-fg hover:bg-line-2"
+            title={`Move ${pad.name} and its notes onto a track of its own (its EQ becomes a Spectra EQ insert there, so you get the full effect chain)`}
+          >
+            <Split size={12} /> Split to own track
+          </button>
         </div>
       </div>
     </div>

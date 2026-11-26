@@ -13,6 +13,7 @@ import { getProject, removeClips, removeTrack, upsertClips, useProjectStore } fr
 import { uiToast, useUiStore } from '../state/uiStore';
 import { MidiFileError, midiToClipNotes, parseMidiFile, type SmfFile, type SmfNote } from '../midi/smf';
 import { fitClipToNotes } from '../project/noteOps';
+import { padNote } from '../drums/kit';
 import { clipToMidi, projectToMidi } from '../midi/export';
 import { downloadBlob, safeFileName } from '../persistence/download';
 import type { MidiClip, Track } from '../project/types';
@@ -411,4 +412,58 @@ export function exportClipMidi(clipId: string): void {
     return;
   }
   downloadBlob(new Blob([bytes as BlobPart], { type: 'audio/midi' }), `${safeFileName(p.clips[clipId]?.name ?? 'clip')}.mid`);
+}
+
+/**
+ * Move one drum pad onto its own track: a new Drum Rack track right below,
+ * with that pad's notes (taken out of this track's clips, same positions), the
+ * pad's EQ as a regular Spectra EQ insert there (so the full effect chain is
+ * open to it) and its sends as the track's sends. One undo step.
+ */
+export function splitPadToTrack(trackId: string, pad: number): void {
+  const p = getProject();
+  const src = p.tracks.find((t) => t.id === trackId);
+  const inst = src?.instrument;
+  if (!src || inst?.type !== 'drumrack') return;
+  if (p.tracks.length >= MAX_TRACKS) {
+    uiToast('error', `All ${MAX_TRACKS} tracks are in use — delete one to split this pad off.`);
+    return;
+  }
+  const padDef = inst.kit.pads[pad];
+  if (!padDef) return;
+  const note = padNote(pad);
+  const srcClips = Object.values(p.clips).filter((c): c is MidiClip => c.kind === 'midi' && c.trackId === trackId);
+  if (!srcClips.some((c) => c.notes.some((n) => n.pitch === note))) {
+    uiToast('info', `No ${padDef.name} notes on this track yet — the new track starts empty.`);
+  }
+  const track = createTrack('instrument', p.tracks.length, {
+    type: 'drumrack',
+    kit: { pads: inst.kit.pads.map((pd, j) => (j === pad ? { ...pd, eq: null, sends: [0, 0] } : { ...pd })) },
+    presetName: `${padDef.name} (from ${src.name})`.slice(0, 40),
+  });
+  track.name = `${padDef.name}`.slice(0, 24);
+  track.volumeDb = src.volumeDb;
+  track.pan = src.pan;
+  const used = new Set(p.tracks.map((t) => t.color));
+  track.color = TRACK_COLORS.find((c) => !used.has(c)) ?? track.color;
+  if (padDef.eq) track.effects = [{ ...padDef.eq, id: createId('fx') }];
+  track.sends = [0, 1].map((k) => padDef.sends?.[k] ?? 0);
+  const moved: MidiClip[] = [];
+  const kept: MidiClip[] = [];
+  for (const c of srcClips) {
+    const mine = c.notes.filter((n) => n.pitch === note);
+    if (!mine.length) continue;
+    kept.push({ ...c, notes: c.notes.filter((n) => n.pitch !== note) });
+    moved.push({ ...c, id: createId('clp'), trackId: track.id, name: track.name, notes: mine.map((n) => ({ ...n, id: createId('n') })) });
+  }
+  const at = p.tracks.findIndex((t) => t.id === trackId) + 1;
+  useProjectStore.getState().commit(`Split ${padDef.name} to its own track`, (prev) => {
+    const clips = { ...prev.clips };
+    for (const c of [...kept, ...moved]) clips[c.id] = c;
+    const tracks = [...prev.tracks];
+    tracks.splice(at, 0, track);
+    return { ...prev, tracks, clips };
+  });
+  useUiStore.getState().set({ selectedTrackId: track.id, selectedClipIds: moved.map((c) => c.id) });
+  uiToast('info', `${padDef.name} is on its own track now${moved.length ? ` (${moved.reduce((a, c) => a + c.notes.length, 0)} hits moved)` : ''}.`);
 }

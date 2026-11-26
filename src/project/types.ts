@@ -28,6 +28,19 @@ export function isBusId(id: string | null | undefined): boolean {
   return id === MASTER_ID || (SEND_IDS as readonly string[]).includes(id ?? '');
 }
 
+/** Chain id of a drum pad's own EQ: "<trackId>::pad<i>" (used where APIs take a chain id). */
+export function padChainId(trackId: string, pad: number): string {
+  return `${trackId}::pad${pad}`;
+}
+export function parsePadChainId(id: string | null | undefined): { trackId: string; pad: number } | null {
+  const m = /^(.+)::pad(\d{1,2})$/.exec(id ?? '');
+  return m ? { trackId: m[1] as string, pad: Number(m[2]) } : null;
+}
+/** A chain without automation / sidechain routing (master, sends, drum pads). */
+export function isPlainChain(id: string | null | undefined): boolean {
+  return isBusId(id) || parsePadChainId(id) !== null;
+}
+
 export type TrackKind = 'audio' | 'instrument';
 
 export interface MidiNote {
@@ -119,6 +132,10 @@ export interface DrumPad {
   decay: number;
   /** 0 = none; pads sharing a group cut each other off (e.g. open/closed hat) */
   choke: number;
+  /** the pad's own Spectra EQ (null = none) */
+  eq?: Extract<EffectSlot, { type: 'peq' }> | null;
+  /** pad send levels 0..1 to send channels A and B (after the pad's EQ, then the track fader) */
+  sends?: number[];
 }
 
 /** 16 pads; pad i plays MIDI note DRUM_BASE_NOTE + i. */

@@ -7,11 +7,17 @@
  * sample pads use decoded assets. Hits are one-shots (note-offs are ignored);
  * a pad's choke group cuts off other pads of the same group, like an open hat
  * silenced by the closed hat.
+ *
+ * Every pad has its own little bus: hits → pad input → (the pad's Spectra
+ * EQ, if it has one) → rack output, plus two send taps feeding the track's
+ * send channels (see TrackChannel).
  */
 import { dbToGain } from '../core/ids';
 import { DRUM_PADS, padIndexForNote } from '../drums/kit';
 import { renderDrumVoice, voiceKey } from '../drums/synth';
 import type { DrumKit, DrumPad } from '../project/types';
+import { createEffectUnit, type EffectUnit } from './effects/units';
+import { sendGain } from './sendGain';
 import type { SynthEvent } from '../synth/dsp/TriOscCore';
 
 interface Hit {
@@ -41,13 +47,76 @@ export class DrumRackInstrument {
   /** values set while stopped (live hits use these) */
   private readonly autoHeld = new Map<string, number>();
   private autoKeys = new Set<string>();
+  /** per-pad bus: input → [EQ] → out → rack output (+ send taps) */
+  private readonly padIn: GainNode[] = [];
+  private readonly padOut: GainNode[] = [];
+  private readonly padEq: (EffectUnit | null)[] = [];
+  private readonly padSend: GainNode[][] = [];
+  /** the rack's summed pad sends A / B (the track channel takes them to the send channels) */
+  private readonly sendOuts: GainNode[];
 
   constructor(ctx: BaseAudioContext, kit: DrumKit, resolveAsset: (id: string) => AudioBuffer | undefined) {
     this.ctx = ctx;
     this.kit = kit;
     this.resolveAsset = resolveAsset;
     this.output = new GainNode(ctx);
+    this.sendOuts = [new GainNode(ctx), new GainNode(ctx)];
+    for (let i = 0; i < DRUM_PADS; i++) {
+      const pin = new GainNode(ctx);
+      const pout = new GainNode(ctx);
+      pin.connect(pout);
+      pout.connect(this.output);
+      this.padIn.push(pin);
+      this.padOut.push(pout);
+      this.padEq.push(null);
+      this.padSend.push([]);
+    }
     this.setKit(kit);
+  }
+
+  /** Summed pad sends to send channels A and B. */
+  sendOutputs(): AudioNode[] {
+    return this.sendOuts;
+  }
+
+  /** The pad's EQ unit (for the device's curve and spectrum). */
+  padEqUnit(i: number): EffectUnit | null {
+    return this.padEq[i] ?? null;
+  }
+
+  private syncPadBus(i: number, p: DrumPad): void {
+    const pin = this.padIn[i] as GainNode;
+    const pout = this.padOut[i] as GainNode;
+    const eq = p.eq ?? null;
+    let unit = this.padEq[i] ?? null;
+    if (eq && unit) unit.update(eq, 120);
+    else if (eq && !unit) {
+      unit = createEffectUnit(this.ctx, eq, 120);
+      pin.disconnect();
+      pin.connect(unit.input);
+      unit.output.connect(pout);
+      this.padEq[i] = unit;
+    } else if (!eq && unit) {
+      pin.disconnect();
+      unit.dispose();
+      pin.connect(pout);
+      this.padEq[i] = null;
+    }
+    // send taps, created on first use
+    const taps = this.padSend[i] as GainNode[];
+    [0, 1].forEach((k) => {
+      const g = sendGain(p.sends?.[k] ?? 0);
+      let tap = taps[k];
+      if (!tap) {
+        if (g <= 0) return;
+        tap = new GainNode(this.ctx, { gain: g });
+        pout.connect(tap);
+        tap.connect(this.sendOuts[k] as GainNode);
+        taps[k] = tap;
+        return;
+      }
+      tap.gain.setTargetAtTime(g, this.ctx.currentTime, 0.01);
+    });
   }
 
   private bufferFor(p: DrumPad): { key: string; buf: AudioBuffer | null } {
@@ -76,6 +145,7 @@ export class DrumRackInstrument {
         this.keys[i] = key;
         this.buffers[i] = buf;
       }
+      this.syncPadBus(i, p);
     });
   }
 
@@ -154,7 +224,7 @@ export class DrumRackInstrument {
     const pan = new StereoPannerNode(ctx, { pan: p.pan });
     src.connect(gain);
     gain.connect(pan);
-    pan.connect(this.output);
+    pan.connect(this.padIn[index] as GainNode);
     let end = t + natural;
     if (p.decay < natural) {
       // shorten the hit: hold, then a fast fade over the last 30 % of the decay time
@@ -248,6 +318,8 @@ export class DrumRackInstrument {
     if (this.disposed) return;
     this.panic();
     this.disposed = true;
+    for (const u of this.padEq) u?.dispose();
+    for (const n of [...this.padIn, ...this.padOut, ...this.padSend.flat(), ...this.sendOuts]) n.disconnect();
     this.output.disconnect();
   }
 }
