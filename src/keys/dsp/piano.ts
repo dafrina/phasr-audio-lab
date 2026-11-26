@@ -56,19 +56,23 @@ export const PIANO_MAX_PARTIALS = 96;
 const DOUBLE_PARTIALS = 24;
 /** partials 1..TRIPLE_PARTIALS also get a second, detuned aftersound resonator */
 const TRIPLE_PARTIALS = 12;
-const MAX_RES = PIANO_MAX_PARTIALS + DOUBLE_PARTIALS + TRIPLE_PARTIALS;
+/** partials 2..PHANTOM_MAX get a "phantom" partial at exactly 2·f_k (bass and middle) */
+const PHANTOM_MAX = 10;
+const MAX_RES = PIANO_MAX_PARTIALS + DOUBLE_PARTIALS + TRIPLE_PARTIALS + PHANTOM_MAX;
 /** share of the second aftersound string (beating in the tail) */
-const AFTER2_SHARE = 0.07;
+const AFTER2_SHARE = 0.1;
 const POLYPHONY = 32;
 /** keys at or above this note have no dampers */
 export const PIANO_NO_DAMPER_NOTE = 89;
 /** share of the initial amplitude in the fast "prompt" component (mid/bass; less in the treble) */
-const PROMPT_SHARE = 0.7;
+const PROMPT_SHARE = 0.6;
 /** prompt component decays this many times faster than the aftersound */
-const PROMPT_RATE = 3.6;
+const PROMPT_RATE = 2.6;
 /** a resonator is dropped below this energy (≈ −94 dBFS amplitude) */
 const DEAD_ENERGY = 4e-10;
-const LEVEL = 0.22;
+const LEVEL = 0.2;
+/** soundboard (wood) resonator level at Body = 100 % */
+const WOOD_GAIN = 2.2;
 
 /** fundamental T60 (seconds) by MIDI note, before the Sustain multiplier */
 const FUND_T60: readonly (readonly [number, number])[] = [
@@ -78,8 +82,8 @@ const FUND_T60: readonly (readonly [number, number])[] = [
   [60, 10],
   [72, 6],
   [84, 4.5],
-  [96, 3],
-  [108, 1.6],
+  [96, 4.5],
+  [108, 2.6],
 ];
 
 export interface PianoParams {
@@ -92,6 +96,8 @@ export interface PianoParams {
   unison: number;
   inharm: number;
   stretch: number;
+  /** phantom-partial (longitudinal) level: the metallic zing of steel strings */
+  metal: number;
   damper: number;
   releaseNoise: number;
   resonance: number;
@@ -158,11 +164,11 @@ function trebleness(note: number): number {
 
 /** coupled-string double decay is weaker in the treble: smaller, slower prompt component */
 export function promptShare(note: number): number {
-  return PROMPT_SHARE - 0.3 * trebleness(note);
+  return PROMPT_SHARE - 0.25 * trebleness(note);
 }
 
 export function promptRate(note: number): number {
-  return PROMPT_RATE - 1.8 * trebleness(note);
+  return PROMPT_RATE - 1.1 * trebleness(note);
 }
 
 /** T60 of a partial at frequency f for a note whose fundamental is f1 */
@@ -263,6 +269,14 @@ const pidOf = (k: number, s: number) => k * 4 + s;
 const S_PROMPT = 0;
 const S_AFTER = 1;
 const S_AFTER2 = 2;
+/**
+ * Phantom partial: the string's stretching couples transverse motion into
+ * longitudinal vibration, producing components at sums of partial
+ * frequencies — here 2·f_k, which sits slightly below the (stretched)
+ * partial 2k. Their beating against the real partials is the metallic
+ * "zing" of steel piano strings.
+ */
+const S_PHANTOM = 3;
 
 const BODY_MODES: readonly (readonly [number, number, number])[] = [
   // Hz, T60 s, gain
@@ -334,6 +348,8 @@ export class PianoEngine implements KeysEngine {
   private readonly lidR = new ToneFilter();
   private readonly master = new Smoother(0.8);
   private readonly room: FdnReverb;
+  /** dense, short soundboard/case response: the wood colour of the string sound */
+  private readonly wood: FdnReverb;
   private readonly roomLevel = new Smoother(0);
   private strikeCount = 0;
 
@@ -360,6 +376,8 @@ export class PianoEngine implements KeysEngine {
     // a medium recording room: short pre-delay, ~1.1 s decay, darker tail
     this.room = new FdnReverb(sampleRate);
     this.room.set(1.1, 0.62, 5200, 0.012);
+    this.wood = new FdnReverb(sampleRate, 0.4);
+    this.wood.set(0.16, 0.17, 11000, 0.0004);
     this.roomLevel.setTime(0.05, sampleRate);
     this.sympWet.setTime(0.25, sampleRate);
     this.master.setTime(0.02, sampleRate);
@@ -483,6 +501,7 @@ export class PianoEngine implements KeysEngine {
     this.tickEnv = 0;
     for (const c of this.combs) c.clear();
     this.room.clear();
+    this.wood.clear();
     this.combLp.fill(0);
   }
 
@@ -541,7 +560,11 @@ export class PianoEngine implements KeysEngine {
           // bridge coupling adds a fixed extra loss (not one that scales the high-frequency losses)
           sigma += (promptRate(note) - 1) * sigma1;
         } else if (s === S_AFTER) f *= Math.pow(2, d);
-        else {
+        else if (s === S_PHANTOM) {
+          // amplitude ∝ product of two partials → decays at the sum of their rates
+          f *= 2;
+          sigma *= 2;
+        } else {
           f *= Math.pow(2, d * (0.2 + 0.6 * hash01(note + 101, k)));
           sigma *= 1.15;
         }
@@ -596,6 +619,10 @@ export class PianoEngine implements KeysEngine {
     const level = (LEVEL * varLevel * Math.pow(Math.max(vel, 1e-3), p.velCurve) * (1 + 0.25 * bass)) / Math.sqrt(Math.max(energy, 1e-12));
     let n = 0;
     const peak = (amps[0] as number) * level;
+    let peakA = 0;
+    for (let k = 1; k <= count; k++) peakA = Math.max(peakA, (amps[k - 1] as number) * level);
+    // nonlinear: harder strikes stretch the string more
+    const phantomAmt = (p.metal ?? 0.5) * vel * clamp((86 - note) / 30, 0, 1);
     for (let k = 1; k <= count; k++) {
       const a = (amps[k - 1] as number) * level;
       // inaudible partial that isn't ringing already: skip
@@ -614,6 +641,16 @@ export class PianoEngine implements KeysEngine {
         v.gin[n] = !double ? a : s === S_PROMPT ? a * ps : s === S_AFTER ? a * after : a * AFTER2_SHARE;
         n++;
       }
+      // phantom partials: strongest in the bass and middle, gone in the top octaves
+      if (k >= 2 && k <= PHANTOM_MAX && n < MAX_RES && phantomAmt > 0 && 2 * partialFrequency(f1, k, B) < fmax) {
+        const id = pidOf(k, S_PHANTOM);
+        v.pid[n] = id;
+        v.side[n] = hash01(note * 977 + k, 9) < 0.5 ? 0 : 1;
+        v.re[n] = this.tmpHas[id] ? (this.tmpRe[id] as number) : 0;
+        v.im[n] = this.tmpHas[id] ? (this.tmpIm[id] as number) : 0;
+        v.gin[n] = a * phantomAmt * Math.min(1, a / Math.max(peakA, 1e-12));
+        n++;
+      }
     }
     v.n = n;
     this.updateCoefs(v);
@@ -628,7 +665,9 @@ export class PianoEngine implements KeysEngine {
     v.pulseNorm = 1 / norm;
     v.pulsePos = 0;
     // hammer knock into the soundboard
-    this.knockPending += p.hammerNoise * Math.pow(vel, 1.3) * 0.5 * (1 + 0.5 * bass);
+    // key bottoming and the hammer knock through the wooden action and soundboard:
+    // a big part of what makes a struck key sound like a key (most audible in the treble)
+    this.knockPending += p.hammerNoise * Math.pow(vel, 1.3) * (1.5 + 0.5 * bass + 3 * trebleness(note));
     this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
     // treble: the hard hammer core hitting steel gives a short, bright "tick"
     this.tickEnv += p.hammerNoise * Math.pow(vel, 1.5) * (0.04 + 0.015 * trebleness(note));
@@ -739,7 +778,8 @@ export class PianoEngine implements KeysEngine {
     const p = this.p;
     const bodyFeed = 0.06 * p.body;
     const modes = BODY_MODES.length;
-    this.sympWet.target = p.resonance * (this.pedal ? 0.5 : 0.06);
+    // undamped treble strings and the duplex scale ring along even without the pedal
+    this.sympWet.target = p.resonance * (this.pedal ? 0.5 : 0.16);
     const noise = this.noise;
     for (let i = 0; i < n; i++) {
       const l = L[i] as number;
@@ -802,8 +842,11 @@ export class PianoEngine implements KeysEngine {
           else sL += y;
         }
       }
-      const outl = l + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + tick + sL * wet;
-      const outr = r + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + tick + sR * wet;
+      // soundboard: the strings are heard through a dense wooden resonator
+      this.wood.process(l, r);
+      const woodAmt = p.body * WOOD_GAIN;
+      const outl = l + this.wood.outL * woodAmt + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + tick + sL * wet;
+      const outr = r + this.wood.outR * woodAmt + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + tick + sR * wet;
       const g = this.master.next();
       let ol = this.lidL.process(outl);
       let or = this.lidR.process(outr);

@@ -105,7 +105,8 @@ describe('Keyforge parameters & presets', () => {
 describe('Keyforge piano — string physics', () => {
   it('partials follow the stiff-string inharmonicity law', () => {
     const note = 36;
-    const [L, R] = renderKeys(cfg('piano', { unison: 0 }), hit(note, 0.9), 2.2, SR);
+    // (Metal off: phantom partials sit right next to the partials measured here)
+    const [L, R] = renderKeys(cfg('piano', { unison: 0, metal: 0 }), hit(note, 0.9), 2.2, SR);
     const sp = spectrum(slice(mono(L, R), SR, 0.15, 2.15), SR, 1 << 17);
     const f1 = pianoFundamental(note, 1);
     const B = inharmonicityB(note, 1);
@@ -165,7 +166,7 @@ describe('Keyforge piano — string physics', () => {
     const m = mono(L, R);
     const prompt = slope(envelopeDb(slice(m, SR, 0.03, 0.4), SR, 0.03), 0.03);
     const after = slope(envelopeDb(slice(m, SR, 1.5, 3.5), SR, 0.1), 0.1);
-    expect(prompt).toBeLessThan(after * 2.5);
+    expect(prompt).toBeLessThan(after * 1.8);
   });
 
   it('detuned unison strings beat; a single tuned string decays smoothly', () => {
@@ -245,6 +246,19 @@ describe('Keyforge piano — string physics', () => {
     }
   });
 
+  it('the soundboard (wood) and the key action (knock) are clearly part of the sound', () => {
+    const share = (note: number, over: Record<string, number>, from: number, to: number) => {
+      const [a, b] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.75), to + 0.05, SR);
+      const [c, d] = renderKeys(cfg('piano', { room: 0, ...over }), hit(note, 0.75), to + 0.05, SR);
+      const full = mono(a, b);
+      const without = mono(c, d);
+      const diff = Float32Array.from(full, (x, i) => x - (without[i] as number));
+      return 20 * Math.log10(rms(slice(diff, SR, from, to)) / rms(slice(full, SR, from, to)));
+    };
+    expect(share(60, { body: 0 }, 0.1, 1)).toBeGreaterThan(-18);
+    expect(share(96, { hammerNoise: 0 }, 0, 0.04)).toBeGreaterThan(-18);
+  });
+
   it('treble notes ring with their overtones instead of plucking away', () => {
     const note = 96;
     const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.8), 1, SR);
@@ -266,7 +280,8 @@ describe('Keyforge piano — string physics', () => {
     const note = 40;
     const f8 = partialFrequency(pianoFundamental(note, 1), 8, inharmonicityB(note, 1));
     const pitch = (vel: number, from: number, to: number) => {
-      const [L, R] = renderKeys(cfg('piano', { unison: 0, room: 0 }), hit(note, vel), to + 0.01, SR);
+      // string physics only: no soundboard/knock modes next to the measured partial
+      const [L, R] = renderKeys(cfg('piano', { unison: 0, room: 0, metal: 0, body: 0, hammerNoise: 0 }), hit(note, vel), to + 0.01, SR);
       return peakNear(spectrum(slice(mono(L, R), SR, from, to), SR, 1 << 18), f8, 15).f;
     };
     const glide = 1200 * Math.log2(pitch(1, 0.005, 0.06) / pitch(1, 0.6, 0.9));
@@ -278,7 +293,7 @@ describe('Keyforge piano — string physics', () => {
 
   it('the room adds an ambient tail', () => {
     const tail = (room: number) => {
-      const [L, R] = renderKeys(cfg('piano', { room }), hit(60, 0.9, 0, 0.3), 1, SR);
+      const [L, R] = renderKeys(cfg('piano', { room, resonance: 0 }), hit(60, 0.9, 0, 0.3), 1, SR);
       return db(rms(slice(mono(L, R), SR, 0.5, 0.8)));
     };
     expect(tail(1)).toBeGreaterThan(tail(0) + 6);
