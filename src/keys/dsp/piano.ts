@@ -171,6 +171,30 @@ export function promptShare(note: number): number {
   return PROMPT_SHARE - 0.25 * trebleness(note);
 }
 
+/**
+ * How strongly partial k takes part in the fast prompt decay. The
+ * fundamental couples best to the soundboard and loses energy fastest in the
+ * first second; the 2nd–6th partials hold on (in recordings of held notes
+ * they even grow relative to the fundamental), so the tone keeps singing
+ * instead of going dull like a pluck.
+ */
+/**
+ * Swell of the 3rd–8th partials (energy passing from the hammer-driven
+ * vibration into the strings' other polarisation): their "prompt" part has
+ * negative sign, so the partial starts lower and fills in over ~0.2 s — as
+ * measured on held grand-piano notes, where these partials grow 6–13 dB
+ * relative to the fundamental within the first half second. Bass and middle;
+ * gone in the top octaves.
+ */
+const SWELL_SIGMA = 6;
+export function swellAmount(note: number): number {
+  return 0.45 * clamp((86 - note) / 14, 0, 1);
+}
+
+export function promptWeight(k: number): number {
+  return clamp(1.4 - 0.45 * (k - 1), 0.3, 1.4);
+}
+
 export function promptRate(note: number): number {
   return PROMPT_RATE - 1.1 * trebleness(note);
 }
@@ -186,7 +210,8 @@ export function partialT60(note: number, f: number, f1: number, p: Pick<PianoPar
 /** brightness index of a strike (0…1.4) */
 export function strikeBrightness(vel: number, p: Pick<PianoParams, 'brightness' | 'hardness'>): number {
   const velTone = 1 - p.hardness + p.hardness * Math.pow(vel, 1.5);
-  return clamp(p.brightness * (0.4 + 0.75 * velTone), 0, 1.4);
+  // (medium touch ≈ unchanged; soft is rounder and hard brighter than before)
+  return clamp(p.brightness * (0.1 + 1.15 * velTone), 0, 1.4);
 }
 
 /** treble position used by the hammer model: sets in from about A3, complete around C6 */
@@ -202,10 +227,12 @@ export function hammerTreble(note: number): number {
  * their fundamental).
  */
 export function hammerCorner(f1: number, b: number, treb: number): { fc: number; slope: number; open: number } {
-  const absCorner = (700 + 7000 * b * b) * Math.pow(f1 / 262, f1 < 262 ? 0.6 : 0.3);
+  const absCorner = (300 + 7600 * b * b) * Math.pow(f1 / 262, f1 < 262 ? 0.6 : 0.3);
   const harmonicCap = f1 * (0.9 + 2.2 * b + 20 * (1 - treb) * (1 - treb));
   // `open`: the uncapped corner — the instant of impact itself is not limited by the contact time
-  return { fc: Math.min(f1 + absCorner, harmonicCap), slope: 1.6 + 0.6 * treb, open: f1 + absCorner };
+  // soft (uncompressed) felt also rolls off more steeply: pp sounds rounder, not just quieter
+  const soft = clamp(0.65 - b, 0, 0.5);
+  return { fc: Math.min(f1 + absCorner, harmonicCap), slope: 1.6 + 0.6 * treb + 2.2 * soft, open: f1 + absCorner };
 }
 
 export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'>): number {
@@ -226,11 +253,26 @@ export function hammerSpectrum(note: number, k: number, f: number, f1: number, v
   // radiation): ±3 dB fixed per note and partial. Perfectly smooth spectra sound synthetic.
   const irregular = 1 + 0.7 * (hash01(note * 131 + 7, k) - 0.5);
   // spectral slope: steeper in the bass (no buzzy, saw-like overtone series) and in the treble
-  const tilt = Math.pow(k, -(0.35 + 0.6 * bassness + 0.6 * treb));
+  const tilt = Math.pow(k, -(0.35 + 0.15 * bassness + 0.6 * treb));
   // soundboard radiates the lowest fundamentals poorly
-  const board = 1 / (1 + (70 / f) * (70 / f));
+  // soundboard radiates poorly below its lowest modes (fitted to a recorded A♯0: the fundamental is ~30 dB under the partials around 300 Hz)
+  const board = 1 / (1 + Math.pow(170 / f, 3));
   const air = 1 / (1 + (f / 14000) * (f / 14000));
-  return hammer * comb * tilt * board * air * irregular;
+  return hammer * comb * tilt * board * air * irregular * radiation(f, note);
+}
+
+/**
+ * Soundboard radiation response, fitted to recordings of held grand-piano
+ * notes (A♯0, C♯4–C5): partials radiate fully up to ~600 Hz, then the
+ * response drops steeply (~−10 dB by 850 Hz) and keeps falling ≈ −10 dB/oct.
+ * Without it the bass and middle sound like bare, bright strings (harp-like).
+ * Faded out over the top octaves, whose sound is right without it.
+ */
+export function radiation(f: number, note: number): number {
+  const w = clamp((84 - note) / 12, 0, 1);
+  if (w <= 0 || f <= 560) return 1;
+  const dbDrop = f < 850 ? 10 * (Math.log2(f / 560) / Math.log2(850 / 560)) : 10 + 6.5 * Math.log2(f / 850);
+  return Math.pow(10, (-dbDrop * w) / 20);
 }
 
 /** detune (cents) between the two strings of partial k */
@@ -286,6 +328,14 @@ class PianoVoice {
   gBR = 0.7;
   /** tension-modulation pitch offset (cents), decays after the strike */
   glide = 0;
+  /**
+   * Onset bloom: measured grand-piano recordings take ~4–12 ms to come within
+   * 6 dB of full level and peak at ~16–34 ms (soundboard response building up
+   * under the strings), instead of peaking in the first millisecond like a
+   * plucked string. Samples since the strike, and the bloom time constant.
+   */
+  onsetPos = 1e9;
+  onsetTau = 1;
 
   get resonating(): boolean {
     return this.active && !this.killing;
@@ -328,6 +378,13 @@ const S_LONG = 5;
 /** first longitudinal mode frequency for a note (Hz) */
 export function longitudinalFreq(note: number): number {
   return clamp(midiToHz(note) * 15 * (1 + 0.08 * (hash01(note, 77) - 0.5)), 450, 3600);
+}
+
+/** onset bloom time constant (s): ~15 ms in the bass and middle, short in the top octaves */
+export function bloomTime(note: number): number {
+  const top = clamp((note - 80) / 16, 0, 1);
+  const bass = clamp((48 - note) / 27, 0, 1);
+  return 0.0072 + 0.0045 * bass - 0.0052 * top;
 }
 
 function hitT60(f: number): number {
@@ -514,6 +571,9 @@ export class PianoEngine implements KeysEngine {
     v.pendingNote = -1;
     v.note = note;
     v.n = 0;
+    // fresh string: the radiated sound blooms in (restrikes of a ringing string don't)
+    v.onsetPos = 0;
+    v.onsetTau = this.sr * bloomTime(note);
     v.held.clear();
     v.held.add(id);
     v.sustained = false;
@@ -624,7 +684,7 @@ export class PianoEngine implements KeysEngine {
           // (the top octaves keep their classic wider split — that shimmer is what made them convincing)
           f *= Math.pow(2, d * (0.8 - 1.8 * clamp((note - 86) / 8, 0, 1)));
           // bridge coupling adds a fixed extra loss (not one that scales the high-frequency losses)
-          sigma += (promptRate(note) - 1) * sigma1;
+          sigma += k >= 3 && k <= 8 ? SWELL_SIGMA : (promptRate(note) - 1) * sigma1 * Math.pow(promptWeight(k), 2.2);
         } else if (s === S_AFTER) f *= Math.pow(2, d);
         else if (s === S_PHANTOM) {
           // amplitude ∝ product of two partials → decays at the sum of their rates
@@ -713,7 +773,8 @@ export class PianoEngine implements KeysEngine {
         v.side[n] = hash01(note * 977 + k, s + 3) < 0.5 ? 0 : 1;
         v.re[n] = this.tmpHas[id] ? (this.tmpRe[id] as number) : 0;
         v.im[n] = this.tmpHas[id] ? (this.tmpIm[id] as number) : 0;
-        const ps = promptShare(note);
+        // positive: fast-decaying prompt part; negative (3rd–8th partials): the partial swells in
+        const ps = k >= 3 && k <= 8 ? -swellAmount(note) : Math.min(0.85 - (triple ? after2Share(note) : 0), promptShare(note) * promptWeight(k));
         const a2 = after2Share(note);
         const after = 1 - ps - (triple ? a2 : 0);
         v.gin[n] = !double ? a : s === S_PROMPT ? a * ps : s === S_AFTER ? a * after : a * a2;
@@ -869,11 +930,25 @@ export class PianoEngine implements KeysEngine {
       }
       return;
     }
-    for (let i = 0; i < n; i++) {
-      const x = A[i] as number;
-      const y = Bf[i] as number;
-      L[i] = (L[i] as number) + x * v.gAL + y * v.gBL;
-      R[i] = (R[i] as number) + x * v.gAR + y * v.gBR;
+    if (v.onsetPos < 8 * v.onsetTau) {
+      // starts at ~20 % (the hammer's own transient stays audible) and blooms to full level
+      let pos = v.onsetPos;
+      const inv = 1 / v.onsetTau;
+      for (let i = 0; i < n; i++, pos++) {
+        const g = 1 - 0.8 * Math.exp(-pos * inv);
+        const x = (A[i] as number) * g;
+        const y = (Bf[i] as number) * g;
+        L[i] = (L[i] as number) + x * v.gAL + y * v.gBL;
+        R[i] = (R[i] as number) + x * v.gAR + y * v.gBR;
+      }
+      v.onsetPos = pos;
+    } else {
+      for (let i = 0; i < n; i++) {
+        const x = A[i] as number;
+        const y = Bf[i] as number;
+        L[i] = (L[i] as number) + x * v.gAL + y * v.gBL;
+        R[i] = (R[i] as number) + x * v.gAR + y * v.gBR;
+      }
     }
     if (v.n === 0 && !hasPulse) {
       v.active = false;
