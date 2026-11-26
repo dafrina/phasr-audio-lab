@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Drum, FolderOpen, RotateCcw, Send, SlidersHorizontal, Sparkles, Split, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
-import { DRUM_CHOKE_GROUPS, DRUM_PADS, DRUM_SPECS, DRUM_VOICES, FACTORY_KITS, defaultKit, padNote } from '../../drums/kit';
+import { DRUM_CHOKE_GROUPS, DRUM_MODELS, DRUM_PADS, DRUM_SPECS, DRUM_VOICES, FACTORY_KITS, defaultKit, padNote } from '../../drums/kit';
 import { midiNoteName } from '../../core/time';
 import type { DrumKit, DrumPad, DrumVoiceType, InstrumentConfig } from '../../project/types';
 import { getProject, setInstrumentConfig, useProjectStore } from '../../state/projectStore';
@@ -303,7 +303,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
             <div className="inline-flex overflow-hidden rounded border border-line">
               <button
                 type="button"
-                onClick={() => pad.source.kind !== 'synth' && setPad(sel, { name: 'Kick', source: { kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4 } }, 'src')}
+                onClick={() => pad.source.kind !== 'synth' && setPad(sel, { name: 'Kick', source: { kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4, model: 0 } }, 'src')}
                 className={`px-2 py-0.5 uppercase tracking-wide ${pad.source.kind === 'synth' ? 'text-black' : 'bg-panel-3 text-muted'}`}
                 style={pad.source.kind === 'synth' ? { background: ACCENT } : undefined}
               >
@@ -331,6 +331,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
               }}
             />
             {pad.source.kind === 'synth' ? (
+              <>
               <select
                 value={pad.source.voice}
                 onChange={(e) => {
@@ -348,6 +349,27 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
                   </option>
                 ))}
               </select>
+              <div className="inline-flex overflow-hidden rounded border border-line" title="Character: a different sound for this voice (tone, snap and length still shape it)">
+                {(DRUM_MODELS[pad.source.voice] ?? []).map((label, m) => {
+                  const on = (pad.source.kind === 'synth' ? (pad.source.model ?? 0) : 0) === m;
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        setSynth({ model: m }, 'model');
+                        // hear the new character right away
+                        setTimeout(() => hit(sel, 0.85), 30);
+                      }}
+                      className={`px-1.5 py-0.5 ${on ? 'font-semibold text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
+                      style={on ? { background: ACCENT } : undefined}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              </>
             ) : (
               <span className={`truncate ${assets[pad.source.assetId] ? 'text-accent-hi' : 'text-bad'}`} title="Sample asset">
                 {assets[pad.source.assetId]?.name ?? 'missing sample'} {assets[pad.source.assetId] ? `· ${assets[pad.source.assetId]?.durationSec.toFixed(2)} s` : ''}
@@ -384,7 +406,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
           {pad.source.kind === 'sample' && (
             <button
               type="button"
-              onClick={() => setPad(sel, { name: 'Kick', source: { kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4 } }, 'builtin')}
+              onClick={() => setPad(sel, { name: 'Kick', source: { kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4, model: 0 } }, 'builtin')}
               className="flex w-max items-center gap-1 text-[10px] text-muted hover:text-fg"
               title="Go back to a built-in synthesized sound (the sample stays in the project)"
             >

@@ -186,3 +186,41 @@ describe('per-pad EQ, pad sends and split to own track', () => {
     expect((Object.values(back.clips)[0] as { notes: unknown[] }).notes).toHaveLength(3);
   });
 });
+
+describe('drum voice characters (2–3 sounds per pad)', () => {
+  it('every voice offers three characters; each renders clean, full-level and different from the classic one', async () => {
+    const { DRUM_MODELS } = await import('../src/drums/kit');
+    for (const v of DRUM_VOICES) {
+      const models = DRUM_MODELS[v.type];
+      expect(models.length, v.type).toBe(3);
+      const classic = renderDrumVoice({ kind: 'synth', voice: v.type, tone: 0.5, snap: 0.5, length: 0.4, model: 0 }, 48000);
+      for (let m = 1; m < models.length; m++) {
+        const x = renderDrumVoice({ kind: 'synth', voice: v.type, tone: 0.5, snap: 0.5, length: 0.4, model: m }, 48000);
+        expect(x.every((s) => Number.isFinite(s)), `${v.type}/${models[m]}`).toBe(true);
+        const pk = x.reduce((a, s) => Math.max(a, Math.abs(s)), 0);
+        expect(pk, `${v.type}/${models[m]} peak`).toBeGreaterThan(0.8);
+        expect(pk).toBeLessThanOrEqual(0.9);
+        // a genuinely different sound, not the classic one
+        let diff = 0;
+        for (let i = 0; i < Math.min(x.length, classic.length); i++) diff += ((x[i] as number) - (classic[i] as number)) ** 2;
+        expect(diff, `${v.type}/${models[m]} differs`).toBeGreaterThan(1);
+      }
+    }
+  });
+
+  it('a pad without a character (older projects) is the classic sound; saved characters are clamped', () => {
+    const a = renderDrumVoice({ kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4 }, 48000);
+    const b = renderDrumVoice({ kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4, model: 0 }, 48000);
+    expect(Array.from(a)).toEqual(Array.from(b));
+    const k = sanitizeKit({ pads: [{ name: 'K', source: { kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4, model: 9 } }, { name: 'S', source: { kind: 'synth', voice: 'snare', tone: 0.5, snap: 0.5, length: 0.4 } }] });
+    expect(k.pads[0]?.source).toMatchObject({ model: 2 });
+    expect(k.pads[1]?.source).toMatchObject({ model: 0 });
+  });
+
+  it('the new 909 and Hard Techno kits use the alternative characters', () => {
+    const names = FACTORY_KITS.map((k) => k.name);
+    expect(names).toEqual(expect.arrayContaining(['909 House Kit', 'Hard Techno Kit']));
+    const hard = FACTORY_KITS.find((k) => k.name === 'Hard Techno Kit')!.kit;
+    expect(hard.pads.filter((p) => p.source.kind === 'synth' && (p.source.model ?? 0) > 0).length).toBeGreaterThan(10);
+  });
+});

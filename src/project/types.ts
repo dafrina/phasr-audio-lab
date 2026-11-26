@@ -116,7 +116,8 @@ export type DrumVoiceType =
 
 /** Where a pad's sound comes from: the built-in drum synthesizer, or a sample asset. */
 export type DrumPadSource =
-  | { kind: 'synth'; voice: DrumVoiceType; tone: number; snap: number; length: number }
+  /** model: the voice's character (0 = classic; 1, 2 = alternatives, see DRUM_MODELS) */
+  | { kind: 'synth'; voice: DrumVoiceType; tone: number; snap: number; length: number; model?: number }
   | { kind: 'sample'; assetId: string };
 
 export interface DrumPad {
