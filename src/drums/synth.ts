@@ -297,13 +297,13 @@ function renderAlt(voice: SynthSource['voice'], model: number, tone: number, sna
           out[i] = Math.sin(TWO_PI * phase) * decayEnv(t, len) + rnd() * 0.25 * snap * decayEnv(t, len * 0.4);
         }
       } else {
-        // conga: higher, short, with a hand slap
-        const f = 180 + tone * 260;
-        const hp = new OnePole(1 - Math.exp((-TWO_PI * 2500) / sr));
+        // floor tom: big, low and long, with a soft skin noise
+        const f = 50 + tone * 90;
+        const lp = OnePole.lp(900, sr);
         for (let i = 0; i < n; i++) {
           const t = i / sr;
-          phase += (f * (1 + 0.15 * Math.exp(-t / 0.01))) / sr;
-          out[i] = Math.sin(TWO_PI * phase) * decayEnv(t, Math.min(len, 0.35)) + hp.hp(rnd()) * snap * Math.exp(-t / 0.004);
+          phase += (f * (1 + 0.5 * Math.exp(-t / 0.06))) / sr;
+          out[i] = Math.sin(TWO_PI * phase) * decayEnv(t, len * 1.2) + lp.lp(rnd()) * (0.3 + snap * 0.5) * Math.exp(-t / 0.03);
         }
       }
       break;
@@ -354,36 +354,32 @@ function renderAlt(voice: SynthSource['voice'], model: number, tone: number, sna
       break;
     }
     case 'cowbell': {
-      if (model === 1) {
-        // agogo / bell: a small FM bell
-        const fc = 700 + tone * 900;
-        for (let i = 0; i < n; i++) {
-          const t = i / sr;
-          const idx = (0.8 + snap * 3) * Math.exp(-t / 0.08);
-          out[i] = Math.sin(TWO_PI * fc * t + idx * Math.sin(TWO_PI * fc * 3.5 * t)) * decayEnv(t, len);
-        }
-      } else {
-        // clave: a short, woody high tone
-        const f = 2000 + tone * 1200;
-        for (let i = 0; i < n; i++) {
-          const t = i / sr;
-          out[i] = Math.sin(TWO_PI * f * t) * decayEnv(t, Math.min(len, 0.06 + snap * 0.04));
-        }
+      // two detuned square partials like the 808 bell: a big low bell, or a tight high one
+      const big = model === 1;
+      const f1 = big ? 380 + tone * 120 : 650 + tone * 200;
+      const f2 = f1 * (big ? 1.5 : 1.48);
+      const lp = OnePole.lp(big ? 4500 : 3500, sr);
+      const dec = big ? len * 1.6 : Math.min(len, 0.08);
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        const sq = (Math.sin(TWO_PI * f1 * t) > 0 ? 1 : -1) + (Math.sin(TWO_PI * f2 * t) > 0 ? 1 : -1);
+        const e = Math.exp(-t / 0.008) * snap + decayEnv(t, dec) * (1 - snap * 0.4);
+        out[i] = lp.lp(sq * 0.5) * e;
       }
       break;
     }
     case 'shaker': {
       if (model === 1) {
-        // tambourine: noise and jingles
-        const hp = new OnePole(1 - Math.exp((-TWO_PI * 5000) / sr));
-        const base = 900 + tone * 600;
+        // soft (egg) shaker: darker grains with a slow swell
+        const hp = new OnePole(1 - Math.exp((-TWO_PI * (2000 + tone * 2000)) / sr));
+        const lp = OnePole.lp(6000 + tone * 3000, sr);
+        const atk = 0.015 + (1 - snap) * 0.03;
         for (let i = 0; i < n; i++) {
           const t = i / sr;
-          const jingle = Math.sin(TWO_PI * base * 3.1 * t) * Math.sin(TWO_PI * base * 4.7 * t);
-          out[i] = (hp.hp(rnd()) * 0.8 + jingle * (0.3 + snap * 0.5)) * (1 - Math.exp(-t / 0.002)) * decayEnv(t, len) * 1.4;
+          out[i] = lp.lp(hp.hp(rnd())) * (1 - Math.exp(-t / atk)) * decayEnv(t, len) * 2;
         }
       } else {
-        // cabasa: very bright, very short
+        // tight shaker: very bright, very short
         const hp = new OnePole(1 - Math.exp((-TWO_PI * (8000 + tone * 4000)) / sr));
         for (let i = 0; i < n; i++) {
           const t = i / sr;
