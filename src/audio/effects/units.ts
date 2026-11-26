@@ -70,6 +70,10 @@ abstract class BaseUnit implements EffectUnit {
   readonly output: GainNode;
   protected readonly dry: GainNode;
   protected readonly wet: GainNode;
+  /** where the processing starts; cut off from the input while the effect is switched off */
+  protected readonly src: GainNode;
+  private srcConnected = true;
+  private offTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly ctx: BaseAudioContext;
   protected initialized = false;
   abstract readonly type: EffectType;
@@ -83,7 +87,9 @@ abstract class BaseUnit implements EffectUnit {
     this.output = new GainNode(ctx);
     this.dry = new GainNode(ctx, { gain: 0 });
     this.wet = new GainNode(ctx, { gain: 1 });
+    this.src = new GainNode(ctx);
     this.input.connect(this.dry);
+    this.input.connect(this.src);
     this.dry.connect(this.output);
     this.wet.connect(this.output);
   }
@@ -92,8 +98,25 @@ abstract class BaseUnit implements EffectUnit {
     const immediate = !this.initialized;
     if (on === this.enabled && !immediate) return;
     this.enabled = on;
+    if (this.offTimer) clearTimeout(this.offTimer);
+    this.offTimer = null;
+    if (on && !this.srcConnected) {
+      this.input.connect(this.src);
+      this.srcConnected = true;
+    }
     setParam(this.wet.gain, on ? 1 : 0, this.ctx, immediate);
     setParam(this.dry.gain, on ? 0 : 1, this.ctx, immediate);
+    if (!on) {
+      // a switched-off effect does no work: its processing gets no input (silent nodes are skipped).
+      // Realtime: after the crossfade and a moment for the wet tail to fade.
+      const cut = () => {
+        if (this.enabled || !this.srcConnected) return;
+        this.input.disconnect(this.src);
+        this.srcConnected = false;
+      };
+      if (immediate) cut();
+      else this.offTimer = setTimeout(cut, 120);
+    }
   }
 
   abstract update(slot: EffectSlot, bpm: number, automated?: ReadonlySet<string>): void;
@@ -104,7 +127,9 @@ abstract class BaseUnit implements EffectUnit {
   }
 
   dispose(): void {
+    if (this.offTimer) clearTimeout(this.offTimer);
     this.input.disconnect();
+    this.src.disconnect();
     this.dry.disconnect();
     this.wet.disconnect();
     this.output.disconnect();
@@ -122,7 +147,7 @@ class EqUnit extends BaseUnit {
     this.low = new BiquadFilterNode(ctx, { type: 'lowshelf', frequency: EQ_LOW_FREQ });
     this.mid = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1000, Q: EQ_MID_Q });
     this.high = new BiquadFilterNode(ctx, { type: 'highshelf', frequency: EQ_HIGH_FREQ });
-    this.input.connect(this.low);
+    this.src.connect(this.low);
     this.low.connect(this.mid);
     this.mid.connect(this.high);
     this.high.connect(this.wet);
@@ -199,7 +224,7 @@ class CompressorUnit extends BaseUnit {
     super(ctx, id);
     this.comp = new DynamicsCompressorNode(ctx, { knee: 6 });
     this.makeup = new GainNode(ctx);
-    this.input.connect(this.comp);
+    this.src.connect(this.comp);
     this.comp.connect(this.makeup);
     this.makeup.connect(this.wet);
   }
@@ -279,9 +304,9 @@ class DelayUnit extends BaseUnit {
     this.dGain = new GainNode(ctx);
     this.wGain = new GainNode(ctx);
     this.wetDuck = new GainNode(ctx, { gain: 1 });
-    this.input.connect(this.dGain);
+    this.src.connect(this.dGain);
     this.dGain.connect(this.wet);
-    this.input.connect(this.delay);
+    this.src.connect(this.delay);
     this.delay.connect(this.wGain);
     // sidechain stage on the wet signal only ("ducked" reverb / delay / chorus)
     this.wGain.connect(this.wetDuck);
@@ -363,9 +388,9 @@ class ReverbUnit extends BaseUnit {
     this.dGain = new GainNode(ctx);
     this.wGain = new GainNode(ctx);
     this.wetDuck = new GainNode(ctx, { gain: 1 });
-    this.input.connect(this.dGain);
+    this.src.connect(this.dGain);
     this.dGain.connect(this.wet);
-    this.input.connect(this.pre);
+    this.src.connect(this.pre);
     // sidechain stage on the wet signal only ("ducked" reverb / delay / chorus)
     this.wGain.connect(this.wetDuck);
     this.wetDuck.connect(this.wet);
@@ -482,24 +507,29 @@ export class PeqUnit extends BaseUnit {
   private readonly out: GainNode;
   readonly analyser: AnalyserNode | null;
   private bands: PeqBand[] = [];
+  /** the filters currently in the signal path (only the stages enabled bands use) */
+  private chain: BiquadFilterNode[] = [];
+  /** short duck while the path is rewired (no click) */
+  private readonly swap: GainNode;
+  private rewireTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly realtime: boolean;
 
   constructor(ctx: BaseAudioContext, id: string) {
     super(ctx, id);
-    let prev: AudioNode = this.input;
     for (let b = 0; b < PEQ_BANDS; b++) {
       const row: BiquadFilterNode[] = [];
-      for (let s = 0; s < STAGES; s++) {
-        const f = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1000, gain: 0, Q: 1 });
-        prev.connect(f);
-        prev = f;
-        row.push(f);
-      }
+      for (let s = 0; s < STAGES; s++) row.push(new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1000, gain: 0, Q: 1 }));
       this.stages.push(row);
     }
+    this.swap = new GainNode(ctx);
     this.out = new GainNode(ctx);
-    prev.connect(this.out);
+    // nothing in the path until the first update: 8 bands × 4 stages of idle filters cost as much
+    // as a whole synth, so only the filters that enabled bands use are ever connected
+    this.src.connect(this.swap);
+    this.swap.connect(this.out);
     this.out.connect(this.wet);
     const realtime = !(typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext);
+    this.realtime = realtime;
     this.analyser = realtime ? new AnalyserNode(ctx, { fftSize: 4096, smoothingTimeConstant: 0.8, minDecibels: -100, maxDecibels: -10 }) : null;
     if (this.analyser) this.out.connect(this.analyser);
   }
@@ -558,6 +588,41 @@ export class PeqUnit extends BaseUnit {
       if (s >= used) transparent(f);
       if (!auto.has(fKey)) setParam(f.frequency, band.freq, this.ctx, im);
     }
+    for (let s = 0; s < used; s++) this.wanted.push(row[s] as BiquadFilterNode);
+  }
+
+  private wanted: BiquadFilterNode[] = [];
+
+  /** Put exactly the wanted filters in the path (in band order). Realtime: under a 6 ms duck. */
+  private rewire(immediate: boolean): void {
+    const want = this.wanted;
+    if (want.length === this.chain.length && want.every((f, i) => f === this.chain[i])) return;
+    const connect = () => {
+      this.src.disconnect();
+      for (const f of this.chain) f.disconnect();
+      let prev: AudioNode = this.src;
+      for (const f of want) {
+        prev.connect(f);
+        prev = f;
+      }
+      prev.connect(this.swap);
+      this.chain = [...want];
+    };
+    if (immediate || !this.realtime) {
+      if (this.rewireTimer) clearTimeout(this.rewireTimer);
+      this.rewireTimer = null;
+      connect();
+      return;
+    }
+    const t = this.ctx.currentTime;
+    this.swap.gain.cancelScheduledValues(t);
+    this.swap.gain.setTargetAtTime(0, t, 0.0015);
+    if (this.rewireTimer) clearTimeout(this.rewireTimer);
+    this.rewireTimer = setTimeout(() => {
+      this.rewireTimer = null;
+      connect();
+      this.swap.gain.setTargetAtTime(1, this.ctx.currentTime, 0.002);
+    }, 12);
   }
 
   update(slot: EffectSlot, _bpm: number, auto: ReadonlySet<string> = NONE): void {
@@ -565,7 +630,9 @@ export class PeqUnit extends BaseUnit {
     const p: PeqParams = slot.params;
     const im = !this.initialized;
     this.bands = p.bands;
+    this.wanted = [];
     p.bands.forEach((b, i) => this.configureBand(i, b, im, auto));
+    this.rewire(im);
     if (!auto.has('output')) setParam(this.out.gain, dbToGain(p.output), this.ctx, im);
     this.setEnabled(slot.enabled);
     this.initialized = true;
@@ -635,7 +702,9 @@ export class PeqUnit extends BaseUnit {
 
   override dispose(): void {
     super.dispose();
+    if (this.rewireTimer) clearTimeout(this.rewireTimer);
     for (const row of this.stages) for (const f of row) f.disconnect();
+    this.swap.disconnect();
     this.out.disconnect();
     this.analyser?.disconnect();
   }
@@ -671,9 +740,9 @@ class ChorusUnit extends BaseUnit {
     this.dGain = new GainNode(ctx);
     this.wGain = new GainNode(ctx);
     this.wetDuck = new GainNode(ctx, { gain: 1 });
-    this.input.connect(this.dGain);
+    this.src.connect(this.dGain);
     this.dGain.connect(this.wet);
-    this.input.connect(this.up);
+    this.src.connect(this.up);
     this.up.connect(this.split);
     for (let c = 0; c < 2; c++) {
       const d = new DelayNode(ctx, { maxDelayTime: 0.05, delayTime: 0.012 });
