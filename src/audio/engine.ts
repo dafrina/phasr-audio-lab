@@ -262,6 +262,12 @@ export class AudioEngine {
     project: () => this.project,
   });
 
+  /** Follow the notes the live arp plays (for visuals). Returns an unsubscribe function. */
+  onArpNote(fn: (trackId: string, pitch: number, velocity: number, at: number) => void): () => void {
+    this.liveArp.listeners.add(fn);
+    return () => this.liveArp.listeners.delete(fn);
+  }
+
   /** `at` = when the input happened (performance.now() ms; MIDI events carry their own timestamp). */
   previewNoteOn(trackId: string, note: number, velocity = 0.8, at = performance.now()): number | null {
     const inst = this.channels.get(trackId)?.instrument;

@@ -11,6 +11,7 @@ import { arpActive, bakeArp } from '../../arp/expand';
 import { getProject, updateTrack, useProjectStore } from '../../state/projectStore';
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
+import { ArpMonkey } from './ArpMonkey';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
 import type { NumericParamSpec } from '../../synth/params';
 import { PPQ } from '../../core/time';
@@ -120,6 +121,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
   const label = (t: string) => <span className="w-16 shrink-0 text-[10px] uppercase tracking-wider text-muted">{t}</span>;
 
   return (
+    <>
     <div
       ref={root}
       tabIndex={-1}
@@ -233,6 +235,9 @@ export function ArpWindow({ trackId }: { trackId: string }) {
 
       <KeyboardStrip trackId={trackId} kb={kb} low={36} high={84} />
     </div>
+    {/* the toy monkey on the window's top edge, playing along */}
+    <ArpMonkey x={pos.x + WIN_W - 330} y={pos.y - 104} trackId={trackId} />
+    </>
   );
 }
 
