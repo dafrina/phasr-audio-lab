@@ -67,6 +67,10 @@ const EYES = { x: (640 - O.x) * K, y: (460 - O.y) * K };
 const LAND = [(430 - O.x) * K, (870 - O.x) * K];
 /** pitch class → 0 left fist, 1 right fist, 2 either (when nothing lit up to look at) */
 const PC_HAND = [0, 0, 0, 0, 2, 2, 2, 2, 1, 1, 1, 1];
+/** the figure is drawn mirrored (he faces left, toward the window's controls); layer coordinates
+ * below are in the unmirrored picture, so screen offsets are flipped into it */
+const MIRROR = true;
+const FLIP = MIRROR ? -1 : 1;
 /** the hit animation's length and where in it the fist lands */
 const HIT_MS = 210;
 const LAND_AT = 0.5;
@@ -104,9 +108,12 @@ export function ArpApe({ x, y, hits, z = 40 }: { x: number; y: number; hits: Ape
       const landMs = b.landMs;
       // which side the lit step / key is on, seen from his eyes
       const r = root.current?.getBoundingClientRect();
-      const dx = b.target && r ? b.target.x - (r.left + EYES.x) : 0;
+      // (in the picture's own coordinates: mirrored, screen-left is picture-right)
+      const eyeX = MIRROR ? APE_W - EYES.x : EYES.x;
+      const dx = b.target && r ? FLIP * (b.target.x - (r.left + eyeX)) : 0;
       const dy = b.target && r ? b.target.y - (r.top + EYES.y) : 0;
-      const pref = b.target ? (dx < -14 ? 0 : dx > 14 ? 1 : 2) : (PC_HAND[((b.pitch % 12) + 12) % 12] as number);
+      const byPitch = PC_HAND[((b.pitch % 12) + 12) % 12] as number;
+      const pref = b.target ? (dx < -14 ? 0 : dx > 14 ? 1 : 2) : MIRROR && byPitch !== 2 ? 1 - byPitch : byPitch;
       let hand: 0 | 1 = pref === 2 ? (lastHand === 0 ? 1 : 0) : (pref as 0 | 1);
       const at = performance.now() + landMs;
       // quick repeats alternate fists, like a drummer
@@ -174,7 +181,7 @@ export function ArpApe({ x, y, hits, z = 40 }: { x: number; y: number; hits: Ape
   }, [hits]);
 
   return (
-    <div ref={root} aria-hidden className="phasr-ape pointer-events-none fixed" style={{ left: x, top: y, width: APE_W, height: APE_H, zIndex: z }}>
+    <div ref={root} aria-hidden className="phasr-ape pointer-events-none fixed" style={{ left: x, top: y, width: APE_W, height: APE_H, zIndex: z, transform: MIRROR ? 'scaleX(-1)' : undefined }}>
       <style>{CSS}</style>
       {/* body and head behind the rail (clipped at the rail so a bob never pokes out under it) */}
       <div className="absolute inset-0 overflow-hidden">
