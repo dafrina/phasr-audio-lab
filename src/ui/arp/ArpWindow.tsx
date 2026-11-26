@@ -1,5 +1,5 @@
 /**
- * Monkey See, Monkey Seq: an arpeggiator and a 16-step sequencer in front of any
+ * Arp-Ape-ator: an arpeggiator and a 16-step sequencer in front of any
  * instrument. Hold keys (computer keyboard, MIDI, the keybed below, or long
  * notes in a clip) and they play the pattern, locked to the song grid.
  */
@@ -25,7 +25,7 @@ const SWING: NumericParamSpec = { label: 'Swing', min: 0, max: 0.75, default: 0,
 export function openArp(trackId: string): void {
   const t = getProject().tracks.find((x) => x.id === trackId);
   if (!t || t.kind !== 'instrument') return;
-  if (!t.arp) updateTrack(trackId, { arp: defaultArp() }, 'Add Monkey See, Monkey Seq');
+  if (!t.arp) updateTrack(trackId, { arp: defaultArp() }, 'Add Arp-Ape-ator');
   useUiStore.getState().set({ arpTrackId: trackId });
 }
 
@@ -79,7 +79,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
 
   const set = (part: Partial<ArpConfig>, key: string) => {
     const cur = getProject().tracks.find((t) => t.id === trackId)?.arp ?? cfg;
-    updateTrack(trackId, { arp: { ...cur, ...part, presetName: part.presetName ?? (key === 'enabled' || key === 'latch' ? cur.presetName : 'Custom') } }, 'Edit Monkey Seq', { coalesce: `arp-${trackId}-${key}` });
+    updateTrack(trackId, { arp: { ...cur, ...part, presetName: part.presetName ?? (key === 'enabled' || key === 'latch' ? cur.presetName : 'Custom') } }, 'Edit Arp-Ape-ator', { coalesce: `arp-${trackId}-${key}` });
   };
   const setStep = (i: number, part: Partial<SeqStep>, key: string) => {
     const cur = getProject().tracks.find((t) => t.id === trackId)?.arp ?? cfg;
@@ -89,7 +89,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
     const p = arpPreset(name);
     if (!p) return;
     const cur = getProject().tracks.find((t) => t.id === trackId)?.arp ?? cfg;
-    updateTrack(trackId, { arp: { ...structuredClone(p), enabled: cur.enabled, latch: cur.latch } }, `Monkey Seq: ${name}`);
+    updateTrack(trackId, { arp: { ...structuredClone(p), enabled: cur.enabled, latch: cur.latch } }, `Arp-Ape-ator: ${name}`);
   };
 
   const bake = () => {
@@ -97,7 +97,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
       uiToast('info', 'There are no MIDI clips on this track to bake yet — record or draw some held notes first.');
       return;
     }
-    if (!confirm(`Write the pattern into ${clipCount} clip${clipCount === 1 ? '' : 's'} on "${track.name}" as real notes? Monkey See, Monkey Seq (and the Slipper-izer, if on) is switched off afterwards (Undo brings everything back).`)) return;
+    if (!confirm(`Write the pattern into ${clipCount} clip${clipCount === 1 ? '' : 's'} on "${track.name}" as real notes? Arp-Ape-ator (and the Slipper-izer, if on) is switched off afterwards (Undo brings everything back).`)) return;
     useProjectStore.getState().commit('Bake arp to notes', (p) => bakeArp(p, trackId));
     uiToast('info', `Baked the pattern into ${clipCount} clip${clipCount === 1 ? '' : 's'}.`);
   };
@@ -145,12 +145,12 @@ export function ArpWindow({ trackId }: { trackId: string }) {
       >
         <Repeat2 size={16} style={{ color: CYAN }} />
         <span className="text-[14px] font-bold tracking-[0.16em]" style={{ color: CYAN }}>
-          MONKEY SEE, MONKEY SEQ
+          ARP-APE-ATOR
         </span>
         <span className="text-[10px] uppercase tracking-wider text-muted">· arp &amp; step sequencer for {track.name}</span>
         <button
           type="button"
-          title={on ? 'Switch Monkey See, Monkey Seq off (keys play normally again)' : 'Switch Monkey See, Monkey Seq on'}
+          title={on ? 'Switch Arp-Ape-ator off (keys play normally again)' : 'Switch Arp-Ape-ator on'}
           onClick={() => set({ enabled: !cfg.enabled }, 'enabled')}
           className={`ml-3 flex h-6 items-center gap-1 rounded px-2 text-[11px] font-semibold ${on ? 'text-black' : 'bg-panel-3 text-muted'}`}
           style={on ? { background: CYAN } : undefined}
@@ -230,7 +230,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
             <StepGrid cfg={cfg} playStep={playStep} setStep={setStep} velDrag={velDrag} />
           </div>
         )}
-        {!on && <div className="text-[11px] text-warn">Monkey See, Monkey Seq is off — keys play normally. Switch it on to hear the pattern.</div>}
+        {!on && <div className="text-[11px] text-warn">Arp-Ape-ator is off — keys play normally. Switch it on to hear the pattern.</div>}
       </div>
 
       <KeyboardStrip trackId={trackId} kb={kb} low={36} high={84} />

@@ -60,10 +60,10 @@ export function TrackDevicePanel({ trackId }: { trackId: string }) {
           <>
             <div className="flex h-[150px] w-[150px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-md border border-[#1f4a52] bg-[#0f1c20] p-2 text-center">
               <Repeat2 size={20} className="text-[#22d3ee]" />
-              <div className="text-[10px] font-semibold uppercase leading-tight tracking-[0.1em] text-[#22d3ee]">Monkey See,<br />Monkey Seq</div>
+              <div className="text-[10px] font-semibold uppercase leading-tight tracking-[0.1em] text-[#22d3ee]">Arp-Ape-ator</div>
               <div className="text-[10px] leading-tight text-muted">{track.arp ? (arpActive(track) ? track.arp.presetName : 'Off') : 'Hold keys → patterns'}</div>
               <button type="button" onClick={() => openArp(track.id)} className="h-6 rounded bg-[#22d3ee] px-2 text-[11px] font-semibold text-black">
-                {track.arp ? 'Open' : 'Add monkey'}
+                {track.arp ? 'Open' : 'Add ape'}
               </button>
             </div>
             <ArrowRight size={14} className="mt-[68px] shrink-0 text-dim" />
