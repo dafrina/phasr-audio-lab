@@ -21,6 +21,15 @@ export interface ArpBeat {
   landMs: number;
 }
 
+/** A colour per pitch: the 12 notes around the colour wheel (C red, D yellow, E green, G azure, A violet,
+ * B pink), higher octaves a little lighter. */
+export function noteColor(pitch: number): string {
+  const pc = ((pitch % 12) + 12) % 12;
+  const octave = Math.floor(pitch / 12) - 1;
+  const light = Math.min(74, Math.max(50, 50 + (octave - 2) * 6));
+  return `hsl(${pc * 30} 95% ${light}%)`;
+}
+
 /** how far ahead of the playhead clip notes are read */
 const AHEAD = 0.16;
 const CHECK_MS = 15;

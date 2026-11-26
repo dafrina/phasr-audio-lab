@@ -12,7 +12,7 @@ import { getProject, updateTrack, useProjectStore } from '../../state/projectSto
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
 import { APE_RAIL_Y, APE_W, ArpApe, type ApeHits } from './ArpApe';
-import { useArpBeats } from './arpBeats';
+import { noteColor, useArpBeats } from './arpBeats';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
 import type { NumericParamSpec } from '../../synth/params';
 import { PPQ } from '../../core/time';
@@ -85,8 +85,13 @@ export function ArpWindow({ trackId }: { trackId: string }) {
     const stepEl = c.mode === 'seq' ? el.querySelector<HTMLElement>(`[data-step="${((b.step % len) + len) % len}"]`) : null;
     const keyEl = el.querySelector<HTMLElement>(`[data-note="${b.pitch}"]`);
     const strength = 0.55 + 0.45 * Math.min(1, b.velocity / 110);
+    const color = noteColor(b.pitch);
     for (const f of [stepEl, keyEl]) {
-      f?.querySelector('[data-flash]')?.animate(
+      const fl = f?.querySelector<HTMLElement>('[data-flash]');
+      if (!fl) continue;
+      fl.style.background = color;
+      fl.style.boxShadow = `0 0 12px ${color}`;
+      fl.animate(
         [{ opacity: 0 }, { opacity: strength, offset: 0.08 }, { opacity: 0 }],
         { duration: 280, delay: b.landMs, easing: 'ease-out' },
       );

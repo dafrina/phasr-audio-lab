@@ -20,7 +20,7 @@ import hand0Url from './ape/hand0.webp';
 import hand1Url from './ape/hand1.webp';
 import spark0Url from './ape/spark0.webp';
 import spark1Url from './ape/spark1.webp';
-import type { ArpBeat } from './arpBeats';
+import { noteColor, type ArpBeat } from './arpBeats';
 
 /** a note for the gorilla: when it lands, and the point on screen it lights up (to look at) */
 export interface ApeHit extends ArpBeat {
@@ -67,7 +67,6 @@ const EYES = { x: (640 - O.x) * K, y: (460 - O.y) * K };
 const LAND = [(430 - O.x) * K, (870 - O.x) * K];
 /** pitch class → 0 left fist, 1 right fist, 2 either (when nothing lit up to look at) */
 const PC_HAND = [0, 0, 0, 0, 2, 2, 2, 2, 1, 1, 1, 1];
-const GLOW = '#6d6bff';
 /** the hit animation's length and where in it the fist lands */
 const HIT_MS = 210;
 const LAND_AT = 0.5;
@@ -87,7 +86,7 @@ const img = (url: string, p: Part, extra?: React.CSSProperties) => (
 export function ArpApe({ x, y, hits }: { x: number; y: number; hits: ApeHits }) {
   const root = useRef<HTMLDivElement>(null);
   const hands = useRef<(HTMLDivElement | null)[]>([]);
-  const sparks = useRef<(HTMLImageElement | null)[]>([]);
+  const sparks = useRef<(HTMLDivElement | null)[]>([]);
   const glows = useRef<(HTMLDivElement | null)[]>([]);
   const body = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
@@ -130,7 +129,13 @@ export function ArpApe({ x, y, hits }: { x: number; y: number; hits: ApeHits }) 
         { duration: HIT_MS, delay },
       );
       const land = delay + HIT_MS * LAND_AT;
-      sparks.current[hand]?.animate(
+      // sparks and rail glow in the note's colour
+      const color = noteColor(b.pitch);
+      const spark = sparks.current[hand];
+      const glow = glows.current[hand];
+      if (spark) spark.style.background = color;
+      if (glow) glow.style.background = `radial-gradient(closest-side, ${color}, transparent)`;
+      spark?.animate(
         [
           { opacity: 0, transform: 'scale(0.6)' },
           { opacity: 0.6 + 0.4 * p, transform: `scale(${(0.95 + 0.25 * p).toFixed(2)})`, offset: 0.2 },
@@ -138,7 +143,7 @@ export function ArpApe({ x, y, hits }: { x: number; y: number; hits: ApeHits }) 
         ],
         { duration: 300, delay: land, easing: 'ease-out' },
       );
-      glows.current[hand]?.animate(
+      glow?.animate(
         [
           { opacity: 0, transform: 'scale(0.6, 0.6)' },
           { opacity: 0.5 + 0.5 * p, transform: 'scale(1, 1)', offset: 0.15 },
@@ -191,7 +196,7 @@ export function ArpApe({ x, y, hits }: { x: number; y: number; hits: ApeHits }) 
             glows.current[h] = el;
           }}
           className="absolute rounded-[50%]"
-          style={{ left: lx - 18, top: APE_RAIL_Y - 5, width: 36, height: 10, background: `radial-gradient(closest-side, ${GLOW}, rgba(109,107,255,0))`, opacity: 0, willChange: 'transform, opacity' }}
+          style={{ left: lx - 18, top: APE_RAIL_Y - 5, width: 36, height: 10, opacity: 0, willChange: 'transform, opacity' }}
         />
       ))}
       {(['hand0', 'hand1'] as const).map((part, h) => (
@@ -206,20 +211,20 @@ export function ArpApe({ x, y, hits }: { x: number; y: number; hits: ApeHits }) 
           <img src={h === 0 ? hand0Url : hand1Url} alt="" draggable={false} decoding="async" className="absolute inset-0 h-full w-full max-w-none select-none" />
         </div>
       ))}
-      {(['spark0', 'spark1'] as const).map((part, h) => (
-        <img
-          key={part}
-          ref={(el) => {
-            sparks.current[h] = el;
-          }}
-          src={h === 0 ? spark0Url : spark1Url}
-          alt=""
-          draggable={false}
-          decoding="async"
-          className="absolute max-w-none select-none"
-          style={{ ...box(part), opacity: 0, transformOrigin: h === 0 ? '100% 100%' : '0% 100%', willChange: 'transform, opacity' }}
-        />
-      ))}
+      {/* spark bursts: the drawing's shape as a mask, filled with the note's colour */}
+      {(['spark0', 'spark1'] as const).map((part, h) => {
+        const mask = `url(${h === 0 ? spark0Url : spark1Url}) center / 100% 100% no-repeat`;
+        return (
+          <div
+            key={part}
+            ref={(el) => {
+              sparks.current[h] = el;
+            }}
+            className="absolute"
+            style={{ ...box(part), opacity: 0, mask, WebkitMask: mask, transformOrigin: h === 0 ? '100% 100%' : '0% 100%', willChange: 'transform, opacity' }}
+          />
+        );
+      })}
     </div>
   );
 }
