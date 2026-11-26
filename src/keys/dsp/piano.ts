@@ -69,7 +69,7 @@ export const PIANO_NO_DAMPER_NOTE = 89;
 /** share of the initial amplitude in the fast "prompt" component (mid/bass; less in the treble) */
 const PROMPT_SHARE = 0.75;
 /** prompt component decays this many times faster than the aftersound */
-const PROMPT_RATE = 4.5;
+const PROMPT_RATE = 6.5;
 /** a resonator is dropped below this energy (≈ −94 dBFS amplitude) */
 const DEAD_ENERGY = 4e-10;
 const LEVEL = 0.145;
@@ -125,7 +125,8 @@ export interface PianoParams {
 
 /** inharmonicity coefficient B for a note (inharm = 1 → typical grand) */
 export function inharmonicityB(note: number, inharm: number): number {
-  const log = note >= 35 ? -4 + 0.0235 * (note - 35) : -4 + 0.01 * (35 - note);
+  // (low bass: a recorded A0 measures B ≈ 3·10⁻⁴ — thick wound strings are stiff)
+  const log = note >= 35 ? -4 + 0.0235 * (note - 35) : -4 + 0.033 * (35 - note);
   return Math.pow(10, log) * inharm;
 }
 
@@ -174,7 +175,8 @@ function trebleness(note: number): number {
 
 /** coupled-string double decay is weaker in the treble: smaller, slower prompt component */
 export function promptShare(note: number): number {
-  return PROMPT_SHARE - 0.4 * trebleness(note);
+  const low = clamp((70 - note) / 4, 0, 1);
+  return low * (PROMPT_SHARE - 0.4 * trebleness(note)) + (1 - low) * (0.6 - 0.25 * trebleness(note));
 }
 
 /**
@@ -203,7 +205,10 @@ export function promptWeight(k: number): number {
 }
 
 export function promptRate(note: number): number {
-  return PROMPT_RATE - 3.0 * trebleness(note);
+  // strong prompt decay up to ~F♯4 (fitted to recorded C♯4/E4); from ~A♯4 up the gentler
+  // values that matched the recorded G4/C5
+  const low = clamp((70 - note) / 4, 0, 1);
+  return low * (PROMPT_RATE - 5.0 * trebleness(note)) + (1 - low) * (2.6 - 1.1 * trebleness(note));
 }
 
 /** T60 of a partial at frequency f for a note whose fundamental is f1 */
@@ -212,7 +217,9 @@ export function partialT60(note: number, f: number, f1: number, p: Pick<PianoPar
   // soundboard coupling loss is largest for the fundamental and smaller for the upper partials
   // (recorded held notes: the fundamental fades fastest, the overtones linger — "damped but clean")
   // (bass: partials up to ~250 Hz still sit where the soundboard takes energy readily)
-  const coupling = clamp(1 / (1 + 0.3 * Math.max(0, f / Math.max(f1, 250) - 1)), 0.45, 1);
+  // (only below the top octaves — the treble was right without it)
+  const reduce = clamp((84 - note) / 12, 0, 1);
+  const coupling = 1 - reduce * (1 - clamp(1 / (1 + 0.3 * Math.max(0, f / Math.max(f1, 250) - 1)), 0.45, 1));
   const s = s1 * coupling + lossB3(p.damping) * trebleLossScale(f1) * Math.max(0, f * f - f1 * f1);
   return LN_1000 / s;
 }
@@ -258,16 +265,20 @@ export function hammerSpectrum(note: number, k: number, f: number, f1: number, v
   const x0 = p.strike * (1 - 0.3 * clamp((note - 60) / 48, 0, 1));
   // the hammer's finite width keeps the notch shallow; on short treble strings
   // the hammer is wide relative to the string and the comb all but disappears
-  const comb0 = 0.35 + 0.65 * Math.abs(Math.sin(Math.PI * k * x0));
+  // (deeper in the bass: the recorded A0 shows −30 dB notches at the strike-point partials)
+  const floor = 0.35 - 0.25 * clamp((48 - note) / 27, 0, 1);
+  const comb0 = floor + (1 - floor) * Math.abs(Math.sin(Math.PI * k * x0));
   const comb = comb0 + (1 - comb0) * 0.6 * treb;
   // real partial levels are irregular (hammer–string interaction, soundboard
   // radiation): ±3 dB fixed per note and partial. Perfectly smooth spectra sound synthetic.
   const irregular = 1 + 0.7 * (hash01(note * 131 + 7, k) - 0.5);
   // spectral slope: steeper in the bass (no buzzy, saw-like overtone series) and in the treble
-  const tilt = Math.pow(k, -(0.35 + 0.15 * bassness + 0.6 * treb));
+  // (bass: nearly flat in k — the soundboard response shapes the low range, as in the recorded A0)
+  const tilt = Math.pow(k, -(0.35 - 0.25 * bassness + 0.6 * treb));
   // soundboard radiates the lowest fundamentals poorly
   // soundboard radiates poorly below its lowest modes (fitted to a recorded A♯0: the fundamental is ~30 dB under the partials around 300 Hz)
-  const board = 1 / (1 + Math.pow(170 / f, 3));
+  // (fitted to a recorded A0: partials below ~150 Hz sit 8–30 dB under the 300–650 Hz region)
+  const board = 1 / (1 + Math.pow(230 / f, 2.5));
   const air = 1 / (1 + (f / 14000) * (f / 14000));
   return hammer * comb * tilt * board * air * irregular * radiation(f, note, p.board ?? 1);
 }
@@ -294,8 +305,22 @@ function stringDetune(note: number, k: number, unison: number): number {
 }
 
 /** level of the third string in the treble */
-function after2Share(note: number): number {
-  return AFTER2_SHARE + 0.06 * trebleness(note);
+function after2Share(note: number, k = 1): number {
+  const top = AFTER2_SHARE + 0.06 * trebleness(note);
+  // below the top octaves: a strong third string on the overtones (deep, independent beats), gentle on the fundamental
+  const live = clamp((84 - note) / 12, 0, 1);
+  return top + live * ((k === 1 ? 0.12 : 0.4) - top);
+}
+
+/**
+ * Beat rate (Hz) of partial k against the third string. Recorded held notes
+ * show every overtone swelling and dipping by 10–20 dB at its own pace
+ * (0.5–3 Hz) while the fundamental fades smoothly — the life of a piano tone.
+ * Independent rates keep the overall level steady (no common dip).
+ */
+export function beatRate(note: number, k: number, unison: number): number {
+  const h = hash01(note * 7 + 3, k * 13 + 1);
+  return (unison / 0.8) * (k === 1 ? 0.15 + 0.25 * h : 0.45 + 2.1 * h);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +428,8 @@ export function longitudinalFreq(note: number): number {
 export function bloomTime(note: number): number {
   const top = clamp((note - 80) / 16, 0, 1);
   const bass = clamp((48 - note) / 27, 0, 1);
-  return 0.0072 + 0.0045 * bass - 0.0052 * top;
+  // (bass: recorded A0 rises over ~30 ms)
+  return 0.0072 + 0.016 * bass * bass - 0.0052 * top;
 }
 
 function hitT60(f: number): number {
@@ -592,7 +618,10 @@ export class PianoEngine implements KeysEngine {
     v.n = 0;
     // fresh string: the radiated sound blooms in (restrikes of a ringing string don't)
     v.onsetPos = 0;
-    v.onsetTau = Math.max(1, this.sr * bloomTime(note) * (this.p.bloom ?? 1));
+    // Bloom scales the middle and top; the deep bass keeps its natural, slow swell
+    const bassKeep = clamp((48 - note) / 27, 0, 1);
+    const scale = (this.p.bloom ?? 1) * (1 - bassKeep) + bassKeep;
+    v.onsetTau = Math.max(1, this.sr * bloomTime(note) * scale);
     v.held.clear();
     v.held.add(id);
     v.sustained = false;
@@ -712,8 +741,11 @@ export class PianoEngine implements KeysEngine {
         } else {
           // third string: on either side of the other two
           const h = hash01(note + 101, k);
-          // the third string sits on the other side of the pair: a gentle, steady shimmer
-          f *= Math.pow(2, -d * (0.5 + 0.5 * h));
+          // the third string sits on the other side of the pair; below the top octaves it beats
+          // at its own rate per partial (top octaves: the gentle shimmer they had)
+          const live = clamp((84 - note) / 12, 0, 1);
+          const shimmer = f * Math.pow(2, -d * (0.5 + 0.5 * h));
+          f = shimmer + live * (f - beatRate(note, k, p.unison) - shimmer);
           sigma *= 1.15;
         }
       }
@@ -795,7 +827,7 @@ export class PianoEngine implements KeysEngine {
         // positive: fast-decaying prompt part; negative (3rd–8th partials): the partial swells in
         const ps = k >= 3 && k <= 8 ? -swellAmount(note) : Math.min(0.8, promptShare(note) * promptWeight(k));
         // the third string shares what the prompt part leaves
-        const a2 = ps > 0 ? Math.min(after2Share(note), (1 - ps) * 0.45) : after2Share(note);
+        const a2 = ps > 0 ? Math.min(after2Share(note, k), (1 - ps) * 0.45) : after2Share(note, k);
         const after = 1 - ps - (triple ? a2 : 0);
         v.gin[n] = !double ? a : s === S_PROMPT ? a * ps : s === S_AFTER ? a * after : a * a2;
         n++;
@@ -1001,8 +1033,9 @@ export class PianoEngine implements KeysEngine {
     const p = this.p;
     const bodyFeed = 0.06 * p.body;
     const modes = BODY_MODES.length;
-    // undamped treble strings and the duplex scale ring along even without the pedal
-    this.sympWet.target = p.resonance * (this.pedal ? 0.5 : 0.16);
+    // these resonators are low strings (C2–B2): they ring along when the pedal lifts the dampers;
+    // without it only a trace (on a real piano only the top strings are undamped)
+    this.sympWet.target = p.resonance * (this.pedal ? 0.5 : 0.03);
     const noise = this.noise;
     for (let i = 0; i < n; i++) {
       const l = L[i] as number;

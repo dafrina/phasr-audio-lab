@@ -172,7 +172,8 @@ describe('Keyforge piano', () => {
   });
 
   it('physics: coupled strings decay faster early than late (double decay)', () => {
-    const [L, R] = renderKeys(cfg('piano'), hit(60, 0.8), 4, SR);
+    // strings only (room and sympathetic ring have their own tails)
+    const [L, R] = renderKeys(cfg('piano', { room: 0, resonance: 0 }), hit(60, 0.8), 4, SR);
     const m = mono(L, R);
     const prompt = slope(envelopeDb(slice(m, SR, 0.03, 0.4), SR, 0.03), 0.03);
     const after = slope(envelopeDb(slice(m, SR, 1.5, 3.5), SR, 0.1), 0.1);
