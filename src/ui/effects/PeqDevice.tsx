@@ -12,6 +12,7 @@ import {
 } from '../../audio/effects/specs';
 import { automatedKeys, valueAt } from '../../project/automation';
 import type { EffectSlot, PeqBand, PeqBandType, PeqSlope } from '../../project/types';
+import type { PeqBandOffset } from '../../audio/effects/units';
 import { automate, writeAutomation, endAutomationGesture } from '../../state/automationActions';
 import { setEffectParams } from '../../state/effectActions';
 import { getProject } from '../../state/projectStore';
@@ -45,6 +46,28 @@ const FREQS = (() => {
 function liveSlot(trackId: string, slotId: string): PeqSlot | null {
   const s = getProject().tracks.find((t) => t.id === trackId)?.effects.find((e) => e.id === slotId);
   return s && s.type === 'peq' ? s : null;
+}
+
+/** What the sidechain routes on this EQ are doing right now, per band (dB / cents / Q). */
+function liveOffsets(trackId: string, slotId: string): Map<number, PeqBandOffset> {
+  const out = new Map<number, PeqBandOffset>();
+  const track = getProject().tracks.find((t) => t.id === trackId);
+  const mod = engine.modulation;
+  if (!track || !mod) return out;
+  for (const r of track.modulations) {
+    if (!r.enabled || r.target.kind !== 'fx' || r.target.slotId !== slotId) continue;
+    const m = /^b(\d)\.(freq|gain|q)$/.exec(r.target.param);
+    if (!m) continue;
+    const amount = r.depth * mod.level(r.id);
+    if (Math.abs(amount) < 1e-4) continue;
+    const i = Number(m[1]);
+    const o = out.get(i) ?? {};
+    if (m[2] === 'gain') o.gain = (o.gain ?? 0) + amount;
+    else if (m[2] === 'freq') o.cents = (o.cents ?? 0) + amount * 100;
+    else o.q = (o.q ?? 0) + amount;
+    out.set(i, o);
+  }
+  return out;
 }
 
 /** Band values as heard right now (automation curves applied at the playhead). */
@@ -183,9 +206,11 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
         g.fill();
       }
       if (!unit) return;
+      // the curve moves with the sidechain (a ducked band dips while its source plays)
+      const mods = liveOffsets(trackId, slot.id);
       // selected band's own contribution
       if (sel >= 0 && s.params.bands[sel]?.enabled) {
-        unit.response(FREQS, bandMag, sel);
+        unit.response(FREQS, bandMag, sel, mods);
         g.beginPath();
         g.moveTo(0, dbToY(0));
         for (let i = 0; i < N_POINTS; i++) g.lineTo((i / (N_POINTS - 1)) * W, dbToY(clampDb(20 * Math.log10(Math.max(1e-6, bandMag[i] as number)))));
@@ -196,7 +221,7 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
         g.fill();
       }
       // total response
-      unit.response(FREQS, mag);
+      unit.response(FREQS, mag, undefined, mods);
       g.beginPath();
       for (let i = 0; i < N_POINTS; i++) {
         const y = dbToY(clampDb(20 * Math.log10(Math.max(1e-6, mag[i] as number))));
@@ -215,8 +240,9 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
       s.params.bands.forEach((_, i) => {
         const b = effectiveBand(trackId, s, i);
         if (!b.enabled) return;
-        const x = fToX(b.freq);
-        const y = dbToY(peqHasGain(b.type) ? b.gain : 0);
+        const off = mods.get(i);
+        const x = fToX(b.freq * Math.pow(2, (off?.cents ?? 0) / 1200));
+        const y = dbToY(peqHasGain(b.type) ? clampDb(b.gain + (off?.gain ?? 0)) : 0);
         const c = PEQ_BAND_COLORS[i] ?? '#fff';
         g.beginPath();
         g.arc(x, y, i === sel ? NODE_R + 1.5 : NODE_R, 0, Math.PI * 2);

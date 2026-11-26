@@ -8,6 +8,8 @@
  *   EQ gains → dB
  *   frequencies → semitones (via the filters' detune params, so it's musical)
  *   threshold → dB, feedback → 0..1
+ *   wet level (reverb, delay, chorus) → dB on the wet signal, pre-delay / chorus
+ *   depth → ms, chorus rate → octaves, EQ Q → Q units
  */
 import { createId } from '../core/ids';
 import { EFFECT_LABELS, peqHasGain } from '../audio/effects/specs';
@@ -39,6 +41,36 @@ const semiDepth: NumericParamSpec = {
   bipolar: true,
   format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} st`,
 };
+
+const msDepth = (range: number, def: number): NumericParamSpec => ({
+  label: 'Depth',
+  min: -range,
+  max: range,
+  default: def,
+  curve: 'linear',
+  bipolar: true,
+  format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(range < 20 ? 1 : 0)} ms`,
+});
+const octDepth: NumericParamSpec = {
+  label: 'Depth',
+  min: -3,
+  max: 3,
+  default: 1,
+  curve: 'linear',
+  bipolar: true,
+  format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)} oct`,
+};
+const qDepth: NumericParamSpec = {
+  label: 'Depth',
+  min: -12,
+  max: 12,
+  default: 2,
+  curve: 'linear',
+  bipolar: true,
+  format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)} Q`,
+};
+/** wet level of a send-style effect: dB on the wet signal only (ducked reverb / delay) */
+const wetParam = (): ModParamInfo => ({ key: 'mix', label: 'Wet', depth: dbDepth(24, -12) });
 
 export const MOD_SPECS = {
   attack: { label: 'Attack', min: 0.0005, max: 0.5, default: 0.004, curve: 'exp', format: (v: number) => `${(v * 1000).toFixed(v < 0.01 ? 1 : 0)} ms` },
@@ -74,6 +106,8 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
         if (!b.enabled) return;
         out.push({ key: `b${i}.freq`, label: `Band ${i + 1} Freq`, depth: semiDepth });
         if (peqHasGain(b.type)) out.push({ key: `b${i}.gain`, label: `Band ${i + 1} Gain`, depth: dbDepth(24, -6) });
+        // width of bells, notches and band-passes (cut filters' resonance is in other units)
+        if (b.type === 'bell' || b.type === 'notch' || b.type === 'bandpass') out.push({ key: `b${i}.q`, label: `Band ${i + 1} Q`, depth: qDepth });
       });
       return out;
     }
@@ -81,6 +115,7 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
       return [{ key: 'threshold', label: 'Thresh', depth: dbDepth(30, -12) }];
     case 'delay':
       return [
+        wetParam(),
         {
           key: 'feedback',
           label: 'Feedback',
@@ -88,8 +123,9 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
         },
       ];
     case 'reverb':
+      return [wetParam(), { key: 'preDelay', label: 'Pre-delay', depth: msDepth(200, 40) }];
     case 'chorus':
-      return [];
+      return [wetParam(), { key: 'rate', label: 'Rate', depth: octDepth }, { key: 'depth', label: 'Depth', depth: msDepth(10, 2) }];
   }
 }
 

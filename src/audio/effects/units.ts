@@ -44,6 +44,8 @@ export interface EffectUnit {
 }
 
 const NONE: ReadonlySet<string> = new Set();
+/** wet-level sidechain: depth in dB → gain offset at full envelope (gain = 1 + env·(10^(d/20) − 1)) */
+const wetDuckScale = (d: number) => dbToGain(d) - 1;
 const ident = (v: number) => v;
 
 function setParam(p: AudioParam, v: number, ctx: BaseAudioContext, immediate: boolean): void {
@@ -53,6 +55,13 @@ function setParam(p: AudioParam, v: number, ctx: BaseAudioContext, immediate: bo
   } else {
     p.setTargetAtTime(v, ctx.currentTime, SMOOTH);
   }
+}
+
+/** Live sidechain offset of one EQ band (dB, cents, Q units) for drawing its response. */
+export interface PeqBandOffset {
+  gain?: number;
+  cents?: number;
+  q?: number;
 }
 
 /** Shared bypass wrapper around a processing section [procIn → procOut]. */
@@ -259,6 +268,7 @@ class DelayUnit extends BaseUnit {
   private readonly damp: BiquadFilterNode;
   private readonly dGain: GainNode;
   private readonly wGain: GainNode;
+  private readonly wetDuck: GainNode;
 
   constructor(ctx: BaseAudioContext, id: string) {
     super(ctx, id);
@@ -268,11 +278,14 @@ class DelayUnit extends BaseUnit {
     this.damp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 6500, Q: -3.01 });
     this.dGain = new GainNode(ctx);
     this.wGain = new GainNode(ctx);
+    this.wetDuck = new GainNode(ctx, { gain: 1 });
     this.input.connect(this.dGain);
     this.dGain.connect(this.wet);
     this.input.connect(this.delay);
     this.delay.connect(this.wGain);
-    this.wGain.connect(this.wet);
+    // sidechain stage on the wet signal only ("ducked" reverb / delay / chorus)
+    this.wGain.connect(this.wetDuck);
+    this.wetDuck.connect(this.wet);
     this.delay.connect(this.damp);
     this.damp.connect(this.fb);
     this.fb.connect(this.delay);
@@ -315,12 +328,14 @@ class DelayUnit extends BaseUnit {
   }
 
   override modulationInputs(key: string): ModInput[] {
-    return key === 'feedback' ? [{ param: this.fb.gain, scale: ident }] : [];
+    if (key === 'feedback') return [{ param: this.fb.gain, scale: ident }];
+    if (key === 'mix') return [{ param: this.wetDuck.gain, scale: wetDuckScale }];
+    return [];
   }
 
   override dispose(): void {
     super.dispose();
-    for (const n of [this.delay, this.fb, this.damp, this.dGain, this.wGain]) n.disconnect();
+    for (const n of [this.delay, this.fb, this.damp, this.dGain, this.wGain, this.wetDuck]) n.disconnect();
   }
 }
 
@@ -334,6 +349,7 @@ class ReverbUnit extends BaseUnit {
   private readonly pre: DelayNode;
   private readonly dGain: GainNode;
   private readonly wGain: GainNode;
+  private readonly wetDuck: GainNode;
   private branch: { conv: ConvolverNode; gain: GainNode } | null = null;
   private decay = -1;
   private pendingDecay: number | null = null;
@@ -346,10 +362,13 @@ class ReverbUnit extends BaseUnit {
     this.pre = new DelayNode(ctx, { maxDelayTime: 0.5 });
     this.dGain = new GainNode(ctx);
     this.wGain = new GainNode(ctx);
+    this.wetDuck = new GainNode(ctx, { gain: 1 });
     this.input.connect(this.dGain);
     this.dGain.connect(this.wet);
     this.input.connect(this.pre);
-    this.wGain.connect(this.wet);
+    // sidechain stage on the wet signal only ("ducked" reverb / delay / chorus)
+    this.wGain.connect(this.wetDuck);
+    this.wetDuck.connect(this.wet);
   }
 
   private buildBranch(decay: number, fadeIn: boolean): void {
@@ -423,12 +442,20 @@ class ReverbUnit extends BaseUnit {
     this.initialized = true;
   }
 
+  override modulationInputs(key: string): ModInput[] {
+    if (key === 'mix') return [{ param: this.wetDuck.gain, scale: wetDuckScale }];
+    // depth in ms (the delay line clamps to 0…0.5 s)
+    if (key === 'preDelay') return [{ param: this.pre.delayTime, scale: (d) => d / 1000 }];
+    return [];
+  }
+
   override dispose(): void {
     if (this.timer) clearTimeout(this.timer);
     super.dispose();
     this.pre.disconnect();
     this.dGain.disconnect();
     this.wGain.disconnect();
+    this.wetDuck.disconnect();
     if (this.branch) {
       this.branch.conv.disconnect();
       this.branch.gain.disconnect();
@@ -563,6 +590,8 @@ export class PeqUnit extends BaseUnit {
     const row = this.stages[bk.band] as BiquadFilterNode[];
     if (bk.field === 'freq') return row.map((f) => ({ param: f.detune, scale: (d: number) => d * 100 }));
     if (bk.field === 'gain') return [{ param: (row[0] as BiquadFilterNode).gain, scale: ident }];
+    const band = this.bands[bk.band];
+    if (bk.field === 'q' && band && (band.type === 'bell' || band.type === 'notch' || band.type === 'bandpass')) return [{ param: (row[0] as BiquadFilterNode).Q, scale: ident }];
     return [];
   }
 
@@ -570,21 +599,38 @@ export class PeqUnit extends BaseUnit {
    * Magnitude response (linear) of the whole EQ, or of one band, computed by
    * the browser from the live filter nodes — the drawn curve is the real one.
    */
-  response(freqs: Float32Array<ArrayBuffer>, out: Float32Array<ArrayBuffer>, band?: number): void {
+  response(freqs: Float32Array<ArrayBuffer>, out: Float32Array<ArrayBuffer>, band?: number, mods?: ReadonlyMap<number, PeqBandOffset>): void {
     out.fill(1);
     const mag = new Float32Array(freqs.length);
     const ph = new Float32Array(freqs.length);
-    const rows = band === undefined ? this.stages : [this.stages[band] as BiquadFilterNode[]];
-    for (const row of rows) {
-      for (const f of row) {
-        f.getFrequencyResponse(freqs, mag, ph);
+    const bands = band === undefined ? this.stages.map((_, i) => i) : [band];
+    for (const b of bands) {
+      const row = this.stages[b] as BiquadFilterNode[];
+      const off = mods?.get(b);
+      row.forEach((f, s) => {
+        // sidechain offsets (they reach the filters through AudioParam inputs, which the
+        // nodes' own response doesn't include): mirror the stage on a scratch filter
+        const src = off ? this.offsetStage(f, s, off) : f;
+        src.getFrequencyResponse(freqs, mag, ph);
         for (let i = 0; i < out.length; i++) out[i] = (out[i] as number) * (mag[i] as number);
-      }
+      });
     }
     if (band === undefined) {
       const g = this.out.gain.value;
       for (let i = 0; i < out.length; i++) out[i] = (out[i] as number) * g;
     }
+  }
+
+  private scratch: BiquadFilterNode[] = [];
+  private offsetStage(f: BiquadFilterNode, stage: number, off: PeqBandOffset): BiquadFilterNode {
+    const sc = (this.scratch[stage] ??= new BiquadFilterNode(this.ctx));
+    sc.type = f.type;
+    sc.frequency.value = f.frequency.value;
+    sc.detune.value = f.detune.value + (off.cents ?? 0);
+    sc.gain.value = f.gain.value + (stage === 0 ? (off.gain ?? 0) : 0);
+    // (cut filters keep their resonance in dB: only bells / notches / band-passes take a Q offset)
+    sc.Q.value = stage === 0 && off.q ? Math.max(0.0001, f.Q.value + off.q) : f.Q.value;
+    return sc;
   }
 
   override dispose(): void {
@@ -613,6 +659,7 @@ class ChorusUnit extends BaseUnit {
   private readonly lfos: OscillatorNode[] = [];
   private readonly dGain: GainNode;
   private readonly wGain: GainNode;
+  private readonly wetDuck: GainNode;
   private width = -1;
 
   constructor(ctx: BaseAudioContext, id: string) {
@@ -623,6 +670,7 @@ class ChorusUnit extends BaseUnit {
     this.merge = new ChannelMergerNode(ctx, { numberOfInputs: 2 });
     this.dGain = new GainNode(ctx);
     this.wGain = new GainNode(ctx);
+    this.wetDuck = new GainNode(ctx, { gain: 1 });
     this.input.connect(this.dGain);
     this.dGain.connect(this.wet);
     this.input.connect(this.up);
@@ -645,7 +693,9 @@ class ChorusUnit extends BaseUnit {
       this.lfos.push(lfo);
     }
     this.merge.connect(this.wGain);
-    this.wGain.connect(this.wet);
+    // sidechain stage on the wet signal only ("ducked" reverb / delay / chorus)
+    this.wGain.connect(this.wetDuck);
+    this.wetDuck.connect(this.wet);
   }
 
   private setWidth(w: number): void {
@@ -700,6 +750,21 @@ class ChorusUnit extends BaseUnit {
     }
   }
 
+  override modulationInputs(key: string): ModInput[] {
+    switch (key) {
+      case 'mix':
+        return [{ param: this.wetDuck.gain, scale: wetDuckScale }];
+      // rate in octaves, through the LFOs' detune (musical, never below 0 Hz)
+      case 'rate':
+        return this.lfos.map((o) => ({ param: o.detune, scale: (d: number) => d * 1200 }));
+      // sweep depth in ms
+      case 'depth':
+        return this.depths.map((g) => ({ param: g.gain, scale: (d: number) => d / 1000 }));
+      default:
+        return [];
+    }
+  }
+
   override dispose(): void {
     super.dispose();
     for (const o of this.lfos) {
@@ -710,7 +775,7 @@ class ChorusUnit extends BaseUnit {
       }
       o.disconnect();
     }
-    for (const n of [...this.delays, ...this.fbs, ...this.depths, this.up, this.split, this.merge, this.dGain, this.wGain]) n.disconnect();
+    for (const n of [...this.delays, ...this.fbs, ...this.depths, this.up, this.split, this.merge, this.dGain, this.wGain, this.wetDuck]) n.disconnect();
   }
 }
 

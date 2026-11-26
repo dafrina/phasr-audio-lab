@@ -113,7 +113,29 @@ describe('routes, cycles and persistence', () => {
     const eq = createEffectSlot('eq');
     a.effects = [eq, createEffectSlot('reverb')];
     expect(modParamInfo(a, { kind: 'fx', slotId: eq.id, param: 'midFreq' })?.depth.format(12)).toBe('+12.0 st');
-    expect(isModulatable(a, { kind: 'fx', slotId: a.effects[1]!.id, param: 'mix' })).toBe(false);
+    // ducked reverb: its wet level is a sidechain target; its decay is not (a new impulse response per change)
+    expect(isModulatable(a, { kind: 'fx', slotId: a.effects[1]!.id, param: 'mix' })).toBe(true);
+    expect(isModulatable(a, { kind: 'fx', slotId: a.effects[1]!.id, param: 'decay' })).toBe(false);
+  });
+
+  it('offers wet level, pre-delay, chorus rate/depth and EQ band Q as sidechain targets', () => {
+    const { a } = proj();
+    const rev = createEffectSlot('reverb');
+    const del = createEffectSlot('delay');
+    const cho = createEffectSlot('chorus');
+    const peq = createEffectSlot('peq');
+    if (peq.type !== 'peq') throw new Error('peq');
+    peq.params.bands[0] = { ...peq.params.bands[0]!, enabled: true, type: 'bell' };
+    peq.params.bands[1] = { ...peq.params.bands[1]!, enabled: true, type: 'lowcut' };
+    a.effects = [rev, del, cho, peq];
+    const keys = (id: string) => ['mix', 'preDelay', 'feedback', 'rate', 'depth', 'b0.q', 'b1.q', 'b0.gain'].filter((k) => isModulatable(a, { kind: 'fx', slotId: id, param: k }));
+    expect(keys(rev.id)).toEqual(['mix', 'preDelay']);
+    expect(keys(del.id)).toEqual(['mix', 'feedback']);
+    expect(keys(cho.id)).toEqual(['mix', 'rate', 'depth']);
+    // Q only where it is a width (bell), not a cut's resonance
+    expect(keys(peq.id)).toEqual(['b0.q', 'b0.gain']);
+    expect(modParamInfo(a, { kind: 'fx', slotId: rev.id, param: 'mix' })?.depth.default).toBe(-12);
+    expect(modParamInfo(a, { kind: 'fx', slotId: cho.id, param: 'rate' })?.depth.format(1)).toBe('+1.00 oct');
   });
 
   it('detects audio feedback cycles but allows MIDI routes and self-ducking', () => {
