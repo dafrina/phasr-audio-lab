@@ -15,6 +15,7 @@ import { uiToast, useUiStore } from '../../state/uiStore';
 import { AutoKnob, useAutomatedValue } from '../common/AutoKnob';
 import { Meter } from '../common/Meter';
 import { Section } from '../common/controls';
+import { FINE } from '../common/HSlider';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
 
 type KeysConfig = Extract<InstrumentConfig, { type: 'keys' }>;
@@ -304,7 +305,7 @@ function Drawbar({ trackId, spec, value, color, onChange }: { trackId: string; s
       <div
         className="relative w-7 cursor-ns-resize overflow-hidden rounded-sm bg-base"
         style={{ height: H }}
-        title={`${spec.label}: ${shown.toFixed(1)} — drag down to pull out, double-click to push in`}
+        title={`${spec.label}: ${shown.toFixed(1)} — drag down to pull out (Shift for fine), double-click to push in`}
         onDoubleClick={() => onChange(0)}
         onPointerDown={(e) => {
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -313,10 +314,14 @@ function Drawbar({ trackId, spec, value, color, onChange }: { trackId: string; s
         onPointerMove={(e) => {
           const d = drag.current;
           if (!d) return;
-          const v = Math.min(8, Math.max(0, d.v + ((e.clientY - d.y) / (H - 18)) * 8));
-          onChange(Math.round(v * 10) / 10);
+          // relative, re-anchored every move so pressing or releasing Shift mid-drag doesn't jump
+          const v = Math.min(8, Math.max(0, d.v + ((e.clientY - d.y) / (H - 18)) * 8 * (e.shiftKey ? FINE : 1)));
+          drag.current = { y: e.clientY, v };
+          const r = Math.round(v * 10) / 10;
+          if (r !== value) onChange(r);
         }}
         onPointerUp={() => (drag.current = null)}
+        onPointerCancel={() => (drag.current = null)}
       >
         {/* scale */}
         {Array.from({ length: 9 }, (_, i) => (

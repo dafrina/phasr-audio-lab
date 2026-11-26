@@ -16,6 +16,7 @@ import { targetInfo } from '../../project/automation';
 import type { AutomationTarget } from '../../project/types';
 import { Meter } from '../common/Meter';
 import { ToggleChip } from '../common/controls';
+import { HSlider } from '../common/HSlider';
 import { TRACK_H } from './layout';
 import { recorder } from '../../audio/recorder';
 
@@ -137,19 +138,18 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
           />
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="range"
-            className="fader min-w-0 flex-1"
+          <HSlider
+            className="min-w-0 flex-1"
+            label="Volume"
             min={-60}
             max={6}
             step={0.1}
             value={vol.value}
-            title={`Volume ${formatDb(vol.value)} dB${vol.automated ? ' — automated (moving writes automation)' : ' — double-click to reset'}`}
-            onPointerDown={() => (dragKey.current = `vol-${track.id}-${Date.now()}`)}
-            onPointerUp={() => endAutomationGesture(dragKey.current)}
+            title={`Volume ${formatDb(vol.value)} dB${vol.automated ? ' — automated (moving writes automation)' : ' — double-click to reset'} · Shift for fine`}
+            onStart={() => (dragKey.current = `vol-${track.id}-${Date.now()}`)}
+            onEnd={() => endAutomationGesture(dragKey.current)}
             onDoubleClick={() => !vol.automated && updateTrack(track.id, { volumeDb: 0 }, 'Volume')}
-            onChange={(e) => {
-              const v = Number(e.target.value);
+            onChange={(v) => {
               if (vol.automated) writeAutomation(track.id, VOL_TARGET, v, dragKey.current || `vol-${track.id}`);
               else updateTrack(track.id, { volumeDb: v }, 'Volume', { coalesce: dragKey.current || `vol-${track.id}` });
             }}
