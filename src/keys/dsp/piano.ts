@@ -98,6 +98,10 @@ export interface PianoParams {
   unison: number;
   inharm: number;
   stretch: number;
+  /** strength of the soundboard radiation response (0 = bare strings) */
+  board: number;
+  /** onset bloom time scale (0 = instant) */
+  bloom: number;
   /** brightness flash of the hammer strike */
   hit: number;
   /** phantom-partial (longitudinal) level: the metallic zing of steel strings */
@@ -235,7 +239,7 @@ export function hammerCorner(f1: number, b: number, treb: number): { fc: number;
   return { fc: Math.min(f1 + absCorner, harmonicCap), slope: 1.6 + 0.6 * treb + 2.2 * soft, open: f1 + absCorner };
 }
 
-export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'>): number {
+export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'> & { board?: number }): number {
   const b = strikeBrightness(vel, p);
   const treb = hammerTreble(note);
   const bassness = clamp((52 - note) / 31, 0, 1);
@@ -258,7 +262,7 @@ export function hammerSpectrum(note: number, k: number, f: number, f1: number, v
   // soundboard radiates poorly below its lowest modes (fitted to a recorded A♯0: the fundamental is ~30 dB under the partials around 300 Hz)
   const board = 1 / (1 + Math.pow(170 / f, 3));
   const air = 1 / (1 + (f / 14000) * (f / 14000));
-  return hammer * comb * tilt * board * air * irregular * radiation(f, note);
+  return hammer * comb * tilt * board * air * irregular * radiation(f, note, p.board ?? 1);
 }
 
 /**
@@ -268,11 +272,11 @@ export function hammerSpectrum(note: number, k: number, f: number, f1: number, v
  * Without it the bass and middle sound like bare, bright strings (harp-like).
  * Faded out over the top octaves, whose sound is right without it.
  */
-export function radiation(f: number, note: number): number {
+export function radiation(f: number, note: number, strength = 1): number {
   const w = clamp((84 - note) / 12, 0, 1);
   if (w <= 0 || f <= 560) return 1;
   const dbDrop = f < 850 ? 10 * (Math.log2(f / 560) / Math.log2(850 / 560)) : 10 + 6.5 * Math.log2(f / 850);
-  return Math.pow(10, (-dbDrop * w) / 20);
+  return Math.pow(10, (-dbDrop * w * strength) / 20);
 }
 
 /** detune (cents) between the two strings of partial k */
@@ -573,7 +577,7 @@ export class PianoEngine implements KeysEngine {
     v.n = 0;
     // fresh string: the radiated sound blooms in (restrikes of a ringing string don't)
     v.onsetPos = 0;
-    v.onsetTau = this.sr * bloomTime(note);
+    v.onsetTau = Math.max(1, this.sr * bloomTime(note) * (this.p.bloom ?? 1));
     v.held.clear();
     v.held.add(id);
     v.sustained = false;
