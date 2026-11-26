@@ -17,6 +17,7 @@ import {
   deleteSelectedClips,
   duplicateSelectedClips,
   importAudioFiles,
+  importMidiFiles,
   NEW_TRACK,
   pasteClips,
   snapTick,
@@ -25,6 +26,7 @@ import {
   createMidiClipAt,
   openClipEditor,
 } from '../actions';
+import { isMidiFileName } from '../../midi/smf';
 import { drawLanesDynamic, drawLanesStatic, drawRuler, laneValueToY, laneYToValue, type DrawState } from './draw';
 import { EDGE_PX, HEADER_W, MAX_PX_PER_BEAT, MIN_PX_PER_BEAT, RULER_H, TRACK_H, tickToX, xToTick } from './layout';
 import { TrackHeader } from './TrackHeader';
@@ -539,15 +541,18 @@ export function Arrangement() {
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDropHint(false);
-    const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|m4a|aac|aif|aiff)$/i.test(f.name));
-    if (!files.length) return;
+    const all = [...e.dataTransfer.files];
+    const midi = all.filter((f) => isMidiFileName(f.name) || f.type === 'audio/midi' || f.type === 'audio/x-midi');
+    const files = all.filter((f) => !midi.includes(f) && (f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|m4a|aac|aif|aiff)$/i.test(f.name)));
+    if (!files.length && !midi.length) return;
     const cv = laneCv.current;
     if (!cv) return;
     const { x, y } = localPos(e, cv);
     const ui = useUiStore.getState();
     const track = getProject().tracks[Math.floor(y / TRACK_H)];
     const tick = snapTick(Math.max(0, xToTick(x, ui.pxPerBeat, ui.scrollX)));
-    void importAudioFiles(files, { trackId: track?.kind === 'audio' ? track.id : NEW_TRACK, tick });
+    if (midi.length) void importMidiFiles(midi, { trackId: track?.kind === 'instrument' ? track.id : undefined, tick });
+    if (files.length) void importAudioFiles(files, { trackId: track?.kind === 'audio' ? track.id : NEW_TRACK, tick });
   };
 
   return (

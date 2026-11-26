@@ -17,12 +17,13 @@ import {
 import { engine } from '../../audio/engine';
 import { PPQ, SNAP_VALUES, formatBBT, formatSeconds, ticksToSeconds, type SnapValue } from '../../core/time';
 import { RecordControls } from './RecordControls';
-import { updateProjectFields, useProjectStore } from '../../state/projectStore';
+import { getProject, updateProjectFields, useProjectStore } from '../../state/projectStore';
 import { useTransportStore } from '../../state/transportStore';
 import { useUiStore } from '../../state/uiStore';
 import { IconButton } from '../common/controls';
 import { Meter } from '../common/Meter';
-import { importAudioFiles, stopTransport, togglePlay } from '../actions';
+import { importAudioFiles, importMidiFiles, stopTransport, togglePlay } from '../actions';
+import { isMidiFileName } from '../../midi/smf';
 import { ProjectControls, openExportDialog } from '../project/ProjectUI';
 import { midiInput, type MidiStatus } from '../../audio/webmidi';
 import { toggleMixer, uiToast } from '../../state/uiStore';
@@ -255,16 +256,23 @@ export function Toolbar() {
         <input
           ref={fileInput}
           type="file"
-          accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac"
+          accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.mid,.midi"
           multiple
           className="hidden"
           onChange={(e) => {
             const files = [...(e.target.files ?? [])];
             e.target.value = '';
-            if (files.length) void importAudioFiles(files, { tick: Math.round((engine.transport?.getTick() ?? 0) / PPQ) * PPQ });
+            const tick = Math.round((engine.transport?.getTick() ?? 0) / PPQ) * PPQ;
+            const midi = files.filter((f) => isMidiFileName(f.name));
+            const audio = files.filter((f) => !midi.includes(f));
+            // MIDI goes onto the selected instrument track, else onto new tracks
+            const sel = useUiStore.getState().selectedTrackId;
+            const inst = getProject().tracks.find((t) => t.id === sel && t.kind === 'instrument');
+            if (midi.length) void importMidiFiles(midi, { trackId: inst?.id, tick });
+            if (audio.length) void importAudioFiles(audio, { tick });
           }}
         />
-        <IconButton title="Import audio files (or drag & drop onto the timeline)" onClick={() => fileInput.current?.click()}>
+        <IconButton title="Import audio or MIDI files (or drag & drop onto the timeline; MIDI also into the piano roll)" onClick={() => fileInput.current?.click()}>
           <FileAudio size={14} /> <span className="text-[11px]">Import</span>
         </IconButton>
         <div className="mx-1 h-6 w-px bg-line" />

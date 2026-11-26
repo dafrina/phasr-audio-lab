@@ -334,7 +334,7 @@ export function drawLanesStatic(g: CanvasRenderingContext2D, width: number, heig
     g.fillStyle = '#3c3c55';
     g.font = '11px Inter, system-ui, sans-serif';
     g.textBaseline = 'middle';
-    g.fillText('Drop audio files here to create a new track', 12, tracks.length * TRACK_H + 22);
+    g.fillText('Drop audio or MIDI files here to create new tracks', 12, tracks.length * TRACK_H + 22);
   }
 }
 

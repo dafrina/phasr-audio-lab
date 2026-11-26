@@ -22,7 +22,8 @@ import {
 import type { MidiClip, MidiNote } from '../../project/types';
 import { getProject, upsertClips, useProjectStore } from '../../state/projectStore';
 import { useUiStore } from '../../state/uiStore';
-import { togglePlay } from '../actions';
+import { importMidiIntoClip, togglePlay } from '../actions';
+import { isMidiFileName } from '../../midi/smf';
 
 const KEYS_W = 64;
 const RULER_H = 20;
@@ -84,6 +85,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
   const [strength, setStrength] = useState(1);
   const [, force] = useState(0);
   const [size, setSize] = useState({ w: 800, h: 300 });
+  const [midiDrop, setMidiDrop] = useState(false);
   const redraw = () => (dirty.current = true);
   // Space held = hand tool (drag to pan). A tap without dragging still toggles play.
   const spaceHeld = useRef(false);
@@ -878,8 +880,38 @@ export function PianoRoll({ clipId }: { clipId: string }) {
         onBlur={() => {
           spaceHeld.current = false;
         }}
+        onDragOver={(e) => {
+          if ([...e.dataTransfer.types].includes('Files')) {
+            e.preventDefault();
+            e.stopPropagation();
+            setMidiDrop(true);
+          }
+        }}
+        onDragLeave={() => setMidiDrop(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setMidiDrop(false);
+          const files = [...e.dataTransfer.files].filter((f) => isMidiFileName(f.name) || f.type === 'audio/midi' || f.type === 'audio/x-midi');
+          if (!files.length) return;
+          const cv = main.current;
+          const x = cv ? e.clientX - cv.getBoundingClientRect().left : KEYS_W;
+          // dropped where the pointer is (on the grid); over the keys: at the clip start
+          let at = x > KEYS_W ? Math.max(0, floorT(xToT(x))) : 0;
+          void (async () => {
+            for (const f of files) {
+              const ids = await importMidiIntoClip(f, clipId, at);
+              if (ids.length) sel.current = new Set(ids);
+              const c = latestClip();
+              const added = c?.notes.filter((n) => ids.includes(n.id)) ?? [];
+              if (added.length) at = Math.max(...added.map((n) => n.start + n.length));
+            }
+            redraw();
+            force((n) => n + 1);
+          })();
+        }}
         className="relative min-h-0 flex-1 outline-none"
-        title="Click: add note · drag: move · drag right edge: resize · right-click: delete · Shift/Ctrl-drag: select · Alt-drag: duplicate · Space+drag or middle-drag: pan · wheel: scroll · Shift+wheel: scroll sideways"
+        title="Drop a .mid file here to add its notes · Click: add note · drag: move · drag right edge: resize · right-click: delete · Shift/Ctrl-drag: select · Alt-drag: duplicate · Space+drag or middle-drag: pan · wheel: scroll · Shift+wheel: scroll sideways"
       >
         <canvas
           ref={main}
@@ -891,6 +923,11 @@ export function PianoRoll({ clipId }: { clipId: string }) {
           onPointerCancel={onUp}
           onContextMenu={(e) => e.preventDefault()}
         />
+        {midiDrop && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-accent/70 bg-accent/5 text-[12px] text-fg">
+            Drop a MIDI file to add its notes here
+          </div>
+        )}
         <canvas
           ref={vel}
           style={{ width: size.w, height: VEL_H }}

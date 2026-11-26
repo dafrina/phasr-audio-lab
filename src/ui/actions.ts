@@ -3,13 +3,16 @@
  */
 import { engine } from '../audio/engine';
 import { createId } from '../core/ids';
-import { quantize, secondsToTicks, snapToTicks, ticksPerBar } from '../core/time';
+import { PPQ, quantize, secondsToTicks, snapToTicks, ticksPerBar } from '../core/time';
 import { duplicateClip, setClipLoop, splitClip } from '../project/clipOps';
 import { createAudioClip, createMidiClip, createTrack, TRACK_COLORS } from '../project/defaults';
 import { INSTRUMENTS, type InstrumentType } from '../instruments/definitions';
 import { MAX_TRACKS, type Clip, type Project } from '../project/types';
 import { getProject, removeClips, removeTrack, upsertClips, useProjectStore } from '../state/projectStore';
 import { uiToast, useUiStore } from '../state/uiStore';
+import { MidiFileError, midiToClipNotes, parseMidiFile, type SmfFile, type SmfNote } from '../midi/smf';
+import { fitClipToNotes } from '../project/noteOps';
+import type { MidiClip, Track } from '../project/types';
 
 export function currentTick(): number {
   return engine.transport?.getTick() ?? 0;
@@ -255,4 +258,128 @@ export function renameClip(clipId: string): void {
   if (!c) return;
   const name = prompt('Clip name:', c.name)?.trim();
   if (name && name !== c.name) upsertClips([{ ...c, name: name.slice(0, 48) }], 'Rename clip');
+}
+
+// ---------------------------------------------------------------------------
+// MIDI files
+// ---------------------------------------------------------------------------
+
+async function readMidi(file: File): Promise<SmfFile | null> {
+  try {
+    return parseMidiFile(await file.arrayBuffer());
+  } catch (e) {
+    uiToast('error', e instanceof MidiFileError ? `${file.name}: ${e.message}` : `Could not read ${file.name}`);
+    return null;
+  }
+}
+
+const baseName = (f: File) => f.name.replace(/\.[a-z0-9]+$/i, '').slice(0, 24) || 'MIDI';
+const allNotes = (m: SmfFile): SmfNote[] => m.tracks.flatMap((t) => t.notes);
+
+/**
+ * The notes of a file meant for one track: a drum rack takes the General MIDI
+ * drum channel (if the file has one), any other instrument everything else —
+ * so a full song dropped on the piano doesn't bring its drum part along.
+ */
+function notesForTrack(m: SmfFile, track: Track | undefined): SmfNote[] {
+  const all = allNotes(m);
+  const drums = all.filter((n) => n.channel === 9);
+  const rest = all.filter((n) => n.channel !== 9);
+  if (track?.instrument?.type === 'drumrack') return drums.length ? drums : all;
+  return rest.length ? rest : all;
+}
+
+/** An empty project takes the file's tempo and metre (a song file should play at its speed). */
+function adoptTempo(m: SmfFile): void {
+  const p = getProject();
+  if (Object.keys(p.clips).length || (!m.bpm && !m.timeSignature)) return;
+  const fields: Partial<Project> = {};
+  if (m.bpm && m.bpm >= 20 && m.bpm <= 300 && Math.abs(m.bpm - p.bpm) > 0.01) fields.bpm = m.bpm;
+  const ts = m.timeSignature;
+  if (ts && ts.numerator >= 1 && ts.numerator <= 16 && [2, 4, 8, 16].includes(ts.denominator) && (ts.numerator !== p.timeSignature.numerator || ts.denominator !== p.timeSignature.denominator))
+    fields.timeSignature = { numerator: ts.numerator, denominator: ts.denominator };
+  if (!Object.keys(fields).length) return;
+  useProjectStore.getState().commit('Tempo from MIDI file', (prev) => ({ ...prev, ...fields }));
+  uiToast('info', `Project set to the MIDI file's ${fields.bpm ? `${fields.bpm} BPM` : ''}${fields.bpm && fields.timeSignature ? ', ' : ''}${fields.timeSignature ? `${fields.timeSignature.numerator}/${fields.timeSignature.denominator}` : ''}`);
+}
+
+/**
+ * Drop a .mid file into an open MIDI clip: every note of the file (all its
+ * tracks) is added at `atTick` (clip-relative); the clip grows to fit.
+ * Returns the ids of the new notes.
+ */
+export async function importMidiIntoClip(file: File, clipId: string, atTick: number): Promise<string[]> {
+  const m = await readMidi(file);
+  const clip = getProject().clips[clipId];
+  if (!m || !clip || clip.kind !== 'midi') return [];
+  const bar = ticksPerBar(getProject().timeSignature);
+  const track = getProject().tracks.find((t) => t.id === clip.trackId);
+  const notes = midiToClipNotes(notesForTrack(m, track), m.ppq, PPQ, { barTicks: bar, trimLeadIn: true, makeId: () => createId('n') }).map((n) => ({ ...n, start: n.start + Math.max(0, Math.round(atTick)) }));
+  const next = fitClipToNotes({ ...clip, notes: [...clip.notes, ...notes] }, bar);
+  upsertClips([next], `Import ${file.name}`);
+  uiToast('info', `${notes.length} notes from ${file.name}`);
+  return notes.map((n) => n.id);
+}
+
+function midiClipFor(trackId: string, name: string, start: number, notes: ReturnType<typeof midiToClipNotes>, bar: number): MidiClip {
+  const clip = createMidiClip(trackId, start, bar);
+  clip.name = name;
+  return fitClipToNotes({ ...clip, notes }, bar);
+}
+
+/**
+ * Drop .mid files on the timeline. On an instrument track: one clip with all
+ * of the file's notes. Anywhere else: one new track per MIDI track (General
+ * MIDI drum channel → Drum Rack, everything else → Keyforge grand), as far
+ * as free tracks allow — the rest goes onto the last new track.
+ */
+export async function importMidiFiles(files: File[], opts: { trackId?: string; tick?: number } = {}): Promise<void> {
+  let tick = Math.max(0, Math.round(opts.tick ?? 0));
+  for (const file of files) {
+    const m = await readMidi(file);
+    if (!m) continue;
+    adoptTempo(m);
+    const p = getProject();
+    const bar = ticksPerBar(p.timeSignature);
+    const conv = (notes: SmfNote[]) => midiToClipNotes(notes, m.ppq, PPQ, { barTicks: bar, trimLeadIn: false, makeId: () => createId('n') });
+    // keep the file's own bar positions, minus empty whole bars before the first note
+    const first = Math.min(...allNotes(m).map((n) => n.start)) * (PPQ / m.ppq);
+    const lead = Math.floor(first / bar) * bar;
+    const shifted = (notes: SmfNote[]) => conv(notes).map((n) => ({ ...n, start: Math.max(0, n.start - lead) }));
+    const target = p.tracks.find((t) => t.id === opts.trackId && t.kind === 'instrument');
+    const clips: MidiClip[] = [];
+    const newTracks: Track[] = [];
+    if (target) {
+      clips.push(midiClipFor(target.id, baseName(file), tick, shifted(notesForTrack(m, target)), bar));
+    } else {
+      const free = MAX_TRACKS - p.tracks.length;
+      if (free <= 0) {
+        uiToast('error', `Can't import "${file.name}": all ${MAX_TRACKS} tracks are in use. Drop it on an instrument track instead.`);
+        continue;
+      }
+      const used = new Set(p.tracks.map((t) => t.color));
+      const groups = m.tracks.slice(0, free).map((t) => ({ ...t, notes: [...t.notes] }));
+      // tracks beyond the free slots join the last one
+      for (const extra of m.tracks.slice(free)) groups[groups.length - 1]?.notes.push(...extra.notes);
+      groups.forEach((g, i) => {
+        const drums = g.channels.length > 0 && g.channels.every((c) => c === 9);
+        const track = createTrack('instrument', p.tracks.length + i, (drums ? INSTRUMENTS.drumrack : INSTRUMENTS.keys).createConfig());
+        track.name = (g.name || (m.tracks.length > 1 ? `${baseName(file)} ${i + 1}` : baseName(file))).slice(0, 24);
+        track.color = TRACK_COLORS.find((c) => !used.has(c)) ?? track.color;
+        used.add(track.color);
+        newTracks.push(track);
+        clips.push(midiClipFor(track.id, track.name, tick, shifted(g.notes), bar));
+      });
+      if (m.tracks.length > free) uiToast('info', `${file.name}: ${m.tracks.length} MIDI tracks, ${free} free — the rest is on "${newTracks[newTracks.length - 1]?.name}"`);
+    }
+    useProjectStore.getState().commit(`Import ${file.name}`, (prev) => ({
+      ...prev,
+      tracks: newTracks.length ? [...prev.tracks, ...newTracks] : prev.tracks,
+      clips: { ...prev.clips, ...Object.fromEntries(clips.map((c) => [c.id, c])) },
+    }));
+    const firstClip = clips[0];
+    if (firstClip) useUiStore.getState().set({ selectedClipIds: clips.map((c) => c.id), selectedTrackId: firstClip.trackId });
+    // several files dropped on one track play one after another
+    if (target) tick += Math.max(...clips.map((c) => c.length));
+  }
 }
