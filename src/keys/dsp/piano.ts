@@ -146,7 +146,9 @@ function lossB3(damping: number): number {
  * frequency-dependent loss is scaled down above ~E4.
  */
 function trebleLossScale(f1: number): number {
-  return Math.min(1, Math.pow(330 / f1, 1.1));
+  // above ~E4: less loss (short stiff strings keep their few overtones);
+  // in the bass: more (wound strings lose their upper partials within a second or two)
+  return f1 >= 330 ? Math.pow(330 / f1, 1.1) : Math.min(4, Math.pow(330 / f1, 0.8));
 }
 
 /** treble position 0 (≤ C4) … 1 (≥ C7) */
@@ -174,18 +176,29 @@ export function partialT60(note: number, f: number, f1: number, p: Pick<PianoPar
 export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'>): number {
   const velTone = 1 - p.hardness + p.hardness * Math.pow(vel, 1.5);
   const b = clamp(p.brightness * (0.4 + 0.75 * velTone), 0, 1.4);
+  // treble character sets in from about A3 and is complete around C6
+  const treb = Math.pow(clamp((note - 57) / 30, 0, 1), 0.8);
+  const bassness = clamp((52 - note) / 31, 0, 1);
   // felt hammers stiffen as they're compressed, so the spectrum falls off
-  // gently (≈ −10 dB/oct) above a velocity-dependent corner
-  const fc = f1 + (700 + 7000 * b * b) * Math.pow(f1 / 262, 0.6);
-  const hammer = 1 / (1 + Math.pow(f / fc, 1.6));
+  // (≈ −10 dB/oct) above a velocity-dependent corner …
+  const absCorner = (700 + 7000 * b * b) * Math.pow(f1 / 262, f1 < 262 ? 0.6 : 0.3);
+  // … but on short treble strings the hammer stays in contact for about one
+  // period, which caps the corner at a few harmonics: treble notes are
+  // dominated by their fundamental
+  const harmonicCap = f1 * (0.9 + 2.2 * b + 20 * (1 - treb) * (1 - treb));
+  const fc = Math.min(f1 + absCorner, harmonicCap);
+  const hammer = 1 / (1 + Math.pow(f / fc, 1.6 + 0.6 * treb));
   // strike point: 1/8 in the mid range, closer to the agraffe in the treble
   const x0 = p.strike * (1 - 0.3 * clamp((note - 60) / 48, 0, 1));
-  // the hammer's finite width keeps the notch from being complete
-  const comb = 0.22 + 0.78 * Math.abs(Math.sin(Math.PI * k * x0));
+  // the hammer's finite width keeps the notch shallow; on short treble strings
+  // the hammer is wide relative to the string and the comb all but disappears
+  const comb0 = 0.35 + 0.65 * Math.abs(Math.sin(Math.PI * k * x0));
+  const comb = comb0 + (1 - comb0) * 0.6 * treb;
   // real partial levels are irregular (hammer–string interaction, soundboard
   // radiation): ±3 dB fixed per note and partial. Perfectly smooth spectra sound synthetic.
   const irregular = 1 + 0.7 * (hash01(note * 131 + 7, k) - 0.5);
-  const tilt = Math.pow(k, -0.35);
+  // spectral slope: steeper in the bass (no buzzy, saw-like overtone series) and in the treble
+  const tilt = Math.pow(k, -(0.35 + 0.6 * bassness + 0.6 * treb));
   // soundboard radiates the lowest fundamentals poorly
   const board = 1 / (1 + (70 / f) * (70 / f));
   const air = 1 / (1 + (f / 14000) * (f / 14000));
@@ -263,10 +276,11 @@ const BODY_MODES: readonly (readonly [number, number, number])[] = [
   [820, 0.05, 0.22],
   [1150, 0.04, 0.15],
   [1700, 0.03, 0.1],
-  [2250, 0.024, 0.08],
-  [2900, 0.02, 0.07],
-  [3700, 0.016, 0.06],
-  [4800, 0.012, 0.05],
+  // high body modes are broad (heavily damped) so they add wood, not whistles
+  [2250, 0.008, 0.06],
+  [2900, 0.006, 0.05],
+  [3700, 0.005, 0.04],
+  [4800, 0.004, 0.03],
   [96, 0.18, 0.6],
   [152, 0.15, 0.55],
   [212, 0.12, 0.45],
@@ -553,7 +567,7 @@ export class PianoEngine implements KeysEngine {
     const varLevel = 1 + 0.08 * (hash01(sc, 17) - 0.5);
     const varTone = 1 + 0.1 * (hash01(sc, 29) - 0.5);
     const bassG = clamp((72 - note) / 50, 0, 1);
-    v.glide = vel * vel * (2 + 6 * bassG) * (0.8 + 0.4 * hash01(sc, 41));
+    v.glide = vel * vel * (0.5 + 6 * bassG) * (0.8 + 0.4 * hash01(sc, 41));
     v.damped = false;
     const f1 = pianoFundamental(note, p.stretch);
     const B = inharmonicityB(note, p.inharm);
@@ -617,7 +631,7 @@ export class PianoEngine implements KeysEngine {
     this.knockPending += p.hammerNoise * Math.pow(vel, 1.3) * 0.5 * (1 + 0.5 * bass);
     this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
     // treble: the hard hammer core hitting steel gives a short, bright "tick"
-    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.5) * (0.04 + 0.04 * trebleness(note));
+    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.5) * (0.04 + 0.015 * trebleness(note));
   }
 
   // -------------------------------------------------------------------------
