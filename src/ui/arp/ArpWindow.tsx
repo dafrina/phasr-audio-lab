@@ -11,7 +11,7 @@ import { arpActive, bakeArp } from '../../arp/expand';
 import { getProject, updateTrack, useProjectStore } from '../../state/projectStore';
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
-import { ArpMonkey } from './ArpMonkey';
+import { ArpApe } from './ArpApe';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
 import type { NumericParamSpec } from '../../synth/params';
 import { PPQ } from '../../core/time';
@@ -235,8 +235,8 @@ export function ArpWindow({ trackId }: { trackId: string }) {
 
       <KeyboardStrip trackId={trackId} kb={kb} low={36} high={84} />
     </div>
-    {/* the toy monkey on the window's top edge, playing along */}
-    <ArpMonkey x={pos.x + WIN_W - 330} y={pos.y - 104} trackId={trackId} />
+    {/* the gorilla on the window's top edge, drumming on the frame */}
+    <ArpApe x={pos.x + WIN_W - 360} y={pos.y - 110} trackId={trackId} />
     </>
   );
 }
