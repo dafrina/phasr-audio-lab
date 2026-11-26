@@ -2,9 +2,10 @@
  * Computer-keyboard routing for instrument windows.
  *
  * While an instrument window (Keyforge, TriOsc, Sampler, Drum Rack,
- * Slipper-izer) is open, its note keys play — wherever the focus is
- * (timeline, a knob, the piano roll …). The most recently opened window
- * owns the keyboard; closing it hands the keyboard back to the previous one.
+ * Slipper-izer, Arp-Ape-ator) is open, its note keys play — wherever the
+ * focus is (timeline, a knob, the piano roll …). The window in front (see
+ * windowStack.ts: the one opened or clicked last) owns the keyboard; closing
+ * it hands the keyboard to the next one.
  * Keys a window doesn't use (Space, Delete, Ctrl+Z, …) fall through to the
  * global shortcuts. Text fields and dropdowns keep their own keys.
  *
@@ -13,6 +14,7 @@
  * so Shift+S / Shift+R / … work while the letters play notes.
  */
 import { useEffect, useRef } from 'react';
+import { windowRank } from './common/windowStack';
 import { isTypingTarget } from './shortcuts';
 
 export interface LiveKeyHandler {
@@ -23,12 +25,25 @@ export interface LiveKeyHandler {
   release(): void;
 }
 
-const stack: LiveKeyHandler[] = [];
+/** registered handlers, oldest first; `owner` = the window (windowStack id) they belong to */
+const stack: { h: LiveKeyHandler; owner?: string }[] = [];
 let fallback: LiveKeyHandler | null = null;
 let installed = false;
 
-const top = (): LiveKeyHandler | undefined => stack[stack.length - 1] ?? fallback ?? undefined;
-const all = (): LiveKeyHandler[] => (fallback ? [...stack, fallback] : stack);
+/** the frontmost window's handler (ties, and handlers without a window: the latest registered) */
+const top = (): LiveKeyHandler | undefined => {
+  let best: LiveKeyHandler | undefined;
+  let bestRank = -2;
+  for (const e of stack) {
+    const r = e.owner ? windowRank(e.owner) : -1;
+    if (r >= bestRank) {
+      best = e.h;
+      bestRank = r;
+    }
+  }
+  return best ?? fallback ?? undefined;
+};
+const all = (): LiveKeyHandler[] => [...stack.map((e) => e.h), ...(fallback ? [fallback] : [])];
 
 function onDown(e: KeyboardEvent): void {
   const h = top();
@@ -56,12 +71,13 @@ function install(): void {
   });
 }
 
-export function registerLiveKeys(h: LiveKeyHandler): () => void {
+export function registerLiveKeys(h: LiveKeyHandler, owner?: string): () => void {
   install();
-  stack.push(h);
+  const entry = { h, owner };
+  stack.push(entry);
   return () => {
     h.release();
-    const i = stack.lastIndexOf(h);
+    const i = stack.lastIndexOf(entry);
     if (i >= 0) stack.splice(i, 1);
   };
 }
@@ -83,8 +99,9 @@ export function liveKeysActive(): boolean {
   return stack.length > 0;
 }
 
-/** Register a handler for the lifetime of the component; the latest callbacks are always used. */
-export function useLiveKeys(handler: LiveKeyHandler): void {
+/** Register a handler for the lifetime of the component; the latest callbacks are always used.
+ * `owner`: the window (windowStack id) it belongs to, so the front window gets the keys. */
+export function useLiveKeys(handler: LiveKeyHandler, owner?: string): void {
   const ref = useRef(handler);
   ref.current = handler;
   useEffect(
@@ -93,7 +110,7 @@ export function useLiveKeys(handler: LiveKeyHandler): void {
         keyDown: (e) => ref.current.keyDown(e),
         keyUp: (e) => ref.current.keyUp(e),
         release: () => ref.current.release(),
-      }),
-    [],
+      }, owner),
+    [owner],
   );
 }

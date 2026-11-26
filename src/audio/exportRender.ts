@@ -2,9 +2,10 @@
  * Offline WAV export.
  *
  * Builds the same graph as realtime playback inside an OfflineAudioContext —
- * track channels with insert effects, instruments (TriOsc worklet with all
- * note events passed up front, drum racks with pre-scheduled hits), audio
- * clips, automation ramps, sidechain modulators and the master chain — then
+ * track channels with insert effects and sends, instruments (TriOsc and
+ * Keyforge worklets with all note events passed up front, drum racks and
+ * samplers with pre-scheduled hits), audio clips, automation ramps, sidechain
+ * modulators, the send channels and the master chain — then
  * renders faster than realtime. Scheduling uses the exact same `planWindow`
  * as the transport, so the export matches what you hear.
  *

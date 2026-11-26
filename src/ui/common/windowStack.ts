@@ -1,7 +1,8 @@
 /**
  * Stacking order of the floating instrument / tool windows: the one clicked
  * last is in front. Each open window registers itself; z-indexes stay in a
- * small band (40..48) under menus and popovers.
+ * small band (40..48) under menus and popovers. The front window also gets
+ * the computer keyboard (see liveKeys.ts).
  */
 import { useCallback, useEffect } from 'react';
 import { create } from 'zustand';
@@ -10,6 +11,11 @@ const BASE_Z = 40;
 const MAX_RANK = 8;
 
 const useWindowStack = create<{ order: string[] }>(() => ({ order: [] }));
+
+/** where a window is in the stack (higher = further in front), −1 if it isn't open */
+export function windowRank(id: string): number {
+  return useWindowStack.getState().order.indexOf(id);
+}
 
 export function raiseWindow(id: string): void {
   const { order } = useWindowStack.getState();

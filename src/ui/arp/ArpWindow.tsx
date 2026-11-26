@@ -3,9 +3,13 @@
  * instrument. Hold keys (computer keyboard, MIDI, the keybed below, or long
  * notes in a clip) and they play the pattern, locked to the song grid.
  *
+ * The sequencer's pitches are drawn in a melody lane (PitchLane). Every note
+ * the pattern plays lights its step / key (in the note's colour) and the
+ * gorilla on the window drums along (ArpApe, fed by arpBeats).
+ *
  * Rec: in the sequencer, step recording — each key you play fills the next
  * step (relative to the first key of the take) and moves on; Rest / Tie /
- * Back fill in the rest. In the arpeggiator, live recording onto the
+ * Back / Clear fill in the rest. In the arpeggiator, live recording onto the
  * timeline: the keys you hold become a clip that plays back through the arp.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -66,7 +70,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
     engine.allNotesOff(trackId);
     setUi({ arpTrackId: null });
   }, [trackId, setUi]);
-  const kb = useComputerKeyboard(trackId, close, 0.85);
+  const kb = useComputerKeyboard(trackId, close, 0.85, 'arp');
 
   useEffect(() => {
     if (!track || track.kind !== 'instrument' || !track.arp) setUi({ arpTrackId: null });
@@ -173,7 +177,8 @@ export function ArpWindow({ trackId }: { trackId: string }) {
     const p = arpPreset(name);
     if (!p) return;
     const cur = getProject().tracks.find((t) => t.id === trackId)?.arp ?? cfg;
-    updateTrack(trackId, { arp: { ...structuredClone(p), enabled: cur.enabled, latch: cur.latch } }, `Arp-Ape-ator: ${name}`);
+    // (the melody lane's scale is a drawing aid: it stays as you set it)
+    updateTrack(trackId, { arp: { ...structuredClone(p), enabled: cur.enabled, latch: cur.latch, scale: cur.scale } }, `Arp-Ape-ator: ${name}`);
   };
 
   // step-record helpers: Rest (an empty step), Tie (hold the previous note one more step), Back

@@ -113,6 +113,7 @@ export function PitchLane({
             if (i >= 0 && i < SEQ_STEPS) onSteps((steps) => steps.map((s, j) => (j === i ? { ...s, on: false, tie: false } : s)));
           }}
           onWheel={(e) => {
+            if (!e.deltaY) return;
             const r = lane.current!.getBoundingClientRect();
             const colW = (r.width - GAP * (SEQ_STEPS - 1)) / SEQ_STEPS;
             const i = Math.floor((e.clientX - r.left) / (colW + GAP));

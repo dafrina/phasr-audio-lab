@@ -30,6 +30,13 @@
  *
  * A restrike of a sounding note hits the same string again (state is kept
  * and the new excitation adds to it), as on a real piano.
+ *
+ * Playing chords: every key has its own fixed personality (ring length,
+ * double decay, overtone swell, string detune and beats, tuning; see
+ * keyPersona), keys struck together land a few milliseconds apart with uneven
+ * touch ("Chord feel") and each gets a softer hammer hit, so a chord sounds
+ * like separate strings rather than one tone. "Impact" adds the felt
+ * hammer's low thud through the case.
  */
 import {
   BEND_SEMITONES,

@@ -47,7 +47,7 @@ export function SynthWindow({ trackId }: { trackId: string }) {
     engine.sustain(trackId, false);
     setUi({ synthTrackId: null });
   }, [trackId, setUi]);
-  const kb = useComputerKeyboard(trackId, close);
+  const kb = useComputerKeyboard(trackId, close, 0.8, 'synth');
 
   // close if the track disappears (deleted / undo) or is no longer a TriOsc
   useEffect(() => {

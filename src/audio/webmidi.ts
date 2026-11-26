@@ -1,6 +1,7 @@
 /**
- * Web MIDI input. Incoming notes are routed to the track whose TriOsc window is
- * open, otherwise to the selected instrument track. Each note-off is sent to
+ * Web MIDI input. Incoming notes go to the instrument track armed for
+ * recording, else to the track whose instrument window is open, else to the
+ * selected instrument track (else the first instrument track). Each note-off is sent to
  * the track that received the matching note-on, so switching tracks while a
  * key is held can't leave a note stuck.
  */

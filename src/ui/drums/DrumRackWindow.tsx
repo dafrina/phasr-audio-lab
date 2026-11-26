@@ -101,7 +101,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
     },
     keyUp: (e) => KEY_PADS[e.code] !== undefined,
     release: () => {},
-  });
+  }, 'drums');
 
   if (!track || track.instrument?.type !== 'drumrack') return null;
   const cfg = track.instrument;

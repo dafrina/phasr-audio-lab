@@ -70,7 +70,7 @@ export function KeysWindow({ trackId }: { trackId: string }) {
     engine.sustain(trackId, false);
     setUi({ synthTrackId: null });
   }, [trackId, setUi]);
-  const kb = useComputerKeyboard(trackId, close);
+  const kb = useComputerKeyboard(trackId, close, 0.8, 'keys');
 
   useEffect(() => {
     if (!track || track.instrument?.type !== 'keys') setUi({ synthTrackId: null });

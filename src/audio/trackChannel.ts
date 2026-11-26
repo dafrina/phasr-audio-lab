@@ -1,8 +1,12 @@
 /**
  * Per-track audio graph:
  *
- *   [clip sources | TriOsc] → input → (insert FX) → volume → pan → mute/solo gate → meter → master
+ *   [clip sources | instrument] → input → (insert FX) → volume → pan → mute/solo gate → meter → master
+ *                                                                              └→ send taps A / B → send channels
  *
+ * The send taps are post-fader (they follow volume, pan and mute). A Drum
+ * Rack's pads can also send on their own; those taps go through the track's
+ * fader level and mute before joining the same send channels.
  * Nodes are created once per track and updated in place, so changing a
  * track's settings never creates duplicate connections.
  */

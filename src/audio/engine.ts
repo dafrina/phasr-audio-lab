@@ -1,5 +1,6 @@
 /**
- * AudioEngine: owns the single AudioContext, the master bus, one TrackChannel
+ * AudioEngine: owns the single AudioContext, the master bus (its insert
+ * effects, fader and safety limiter), the two send channels, one TrackChannel
  * per track, the asset registry and the transport. It is independent of
  * React; the UI talks to it through `syncProject()` (driven by a store
  * subscription) and a few imperative calls (preview notes, meters, import).

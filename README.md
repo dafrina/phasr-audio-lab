@@ -1,7 +1,9 @@
 # PHASR Audio Lab
 
 Browser DAW (12 tracks) with **TriOsc** (three-oscillator subtractive synth), **Keyforge** (modelled piano, electric
-piano, tonewheel organ and analog pad/techno engines) and a **Drum Rack**.
+piano, tonewheel organ, analog and 808 engines), a **Drum Rack** and a **Sampler**; two playing tools — the **Gucci
+Slipper-izer** (one key → a chord) and the **Arp-Ape-ator** (arpeggiator / step sequencer); insert effects on every
+track, on two send channels and on the master.
 
 **Live:** https://dafrina.github.io/phasr-audio-lab/ — deployed by `.github/workflows/pages.yml` on every push to `main`
 (typecheck → tests → build with `BASE_PATH=/<repo>/` → GitHub Pages).
@@ -24,10 +26,16 @@ npm run build
 | `src/state` | `projectStore` (every edit is a command → snapshot undo/redo with gesture coalescing), `uiStore`, `transportStore` |
 | `src/audio` | `AudioEngine` (one AudioContext, master bus + safety limiter), `TrackChannel` graphs, `Transport` lookahead scheduler, worker clock, asset registry + peak caches, real meters |
 | `src/synth` | TriOsc: centralized param specs, presets, and pure-TS DSP (`dsp/`) shared by the AudioWorklet, offline export and tests |
-| `src/keys` | Keyforge: per-engine param specs, presets and DSP engines (`dsp/`: piano, epiano, organ, analog, KeysSynth/KeysCore) |
-| `src/ui` | Toolbar, canvas arrangement (ruler/lanes), track headers, instrument windows |
+| `src/keys` | Keyforge: per-engine param specs, presets and DSP engines (`dsp/`: piano, epiano, organ, analog, sub808, KeysSynth/KeysCore) |
+| `src/drums`, `src/sampler` | Drum Rack kits + procedural drum synthesis; Sampler zone mapping (pure) |
+| `src/chords`, `src/arp` | Slipper-izer chord theory and Arp-Ape-ator patterns (pure), applied to clips at playback / export / bake |
+| `src/midi` | Standard MIDI File import and export |
+| `src/persistence` | IndexedDB / OPFS storage, autosave, `.phasr` archives |
+| `src/ui` | Toolbar, canvas arrangement (ruler/lanes), track headers, piano roll, mixer, instrument and tool windows |
 
-**Signal path per track:** clip sources or TriOsc worklet → input → (insert FX slot chain) → volume → pan → mute/solo gate → meter → master → limiter → output.
+**Signal path:** per track, clip sources or the instrument → input → insert effects → volume → pan → mute/solo gate →
+meter → master; post-fader send taps feed send channels A and B (each: effects → fader → mute → meter → master).
+Master: input → master effects → fader → limiter → output.
 
 **Scheduling:** a Worker-driven clock wakes every 25 ms and schedules everything in the next 150 ms with
 `AudioContext.currentTime` timestamps (both values configurable on `Transport`). Synth notes carry unique
@@ -48,17 +56,24 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
 - **Milestone 2 (TriOsc): done.** All synth sections, 12 factory presets plus user presets (localStorage),
   mouse and computer-keyboard playing, sustain and pitch-bend wheel.
 - **Milestone 3 (MIDI integration): done.** Double-click an instrument lane to create a MIDI clip (or use the context menu);
-  double-click any clip to open it in the resizable bottom editor. Piano roll: click to add, drag to move, drag the right
+  double-click any clip to open it in the resizable bottom editor. Piano roll: click (or press and hold ~150 ms) to add a
+  note, a quick drag of more than 10 px on empty space selects, drag a note to move, drag the right
   edge to resize, right-click (or right-drag) to delete, Ctrl/Shift-drag marquee, Alt-drag duplicate, Ctrl+A/C/X/V/D,
   arrows transpose/nudge, Q quantize (with strength), velocity lane painting, clip length/loop handle, Ctrl+wheel /
   Alt+wheel zoom, key preview. Audio clips open a waveform editor (gain, fades, loop length, normalize, fit).
-  Web MIDI input (toolbar keyboard button) plays the open TriOsc or the selected instrument track.
+  Web MIDI input (toolbar keyboard button) plays the armed instrument track, else the open instrument window's track,
+  else the selected instrument track.
 - **Milestone 4 (multitrack mixing): done.** Up to 4 insert effects per track — EQ-3 (low shelf / peaking mid / high
-  shelf), Compressor (threshold/ratio/attack/release/makeup + live gain-reduction meter), Delay (time or tempo-synced
-  division, feedback with damping, equal-power mix), Reverb (generated stereo IR, decay/pre-delay/mix). Enable/bypass
-  (click-free crossfade), parameter smoothing, reorder, remove, factory + user effect presets, all saved in the project.
-  Mixer (F9 or toolbar): 8 channel strips + master with fader, pan, mute/solo, real meters with peak hold/clip LED, effect
-  slots, master limiter toggle. Track device panel (FX button) shows the instrument and the full chain.
+  shelf), Spectra EQ (below), Compressor (threshold/ratio/attack/release/makeup + live gain-reduction meter), Delay (time
+  or tempo-synced division, feedback with damping, equal-power mix), Reverb (generated stereo IR, decay/pre-delay/mix),
+  Chorus / Flanger, Auto-Filter (low/high/band-pass with an LFO) and Phaser (swept all-pass stages with feedback and
+  stereo spread). Enable/bypass (click-free crossfade; a switched-off effect does no work), parameter smoothing, reorder,
+  remove, factory + user effect presets, all saved in the project.
+  Mixer (F9 or toolbar): a channel strip per track (up to 12) with fader, pan, mute/solo, send A/B knobs, real meters
+  with peak hold/clip LED and effect slots; strips for the two send channels; the master with its own 4 effect slots and
+  the limiter toggle. Track device panel (FX button) shows the instrument, the tools, the sends and the full chain.
+- **Send channels A and B:** shared effect chains (e.g. one reverb, one delay) with up to 4 effects each, fed by every
+  track's post-fader send knobs; Drum Rack pads have their own sends.
 - **Milestone 5 (recording): done.** Arm an audio track (R in the header; one at a time), pick the input in the record
   menu (▾ next to the record button), optional input monitoring (I) through the track's effects, count-in (Off/1/2/4
   bars), sample-aligned capture in an AudioWorklet, latency compensation (browser-reported output + input latency
@@ -82,10 +97,13 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
 - **Instruments are a registry** (`src/instruments/definitions.ts` + `src/audio/instruments.ts` + `src/ui/instruments.tsx`):
   adding one (e.g. a piano) is three typed entries; track creation, headers, migrations and the piano roll pick it up.
 - **Drum Rack:** 16 pads (MIDI 36–51; Z–V / A–F / Q–R / 1–4 keys), procedurally synthesized kits (Electro / Punchy /
-  Lo-Fi; voice, tone, snap, length per pad), per-pad gain, pan, tune, decay and choke groups. Replace any pad with your
-  own sample (drop a file on it, or *Sample…*), or drop/load several files to fill consecutive pads. The piano roll shows
-  pad names for drum tracks.
-- **Keyforge** (multi-engine keyboard instrument, 16 presets; every knob automatable):
+  Lo-Fi / House / Techno / Hip-Hop / Trap; voice, tone, snap, length per pad), a style per pad (Classic, House, Techno,
+  Hip-Hop, Trap, Lo-Fi), per-pad gain, pan, tune, decay and choke groups, a Spectra EQ and send A/B per pad, and
+  *Split to track* (moves a pad's notes onto a track of its own). Replace any pad with your own sample (drop a file on it,
+  or *Sample…*), or drop/load several files to fill consecutive pads. **Pattern** tab: a 16-step grid per pad that edits
+  the track's clip directly (click a hit, Shift-click accent/ghost, right-click rolls). The piano roll shows pad names
+  for drum tracks.
+- **Keyforge** (multi-engine keyboard instrument, 49 presets; every knob automatable):
   - *Piano* — modal string model: up to 96 partials per note following the stiff-string inharmonicity law
     (B rising into the treble) with Railsback stretch tuning; velocity-dependent hammer spectrum and contact time,
     strike-position notch; two/three coupled string resonators per low partial for beating and the prompt/aftersound
@@ -94,7 +112,9 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
     modes + hammer knock, 12 sympathetic "strings" that bloom with the sustain pedal, lid filter, pitch-based stereo.
     Tension modulation (hard strikes start a few cents sharp), per-strike variation and a recording-room ambience.
     A short, bright hammer *hit* on the upper partials (Hit knob), phantom partials (Metal), a dense soundboard
-    resonator (Body), key-action knock (Thump), treble trichord shimmer.
+    resonator (Body), key-action knock (Thump), the felt hammer's low thud (Impact), treble trichord shimmer. Every key
+    has its own fixed personality (ring, decay, detune, tuning) and chord notes land a few ms apart with softer hammers
+    (Chord feel), so chords sound like separate strings. Held high notes fade into the room.
     Presets: Concert Grand, Felt Piano, Bright Upright.
   - *Electric Piano* — tine (fundamental + clamped-free beam bell modes 6.27×/17.55×) and detuned tonebar, through an
     asymmetric magnetic pickup (time derivative of flux) so hard hits bark; damper, stereo tremolo, preamp drive.
@@ -104,12 +124,21 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
     scanner, overdrive, rotary speaker (800 Hz crossover, horn/drum inertia, Doppler, AM, cabinet reflection).
     Presets: Jazz Tonewheel, Rock Organ, Gospel Full.
   - *Analog* — up to 7 detuned stereo saws + sub + noise, drive, 4-pole resonant low-pass with envelope / key /
-    velocity, filter motion LFO, mono legato glide, ensemble, built-in tempo-synced ping-pong delay and large FDN reverb.
-    Presets: Warm Pad, Glass Pad, Cathedral Lead, Abyss Bass Lead, Midnight Pluck (melodic techno), Techno Stab, Acid Line.
+    velocity, filter motion LFO, pitch envelope, mono legato glide, ensemble, built-in tempo-synced ping-pong delay and
+    large FDN reverb. 27 presets: pads (Warm Pad, Glass Pad, Solina Strings…), leads and stabs (Techno Stab, Supersaw
+    Lead, Rave Hoover…) and basses (Acid Line, Reese Bass, Moog Bass, Rolling Techno Bass, Deep House Bass…).
+  - *808* — the classic sub: a sine with a pitch-drop knock, click, long decay and saturation; monophonic with true 808
+    glide. 11 presets (Trap 808, Long Boom, Distorted 808, Slide 808, Techno Sub, Kick-Bass…).
+  - The organ also has 90s House Organ and Organ Sub Bass.
   - Realism is checked by measurement tests (`tests/keys.test.ts`): partial frequencies vs. the inharmonicity formula,
     A4 = 440 Hz, bass vs. treble T60, partial decay order, double decay, unison beating, velocity → brightness,
     dampers / undamped treble / pedal, EP bark and bell decay, tremolo rate, drawbar levels, phase-locked wheels,
     single-trigger percussion, key click, rotor speeds, filter sweeps, glide, sample-accurate starts, automation.
+- **MIDI files:** drop a `.mid` file into the piano roll (its notes land where you drop it), onto an instrument track
+  (a new clip there) or onto empty timeline space (one new track per MIDI track; drums become a Drum Rack). Export the
+  song (project menu), a clip (its context menu) or the open clip (piano roll's .mid button) as a Standard MIDI File (Slipper-izer and Arp-Ape-ator tracks export what you hear).
+- **Computer keyboard:** Z–M / Q–P play the instrument window in front (click a window to bring it forward) or, with none
+  open, the selected instrument track; Shift+letter still runs the shortcut.
 - **MIDI recording:** arm an instrument track (R) and record: Web MIDI, the computer keys and the on-screen keyboard
   play the armed track and are written into a new clip ("Keys 3 take 1"). Notes land on the timeline position you were
   hearing (input timestamps are mapped through the context's output timestamp, so output latency is compensated),
@@ -123,6 +152,13 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   and the progression plays in rhythm (hold, stabs, house offbeat, groove, arp; ½/1/2 bars per chord), locked to the
   song tempo. Clips store the single keys you play (recording included) and are expanded at playback/export; the piano
   roll names the chord on every key and note; **Bake to notes** writes the chords into the clips (undoable).
+- **Arp-Ape-ator** (arpeggiator / step sequencer for any instrument track — track devices panel): hold keys and they
+  play up / down / up-down / random / as-played arpeggios over 1–4 octaves, or a 16-step line (velocity, accent, slide,
+  tie, roll, chance, and a melody lane you draw pitches into, with scale snapping) transposed by the key you hold.
+  Locked to the song grid, latch, swing and gate. **Step rec** fills the sequencer one key per step (Rest / Tie / Back /
+  Clear); in arp mode **Rec** records the held keys into a clip. Clips keep the held keys and play back through the arp;
+  **Bake to notes** writes the result. Every note lights its step / key in the note's colour, and a gorilla on the
+  window drums along.
 - **Sampler** (bring your own samples; nothing is shipped): drop or pick one or more audio files and each becomes a
   zone. Root notes are read from file names (`Piano_C4.wav`, `Bass A#1`, `pad-060`) or found by pitch detection (YIN).
   *Auto* mapping splits keys halfway between roots and stretches the outer zones to the ends of the keyboard, so every
@@ -197,9 +233,9 @@ partitions on a background thread, and the live 8-track/32-effect test keeps pac
 - The master limiter is a hard-knee `DynamicsCompressorNode` (safety only, not a brickwall).
 - The compressor is the browser's `DynamicsCompressorNode`; its built-in automatic makeup gain is cancelled so the
   Makeup knob is literal (residual error < ~1.5 dB around the fixed 6 dB knee).
-- Effects are inserts only; there are no send/return buses.
-- TriOsc synth parameters and reverb decay can't be automated yet (they aren't AudioParams); automation covers effect
-  parameters and track volume/pan. Automating compressor threshold/ratio doesn't update its makeup compensation.
+- Master and send-channel effects can't be automated or sidechained yet.
+- Reverb decay can't be automated or sidechained (changing it regenerates the impulse response). Automating
+  compressor threshold/ratio doesn't update its makeup compensation.
 - Recording latency compensation relies on what the browser reports; use the manual offset to fine-tune per interface.
 - In the piano roll, Space starts/stops playback on key release (so it can double as the pan key). New notes default
   to 1/16; the piano roll has its own grid (default 1/16) separate from the arrangement snap.
@@ -213,7 +249,8 @@ partitions on a background thread, and the live 8-track/32-effect test keeps pac
 
 Press **?** in the app for the full list. Space play/stop · Enter stop · Ctrl+S save · Ctrl+A select all · ←→ nudge · ↑↓ move to track · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+C / V copy/paste clips · Ctrl+D duplicate ·
 Delete remove · S split at playhead · L loop on/off · Ctrl+L loop clip content · M metronome · F9 mixer · R record · A automation mode ·
-TriOsc / Keyforge focused: Z–M / Q–P play notes, [ ] octave, Esc close.
+Z–M / Q–P play the instrument window in front (or the selected instrument track), [ ] octave, Esc closes the window;
+Shift+letter keeps the shortcut.
 Piano roll focused: Delete, Ctrl+A/C/X/V/D, ↑↓ transpose (Shift = octave), ←→ nudge, Q quantize, Esc deselect. Shortcuts are ignored while typing in text fields.
 
 ## Third-party code

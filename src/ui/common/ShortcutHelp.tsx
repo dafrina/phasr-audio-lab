@@ -56,11 +56,14 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
   {
     title: 'Instruments & knobs',
     items: [
-      ['Z–M / Q–P', 'Play the open instrument window — or, with none open, the selected instrument track ([ ] octave, Esc closes a window)'],
+      ['Z–M / Q–P', 'Play the instrument window in front — or, with none open, the selected instrument track ([ ] octave, Esc closes a window)'],
+      ['Click a window', 'Bring it to the front (it also gets the computer keyboard)'],
       ['Shift+letter', 'While letters play notes, Shift+S / R / L / M / A / Q still run their shortcut'],
       ['Z–V / A–F / Q–R / 1–4', 'Play drum pads'],
       ['Drum Rack → Pattern', 'Step grid: click a hit · Shift-click accent / ghost · right-click roll'],
       ['Arp-Ape-ator (track devices)', 'Hold keys → arpeggios or a 16-step line; press another key to transpose'],
+      ['Arp-Ape-ator melody lane', 'Drag up / down (or across steps) to draw pitches · wheel nudges · right-click clears · scale snaps'],
+      ['Arp-Ape-ator Rec', 'Sequencer: each key fills the next step (Rest / Tie / Back / Clear) · Arp: records held keys into a clip'],
       ['Drag knob (Shift: fine)', 'Change value; double-click resets'],
       ['Right-click knob', 'Automate / sidechain'],
     ],

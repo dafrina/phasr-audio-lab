@@ -2,8 +2,9 @@
  * Procedural drum synthesis for the built-in drum rack sounds (pure, no Web
  * Audio). Every voice is rendered once into a mono buffer from three macro
  * controls — tone (pitch/brightness), snap (transient/noise amount) and
- * length — using a seeded noise generator, so a kit always sounds identical
- * (realtime, export and tests).
+ * length — and a style (model): Classic, House, Techno, Hip-Hop, Trap or
+ * Lo-Fi (see DRUM_MODELS in kit.ts), using a seeded noise generator, so a kit
+ * always sounds identical (realtime, export and tests).
  */
 import type { DrumPadSource } from '../project/types';
 

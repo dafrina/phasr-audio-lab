@@ -10,7 +10,8 @@
  * edge feathered into the neck). Nothing is redrawn per frame: the layers
  * only move with CSS transforms / opacity (compositor), each hit is a short
  * Web Animation timed so the fist lands as its note sounds, and a slow breath
- * is a CSS keyframe. Still for prefers-reduced-motion.
+ * is a CSS keyframe. Still for prefers-reduced-motion. The whole figure is
+ * shown mirrored (MIRROR), so he faces left over the window.
  */
 import { useEffect, useRef } from 'react';
 import bodyUrl from './ape/body.webp';

@@ -8,7 +8,9 @@
  * and an amp ADSR. Mono mode adds legato with glide for acid lines. A
  * stereo BBD-style ensemble (three modulated taps per side) widens pads, a
  * slow filter LFO adds motion, and a built-in ping-pong delay and large
- * reverb ("Space") give leads the room they're designed for.
+ * reverb ("Space") give leads the room they're designed for. A pitch
+ * envelope (start offset + fall time) adds the zap of plucks, toms and
+ * electronic basses.
  */
 import {
   BEND_SEMITONES,

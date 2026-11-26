@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { engine } from '../../audio/engine';
 import { withToolsExpanded } from '../../arp/expand';
+import { collectClipNotes } from '../../audio/scheduling';
 import { PPQ } from '../../core/time';
 import { getProject } from '../../state/projectStore';
 
@@ -58,10 +59,14 @@ export function useArpBeats(trackId: string, onBeat: (b: ArpBeat) => void): void
       const tps = (src.bpm * PPQ) / 60;
       // the tick that sounds AHEAD seconds from now
       const horizon = t.tickAtContextTime(ctx.currentTime + AHEAD);
+      const loop = src.loop.enabled && src.loop.end > src.loop.start ? src.loop : null;
       if (scanned < 0 || horizon < scanned || horizon - scanned > tps * 2) {
-        // started, looped or jumped: pick up from just before the playhead
+        // started, looped or jumped: pick up from just before the playhead (not before a loop's start)
         scanned = horizon - tps * (AHEAD + 0.03);
+        if (loop && horizon >= loop.start) scanned = Math.max(scanned, loop.start - 1);
       }
+      // approaching a loop's end: what lies after it won't play (the playhead wraps)
+      const end = loop && t.getTick() < loop.end ? loop.end : Infinity;
       if (horizon <= scanned) return;
       const p = withToolsExpanded(src);
       const cfg = p.tracks.find((x) => x.id === trackId)?.arp;
@@ -69,10 +74,11 @@ export function useArpBeats(trackId: string, onBeat: (b: ArpBeat) => void): void
       let n = 0;
       for (const c of Object.values(p.clips)) {
         if (c.kind !== 'midi' || c.trackId !== trackId) continue;
-        for (const note of c.notes) {
-          const s = c.start + note.start;
-          if (s <= scanned || s > horizon || n++ >= 8) continue;
-          cb.current({ pitch: note.pitch, velocity: note.velocity, step: Math.floor(s / st), landMs: Math.max(0, (AHEAD - (horizon - s) / tps) * 1000) });
+        // the same note collection as playback: looping clip content repeats, notes past the clip end don't play
+        for (const e of collectClipNotes(c, scanned + 1e-6, Math.min(horizon, end - 1e-6) + 1e-6, Infinity)) {
+          if (n++ >= 8) break;
+          const s = e.onTick;
+          cb.current({ pitch: e.note.pitch, velocity: e.note.velocity, step: Math.floor(s / st), landMs: Math.max(0, (AHEAD - (horizon - s) / tps) * 1000) });
         }
       }
       scanned = horizon;

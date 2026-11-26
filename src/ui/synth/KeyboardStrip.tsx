@@ -65,7 +65,8 @@ export interface ComputerKeyboard {
   releaseAll: () => void;
 }
 
-export function useComputerKeyboard(trackId: string, onEscape: () => void, velocity = 0.8): ComputerKeyboard {
+/** `windowId`: the window's windowStack id, so the keys follow the window in front */
+export function useComputerKeyboard(trackId: string, onEscape: () => void, velocity = 0.8, windowId?: string): ComputerKeyboard {
   const [octave, setOctaveState] = useState(4); // base C = C4 (MIDI 60)
   const [sustain, setSustain] = useState(false);
   const [active, setActive] = useState<ReadonlySet<number>>(new Set());
@@ -126,7 +127,7 @@ export function useComputerKeyboard(trackId: string, onEscape: () => void, veloc
     setSustain(on);
     engine.sustain(trackId, on);
   };
-  useLiveKeys({ keyDown, keyUp, release: releaseAll });
+  useLiveKeys({ keyDown, keyUp, release: releaseAll }, windowId);
   return { octave, setOctave, sustain, toggleSustain, active, releaseAll };
 }
 

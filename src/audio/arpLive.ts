@@ -45,7 +45,7 @@ export type ArpNoteListener = (trackId: string, pitch: number, velocity: number,
 export class LiveArp {
   private readonly sessions = new Map<string, Session>();
   private timer: ReturnType<typeof setInterval> | null = null;
-  /** visuals that follow the notes (the monkey) */
+  /** visuals that follow the notes (the Arp-Ape-ator window and its gorilla) */
   readonly listeners = new Set<ArpNoteListener>();
 
   constructor(private readonly host: LiveArpHost) {}

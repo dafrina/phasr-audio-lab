@@ -8,8 +8,9 @@
  *   EQ gains → dB
  *   frequencies → semitones (via the filters' detune params, so it's musical)
  *   threshold → dB, feedback → 0..1
- *   wet level (reverb, delay, chorus) → dB on the wet signal, pre-delay / chorus
- *   depth → ms, chorus rate → octaves, EQ Q → Q units
+ *   wet level (reverb, delay, chorus, auto-filter, phaser) → dB on the wet
+ *   signal, pre-delay / chorus depth → ms, chorus rate, auto-filter cutoff and
+ *   phaser centre → octaves, EQ Q → Q units
  */
 import { createId } from '../core/ids';
 import { EFFECT_LABELS, peqHasGain } from '../audio/effects/specs';

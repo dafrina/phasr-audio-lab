@@ -70,7 +70,7 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
     engine.allNotesOff(trackId);
     setUi({ chordsTrackId: null });
   }, [trackId, setUi]);
-  const kb = useComputerKeyboard(trackId, close, 0.85);
+  const kb = useComputerKeyboard(trackId, close, 0.85, 'chords');
 
   useEffect(() => {
     if (!track || track.kind !== 'instrument' || !track.chords) setUi({ chordsTrackId: null });
