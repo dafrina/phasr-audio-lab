@@ -7,6 +7,45 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { engine } from '../../audio/engine';
 import { BendWheel, PianoKeyboard } from './PianoKeyboard';
 import { useLiveKeys } from '../liveKeys';
+import { instrumentAutoParams } from '../../instruments/definitions';
+import type { AutomationTarget } from '../../project/types';
+import { automate, deleteLane, setLaneEnabled, showLane } from '../../state/automationActions';
+import { useProjectStore } from '../../state/projectStore';
+import { PITCH_BEND_KEY } from '../../synth/dsp/bend';
+import { useAutomatedValue } from '../common/AutoKnob';
+import { ContextMenu, type MenuItem } from '../common/ContextMenu';
+
+const BEND_TARGET: AutomationTarget = { kind: 'inst', param: PITCH_BEND_KEY };
+
+/** The pitch wheel, with the same right-click automation menu as the knobs. */
+function AutomatableBendWheel({ trackId }: { trackId: string }) {
+  const can = useProjectStore((s) => instrumentAutoParams(s.project.tracks.find((t) => t.id === trackId)?.instrument ?? null).some((p) => p.key === PITCH_BEND_KEY));
+  const auto = useAutomatedValue(trackId, BEND_TARGET, 0);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const items: MenuItem[] = auto.laneId
+    ? [
+        { label: 'Show automation lane', onClick: () => auto.laneId && (showLane(trackId, auto.laneId), automate(trackId, BEND_TARGET)) },
+        { label: auto.enabled ? 'Disable automation' : 'Enable automation', onClick: () => auto.laneId && setLaneEnabled(trackId, auto.laneId, !auto.enabled) },
+        { label: 'Delete automation', danger: true, onClick: () => auto.laneId && deleteLane(trackId, auto.laneId) },
+      ]
+    : [{ label: 'Automate pitch bend', onClick: () => automate(trackId, BEND_TARGET) }];
+  return (
+    <div
+      className="relative"
+      title={can ? `Pitch bend — drag up/down, springs back to center${auto.automated ? ' · automated' : ''} · right-click to automate` : undefined}
+      onContextMenu={(e) => {
+        if (!can) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
+    >
+      <BendWheel onChange={(v) => engine.pitchBend(trackId, v)} />
+      {auto.laneId && <span className={`pointer-events-none absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full ${auto.enabled ? 'bg-[#f472b6]' : 'bg-dim'}`} title="Automated" />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
+    </div>
+  );
+}
 
 /** Physical key codes → semitones above the base C. */
 export const KEY_MAP: Record<string, number> = {
@@ -116,7 +155,7 @@ export function KeyboardStrip({ trackId, kb, low = 36, high = 96, sustainLabel =
         </button>
         <div className="max-w-[92px] text-[9px] leading-tight text-dim" title="While this window is open the computer keyboard plays it, wherever you clicked last. Space still plays/stops the song.">Keys Z–M / Q–P play · [ ] octave</div>
       </div>
-      <BendWheel onChange={(v) => engine.pitchBend(trackId, v)} />
+      <AutomatableBendWheel trackId={trackId} />
       <div className="flex-1">
         <PianoKeyboard
           low={low}

@@ -17,7 +17,9 @@ import { PARAM_SPECS, type NumericParamSpec, type TriOscPatch } from '../synth/p
 import { defaultPatch, sanitizePatch } from '../synth/params';
 import { KEYS_ENGINES, KEYS_ENGINE_TYPES, sanitizeKeysParams, type KeysEngineType } from '../keys/params';
 import { KEYS_PRESETS } from '../keys/presets';
-import { DEFAULT_SAMPLER_PARAMS, sanitizeSamplerParams, sanitizeZone, type SamplerParams, type SamplerZone } from '../sampler/zones';
+import { DEFAULT_SAMPLER_PARAMS, SAMPLER_BEND_SEMITONES, sanitizeSamplerParams, sanitizeZone, type SamplerParams, type SamplerZone } from '../sampler/zones';
+import { BEND_SEMITONES as KEYS_BEND_SEMITONES } from '../keys/dsp/common';
+import { PITCH_BEND_KEY } from '../synth/dsp/bend';
 
 const secsFmt = (v: number) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`);
 /** Sampler parameters that knobs and automation lanes use */
@@ -29,7 +31,20 @@ export const SAMPLER_SPECS: Record<keyof SamplerParams, NumericParamSpec> = {
   transpose: { label: 'Transpose', min: -24, max: 24, default: 0, step: 1, curve: 'linear', bipolar: true, format: (v) => `${v > 0 ? '+' : ''}${Math.round(v)} st` },
   oneShot: { label: 'One-shot', min: 0, max: 1, default: 0, step: 1, curve: 'linear', format: (v) => (v >= 0.5 ? 'On' : 'Off') },
 };
-const SAMPLER_AUTO: AutoParamInfo[] = (['attack', 'release', 'velSens', 'gain', 'transpose'] as const).map((k) => ({ key: k, label: SAMPLER_SPECS[k].label, spec: SAMPLER_SPECS[k] }));
+
+/** The pitch wheel as an automation lane: −1…+1, shown in semitones for the instrument's bend range. */
+function pitchBendParam(range: number): AutoParamInfo {
+  const format = (v: number) => {
+    const st = Math.round(v * range * 100) / 100;
+    return `${st > 0 ? '+' : ''}${st.toFixed(2)} st`;
+  };
+  return { key: PITCH_BEND_KEY, label: 'Pitch Bend', spec: { label: 'Pitch Bend', min: -1, max: 1, default: 0, curve: 'linear', bipolar: true, format } };
+}
+
+const SAMPLER_AUTO: AutoParamInfo[] = [
+  pitchBendParam(SAMPLER_BEND_SEMITONES),
+  ...(['attack', 'release', 'velSens', 'gain', 'transpose'] as const).map((k) => ({ key: k, label: SAMPLER_SPECS[k].label, spec: SAMPLER_SPECS[k] })),
+];
 
 // ---- automatable instrument parameters ----
 
@@ -59,6 +74,13 @@ function trioscParams(): AutoParamInfo[] {
   return out;
 }
 const TRIOSC_AUTO = trioscParams();
+/** TriOsc's list with its Pitch Bend lane, per bend range (the patch sets it) */
+const trioscAutoByRange = new Map<number, AutoParamInfo[]>();
+function trioscAuto(bendRange: number): AutoParamInfo[] {
+  let list = trioscAutoByRange.get(bendRange);
+  if (!list) trioscAutoByRange.set(bendRange, (list = [pitchBendParam(bendRange), ...TRIOSC_AUTO]));
+  return list;
+}
 
 /** Read a dotted TriOsc path ("ampEnv.release", "osc1.level", "master"). */
 export function trioscValue(patch: TriOscPatch, key: string): number | null {
@@ -84,11 +106,14 @@ export function parsePadKey(key: string): { pad: number; field: 'gain' | 'pan' |
   return pad >= 0 && pad < 16 ? { pad, field: m[2] as 'gain' | 'pan' | 'tune' | 'decay' } : null;
 }
 
-/** Keyforge: every numeric parameter of the active engine is automatable (flat keys). */
+/** Keyforge: the pitch wheel and every numeric parameter of the active engine are automatable (flat keys). */
 const KEYS_AUTO = Object.fromEntries(
   KEYS_ENGINE_TYPES.map((e) => [
     e,
-    KEYS_ENGINES[e].params.map((s) => ({ key: s.key, label: s.group === 'Output' || s.group === 'Drawbars' ? s.label : `${s.group} ${s.label}`, spec: s })),
+    [
+      pitchBendParam(KEYS_BEND_SEMITONES),
+      ...KEYS_ENGINES[e].params.map((s) => ({ key: s.key, label: s.group === 'Output' || s.group === 'Drawbars' ? s.label : `${s.group} ${s.label}`, spec: s })),
+    ],
   ]),
 ) as unknown as Record<KeysEngineType, AutoParamInfo[]>;
 
@@ -131,8 +156,8 @@ export const INSTRUMENTS: { [T in InstrumentType]: InstrumentDefinition<T> } = {
     assetIds: () => [],
     noteLabel: () => null,
     defaultSidechainNote: () => null,
-    automatableParams: () => TRIOSC_AUTO,
-    staticValue: (c, key) => trioscValue(c.patch, key),
+    automatableParams: (c) => trioscAuto(c.patch.voice.bendRange),
+    staticValue: (c, key) => (key === PITCH_BEND_KEY ? 0 : trioscValue(c.patch, key)),
   },
   drumrack: {
     type: 'drumrack',
@@ -173,7 +198,7 @@ export const INSTRUMENTS: { [T in InstrumentType]: InstrumentDefinition<T> } = {
     noteLabel: () => null,
     defaultSidechainNote: () => null,
     automatableParams: (c) => KEYS_AUTO[c.engine],
-    staticValue: (c, key) => c.params[key] ?? null,
+    staticValue: (c, key) => (key === PITCH_BEND_KEY ? 0 : (c.params[key] ?? null)),
   },
   sampler: {
     type: 'sampler',
@@ -192,7 +217,7 @@ export const INSTRUMENTS: { [T in InstrumentType]: InstrumentDefinition<T> } = {
     noteLabel: () => null,
     defaultSidechainNote: () => null,
     automatableParams: () => SAMPLER_AUTO,
-    staticValue: (c, key) => (key in c.params ? (c.params[key as keyof SamplerParams] ?? null) : null),
+    staticValue: (c, key) => (key === PITCH_BEND_KEY ? 0 : key in c.params ? (c.params[key as keyof SamplerParams] ?? null) : null),
   },
 };
 

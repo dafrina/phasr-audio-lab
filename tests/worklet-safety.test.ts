@@ -11,6 +11,7 @@ const WORKLET_SOURCES = [
   'src/audio/worklets/recorder.worklet.ts',
   'src/audio/worklets/modsource.worklet.ts',
   'src/synth/dsp/TriOscCore.ts',
+  'src/synth/dsp/bend.ts',
   'src/synth/dsp/TriOscSynth.ts',
   'src/synth/dsp/envelope.ts',
   'src/synth/dsp/oscillator.ts',

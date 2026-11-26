@@ -6,6 +6,7 @@ import { Envelope, EnvelopeCoefs, ENV_IDLE, ENV_SUSTAIN } from '../src/synth/dsp
 import { OscState, WF_SAW, oscSample } from '../src/synth/dsp/oscillator';
 import { defaultPatch, sanitizePatch, type TriOscPatch } from '../src/synth/params';
 import { FACTORY_PRESETS } from '../src/synth/presets';
+import { PITCH_BEND_KEY } from '../src/synth/dsp/bend';
 
 const SR = 48000;
 const BLOCK = 128;
@@ -386,6 +387,25 @@ describe('sample-accurate event core', () => {
     core.handleMessage({ type: 'events', events });
     renderCore(core, SR);
     expect(core.synth.activeVoiceCount()).toBe(0);
+  });
+
+  it('a Pitch Bend automation lane bends sounding notes by the bend range and recentres when it goes away', () => {
+    const core = new TriOscCore(SR, patchWith((p) => { p.voice.bendRange = 12; }));
+    core.handleMessage({ type: 'autoKeys', keys: [PITCH_BEND_KEY] });
+    core.handleMessage({ type: 'noteOn', time: 0, id: 1, note: 69, velocity: 1 });
+    // jump to full bend up at 0.2 s, hold, then ramp to half bend down from 0.4 to 0.6 s
+    core.handleMessage({ type: 'param', time: 0.2, key: PITCH_BEND_KEY, fromValue: 1, toTime: 0.2, toValue: 1, exp: false });
+    core.handleMessage({ type: 'param', time: 0.4, key: PITCH_BEND_KEY, fromValue: 1, toTime: 0.6, toValue: -0.5, exp: false });
+    const { l } = renderCore(core, Math.round(SR * 0.9));
+    expect(estimateFreq(l, 0.05 * SR, 0.19 * SR)).toBeCloseTo(440, 0);
+    expect(Math.abs(estimateFreq(l, 0.22 * SR, 0.39 * SR) / 880 - 1)).toBeLessThan(0.003); // +12 st
+    // mid-ramp (0.5 s): halfway between +12 and −6 st = +3 st
+    expect(Math.abs(estimateFreq(l, 0.495 * SR, 0.505 * SR) / (440 * Math.pow(2, 3 / 12)) - 1)).toBeLessThan(0.02);
+    expect(Math.abs(estimateFreq(l, 0.65 * SR, 0.85 * SR) / (440 / Math.SQRT2) - 1)).toBeLessThan(0.003); // −6 st
+    // the lane goes away: back to the unbent pitch
+    core.handleMessage({ type: 'autoKeys', keys: [] });
+    const { l: l2 } = renderCore(core, Math.round(SR * 0.3), Math.round(SR * 0.9));
+    expect(estimateFreq(l2, 0.05 * SR, 0.25 * SR)).toBeCloseTo(440, 0);
   });
 
   it('panic silences within a few milliseconds', () => {

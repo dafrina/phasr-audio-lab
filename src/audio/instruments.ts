@@ -37,6 +37,12 @@ export interface InstrumentEnv {
   resolveAsset: (id: string) => AudioBuffer | undefined;
   /** events known up front (offline export) */
   events?: SynthEvent[];
+  /**
+   * parameter keys with an automation lane, known up front (offline export):
+   * the sampler and drum rack schedule `events` right away, and they only
+   * follow automation for keys they already know about
+   */
+  autoKeys?: string[];
   /** song tempo at creation */
   bpm?: number;
 }
@@ -59,6 +65,7 @@ export const INSTRUMENT_AUDIO: { [T in InstrumentType]: AudioFactory<T> } = {
   drumrack: {
     create: (ctx, c, env) => {
       const d = new DrumRackInstrument(ctx, c.kit, env.resolveAsset);
+      if (env.autoKeys) d.setAutomatedKeys(env.autoKeys);
       if (env.events) d.schedule(env.events);
       return d;
     },
@@ -79,6 +86,7 @@ export const INSTRUMENT_AUDIO: { [T in InstrumentType]: AudioFactory<T> } = {
   sampler: {
     create: (ctx, c, env) => {
       const s = new SamplerInstrument(ctx, c, env.resolveAsset);
+      if (env.autoKeys) s.setAutomatedKeys(env.autoKeys);
       if (env.events) s.schedule(env.events);
       return s;
     },

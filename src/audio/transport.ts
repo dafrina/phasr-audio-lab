@@ -288,6 +288,18 @@ export class Transport {
 
   /** Turn a window plan into scheduled audio: synth events, buffer sources, clicks. */
   private execute(plan: WindowPlan): void {
+    // instrument parameters first: explicit ramp segments the instrument applies itself. The
+    // sampler and drum rack read them when a note is scheduled, so they must already be there
+    // for this window's notes.
+    for (const a of plan.automation) {
+      if (a.target.kind !== 'inst') continue;
+      const track = this.host.getProject().tracks.find((t) => t.id === a.trackId);
+      const exp = track ? targetInfo(track, a.target)?.spec.curve === 'exp' : false;
+      const lk = `${a.trackId}|${a.target.param}`;
+      const { segments, last } = toParamSegments(a.target.param, a.events, this.instAutoLast.get(lk) ?? null, exp);
+      if (last) this.instAutoLast.set(lk, last);
+      this.host.channel(a.trackId)?.instrument?.schedule(segments);
+    }
     const byTrack = new Map<string, SynthEvent[]>();
     for (const n of plan.notes) {
       let evs = byTrack.get(n.trackId);
@@ -327,16 +339,7 @@ export class Transport {
     }
     for (const c of plan.clicks) this.click(c.time, c.accent);
     for (const a of plan.automation) {
-      if (a.target.kind === 'inst') {
-        // instrument parameters: explicit ramp segments the instrument applies itself
-        const track = this.host.getProject().tracks.find((t) => t.id === a.trackId);
-        const exp = track ? targetInfo(track, a.target)?.spec.curve === 'exp' : false;
-        const lk = `${a.trackId}|${a.target.param}`;
-        const { segments, last } = toParamSegments(a.target.param, a.events, this.instAutoLast.get(lk) ?? null, exp);
-        if (last) this.instAutoLast.set(lk, last);
-        this.host.channel(a.trackId)?.instrument?.schedule(segments);
-        continue;
-      }
+      if (a.target.kind === 'inst') continue; // sent to the instruments before the notes (above)
       const targets = this.host.channel(a.trackId)?.automationParams(a.target) ?? [];
       for (const t of targets) {
         this.automatedParams.add(t.param);

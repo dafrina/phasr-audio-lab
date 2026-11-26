@@ -12,6 +12,8 @@ import { DRAWBAR_SEMITONES, drawbarGain, wheelFor } from '../src/keys/dsp/organ'
 import { inharmonicityB, partialFrequency, pianoFundamental } from '../src/keys/dsp/piano';
 import { KEYS_ENGINES, KEYS_ENGINE_TYPES, defaultKeysParams, sanitizeKeysParams, type KeysConfigData, type KeysEngineType } from '../src/keys/params';
 import { KEYS_PRESETS, keysPreset } from '../src/keys/presets';
+import { PITCH_BEND_KEY } from '../src/synth/dsp/bend';
+import { BEND_SEMITONES } from '../src/keys/dsp/common';
 import { centroid, db, energyAbove, envelopeDb, hasBadSamples, mono, peak, peakNear, renderKeys, rms, slice, spectrum, toneTrack, type ScoreEvent } from './helpers/analysis';
 
 const SR = 48000;
@@ -622,6 +624,27 @@ describe('808 sub bass', () => {
     // the first few ms are clearly higher (the knock)
     const early = peakNear(spectrum(slice(mono(L, R), SR, 0, 0.03), SR, 1 << 15), f1 * 1.6, f1 * 0.7).f;
     expect(early).toBeGreaterThan(f1 * 1.2);
+  });
+
+  it('follows a Pitch Bend automation lane (full bend = the wheel range)', () => {
+    const core = new KeysCore(SR, c808({ pitchAmt: 0, glide: 0, decay: 6 }));
+    core.handleMessage({ type: 'autoKeys', keys: [PITCH_BEND_KEY] });
+    core.handleMessage({ type: 'noteOn', time: 0, id: 1, note: 45, velocity: 0.9 });
+    core.handleMessage({ type: 'param', time: 0.5, key: PITCH_BEND_KEY, fromValue: 1, toTime: 0.5, toValue: 1, exp: false });
+    const total = Math.round((1.2 * SR) / 128) * 128;
+    const L = new Float32Array(total);
+    const R = new Float32Array(total);
+    const bl = new Float32Array(128);
+    const br = new Float32Array(128);
+    for (let f = 0; f < total; f += 128) {
+      core.process(f, bl, br);
+      L.set(bl, f);
+      R.set(br, f);
+    }
+    const a2 = pianoFundamental(45, 0); // 110 Hz
+    const bent = a2 * Math.pow(2, BEND_SEMITONES / 12);
+    expect(Math.abs(pitchAt(L, R, 0.05, 0.48, a2) / a2 - 1)).toBeLessThan(0.01);
+    expect(Math.abs(pitchAt(L, R, 0.6, 1.15, bent) / bent - 1)).toBeLessThan(0.01);
   });
 
   it('legato: an overlapping note slides there without a new attack; a separate note jumps', () => {

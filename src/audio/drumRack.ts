@@ -248,14 +248,15 @@ export class DrumRackInstrument {
   // ---- instrument interface (shared with TriOscInstrument) ----
 
   schedule(events: SynthEvent[]): void {
+    // automation first: a hit reads its pad's automated values when it's scheduled
     for (const e of events) {
-      if (e.type === 'param') {
-        const list = this.autoSegs.get(e.key) ?? [];
-        list.push({ t0: e.time, v0: e.fromValue, t1: e.toTime, v1: e.toValue });
-        list.sort((a, b) => a.t0 - b.t0);
-        this.autoSegs.set(e.key, list);
-        continue;
-      }
+      if (e.type !== 'param') continue;
+      const list = this.autoSegs.get(e.key) ?? [];
+      list.push({ t0: e.time, v0: e.fromValue, t1: e.toTime, v1: e.toValue });
+      list.sort((a, b) => a.t0 - b.t0);
+      this.autoSegs.set(e.key, list);
+    }
+    for (const e of events) {
       if (e.type !== 'noteOn') continue;
       const i = padIndexForNote(e.note);
       if (i >= 0) this.play(i, e.time, e.velocity);

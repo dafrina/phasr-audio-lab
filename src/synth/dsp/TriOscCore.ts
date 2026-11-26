@@ -8,6 +8,7 @@
  */
 import type { TriOscPatch } from '../params';
 import { TriOscSynth } from './TriOscSynth';
+import { PITCH_BEND_KEY } from './bend';
 
 export type SynthEvent =
   | { type: 'noteOn'; time: number; id: number; note: number; velocity: number }
@@ -88,6 +89,11 @@ export class TriOscCore {
   }
 
   private applyParam(key: string, value: number): void {
+    if (key === PITCH_BEND_KEY) {
+      this.autoValues.set(key, value);
+      this.synth.setPitchBend(Math.max(-1, Math.min(1, value)));
+      return;
+    }
     if (setPatchPath(this.patch, key, value)) {
       this.autoValues.set(key, value);
       this.synth.setPatch(this.patch);
@@ -139,6 +145,8 @@ export class TriOscCore {
         this.synth.setPatch(this.patch);
         break;
       case 'autoKeys':
+        // a pitch-bend lane that goes away leaves the pitch centred
+        if (this.autoKeys.has(PITCH_BEND_KEY) && !msg.keys.includes(PITCH_BEND_KEY)) this.synth.setPitchBend(0);
         this.autoKeys = new Set(msg.keys);
         for (const k of [...this.autoValues.keys()]) if (!this.autoKeys.has(k)) this.autoValues.delete(k);
         for (const k of [...this.ramps.keys()]) if (!this.autoKeys.has(k)) this.ramps.delete(k);

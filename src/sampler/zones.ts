@@ -243,6 +243,9 @@ export function zoneFor(mapped: readonly MappedZone[], note: number, velocity127
 }
 
 /** Playback rate for a note on a zone (equal temperament around the root). */
+/** pitch-wheel range of the sampler (±semitones at full bend) */
+export const SAMPLER_BEND_SEMITONES = 2;
+
 export function playbackRate(zone: Pick<SamplerZone, 'root' | 'tune'>, note: number, transpose = 0, bendSemitones = 0): number {
   return Math.pow(2, (note + transpose + bendSemitones - zone.root + zone.tune / 100) / 12);
 }

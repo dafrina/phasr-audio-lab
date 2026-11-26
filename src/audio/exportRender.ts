@@ -129,8 +129,9 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
         const exp = targetInfo(track, a.target)?.spec.curve === 'exp';
         events.push(...toParamSegments(a.target.param, a.events, null, exp).segments);
       }
-      const node = createInstrumentNode(ctx, track.instrument, { resolveAsset, events, bpm: project.bpm });
-      node.setAutomatedKeys(automatedInstKeys(track));
+      const autoKeys = automatedInstKeys(track);
+      const node = createInstrumentNode(ctx, track.instrument, { resolveAsset, events, bpm: project.bpm, autoKeys });
+      node.setAutomatedKeys(autoKeys);
       ch.attachInstrument(node, track.instrument.type);
     }
   }

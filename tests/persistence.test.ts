@@ -10,6 +10,7 @@ import { createLane, sanitizeLanes, staticValue, targetInfo } from '../src/proje
 import { INSTRUMENTS, instrumentAutoParams } from '../src/instruments/definitions';
 import { TriOscCore, setPatchPath } from '../src/synth/dsp/TriOscCore';
 import { defaultPatch } from '../src/synth/params';
+import { PITCH_BEND_KEY } from '../src/synth/dsp/bend';
 import type { Project } from '../src/project/types';
 
 function projectWithAudio(): { p: Project; assetId: string } {
@@ -96,6 +97,26 @@ describe('instrument parameter automation', () => {
     expect(targetInfo(drums, { kind: 'inst', param: 'p0.decay' })?.fullLabel).toBe('Drum Rack · Kick Decay');
     const lanes = sanitizeLanes([createLane({ kind: 'inst', param: 'filter.cutoff' }, 800), createLane({ kind: 'inst', param: 'nope.x' }, 1)], t);
     expect(lanes.map((l) => l.target)).toEqual([{ kind: 'inst', param: 'filter.cutoff' }]);
+  });
+
+  it('offers a Pitch Bend lane on the melodic instruments (not the Drum Rack)', () => {
+    for (const type of ['triosc', 'keys', 'sampler'] as const) {
+      const cfg = INSTRUMENTS[type].createConfig();
+      const bend = instrumentAutoParams(cfg).find((p) => p.key === PITCH_BEND_KEY);
+      expect(bend?.label).toBe('Pitch Bend');
+      expect([bend?.spec.min, bend?.spec.max, bend?.spec.default]).toEqual([-1, 1, 0]);
+      const t = createTrack('instrument', 0, cfg);
+      // a new lane starts centred, and survives loading
+      expect(staticValue(t, { kind: 'inst', param: PITCH_BEND_KEY })).toBe(0);
+      expect(sanitizeLanes([createLane({ kind: 'inst', param: PITCH_BEND_KEY }, 0)], t)).toHaveLength(1);
+    }
+    expect(instrumentAutoParams(INSTRUMENTS.drumrack.createConfig()).some((p) => p.key === PITCH_BEND_KEY)).toBe(false);
+    // shown in semitones for the instrument's own bend range
+    const tri = INSTRUMENTS.triosc.createConfig();
+    tri.patch.voice.bendRange = 12;
+    expect(instrumentAutoParams(tri).find((p) => p.key === PITCH_BEND_KEY)?.spec.format(-0.5)).toBe('-6.00 st');
+    expect(instrumentAutoParams(INSTRUMENTS.keys.createConfig()).find((p) => p.key === PITCH_BEND_KEY)?.spec.format(1)).toBe('+2.00 st');
+    expect(targetInfo(createTrack('instrument', 0, tri), { kind: 'inst', param: PITCH_BEND_KEY })?.fullLabel).toBe('TriOsc · Pitch Bend');
   });
 
   it('turns planned events into ramp segments that continue across passes', () => {

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { AudioLines, Footprints, Music, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { chordToolActive, chordToolAvailable } from '../../chords/expand';
 import { openSlipperizer } from '../chords/SlipperizerWindow';
-import { INSTRUMENTS } from '../../instruments/definitions';
+import { INSTRUMENTS, instrumentAutoParams } from '../../instruments/definitions';
+import { PITCH_BEND_KEY } from '../../synth/dsp/bend';
 import { INSTRUMENT_UI } from '../instruments';
 import { PARAM_SPECS, type NumericParamSpec } from '../../synth/params';
 import type { Track } from '../../project/types';
@@ -197,6 +198,7 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
             onChange={(e) => {
               const v = e.target.value;
               if (v === '+volumeDb' || v === '+pan') automate(track.id, { kind: 'track', param: v.slice(1) as 'volumeDb' | 'pan' });
+              else if (v === `+${PITCH_BEND_KEY}`) automate(track.id, { kind: 'inst', param: PITCH_BEND_KEY });
               else if (v.startsWith('duck:')) duckFrom(track.id, v.slice(5));
               else showLane(track.id, v || null);
             }}
@@ -211,6 +213,9 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
             ))}
             {!track.automation.some((l) => l.target.kind === 'track' && l.target.param === 'volumeDb') && <option value="+volumeDb">+ Volume</option>}
             {!track.automation.some((l) => l.target.kind === 'track' && l.target.param === 'pan') && <option value="+pan">+ Pan</option>}
+            {instrumentAutoParams(track.instrument).some((p) => p.key === PITCH_BEND_KEY) && !track.automation.some((l) => l.target.kind === 'inst' && l.target.param === PITCH_BEND_KEY) && (
+              <option value={`+${PITCH_BEND_KEY}`}>+ Pitch Bend</option>
+            )}
             {otherTracks.length > 0 && (
               <optgroup label="Sidechain">
                 {otherTracks.map((o) => (
