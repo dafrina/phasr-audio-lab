@@ -496,6 +496,29 @@ const BUTTERWORTH_DB: Record<24 | 48, number[]> = {
 const STAGES = 4;
 
 /**
+ * The biquad stages an enabled band uses (the rest of its row is transparent),
+ * as configureBand sets them up. Used to draw the EQ's response.
+ */
+export function peqStages(band: PeqBand): { type: BiquadFilterType; gain: number; q: number }[] {
+  switch (band.type) {
+    case 'bell':
+      return [{ type: 'peaking', gain: band.gain, q: band.q }];
+    case 'lowshelf':
+    case 'highshelf':
+      return [{ type: band.type, gain: band.gain, q: 1 }];
+    case 'notch':
+    case 'bandpass':
+      return [{ type: band.type, gain: 0, q: band.q }];
+    case 'lowcut':
+    case 'highcut': {
+      const type: BiquadFilterType = band.type === 'lowcut' ? 'highpass' : 'lowpass';
+      const qs = band.slope === 12 ? [20 * Math.log10(band.q)] : BUTTERWORTH_DB[band.slope];
+      return Array.from({ length: band.slope / 12 }, (_, s) => ({ type, gain: 0, q: qs[s] ?? 0 }));
+    }
+  }
+}
+
+/**
  * Spectra EQ: 8 parametric bands × up to 4 biquad stages each (cuts up to
  * 48 dB/oct are Butterworth cascades). Unused stages are peaking filters with
  * 0 dB gain, which are exactly transparent, so the graph never needs rewiring.
@@ -540,6 +563,7 @@ export class PeqUnit extends BaseUnit {
     return true;
   }
 
+  // (peqStages mirrors the stage setup here for drawing: keep the two in step)
   private configureBand(i: number, band: PeqBand, im: boolean, auto: ReadonlySet<string>): void {
     const row = this.stages[i] as BiquadFilterNode[];
     const fKey = `b${i}.freq`;
@@ -663,42 +687,42 @@ export class PeqUnit extends BaseUnit {
   }
 
   /**
-   * Magnitude response (linear) of the whole EQ, or of one band, computed by
-   * the browser from the live filter nodes — the drawn curve is the real one.
+   * Magnitude response (linear) of the whole EQ, or of one band, for the given
+   * band settings (the device passes them with automation already applied) plus
+   * live sidechain offsets. The browser computes it on a scratch filter set up
+   * like each stage. It doesn't read the live filters: their values glide to a
+   * new setting on the audio clock, which stands still while nothing plays (the
+   * curve would lag behind the knobs until playback starts).
    */
-  response(freqs: Float32Array<ArrayBuffer>, out: Float32Array<ArrayBuffer>, band?: number, mods?: ReadonlyMap<number, PeqBandOffset>): void {
+  response(bands: readonly PeqBand[], outputDb: number, freqs: Float32Array<ArrayBuffer>, out: Float32Array<ArrayBuffer>, band?: number, mods?: ReadonlyMap<number, PeqBandOffset>): void {
     out.fill(1);
     const mag = new Float32Array(freqs.length);
     const ph = new Float32Array(freqs.length);
-    const bands = band === undefined ? this.stages.map((_, i) => i) : [band];
-    for (const b of bands) {
-      const row = this.stages[b] as BiquadFilterNode[];
+    const sc = (this.scratch ??= new BiquadFilterNode(this.ctx));
+    const which = band === undefined ? bands.map((_, i) => i) : [band];
+    for (const b of which) {
+      const bd = bands[b];
+      if (!bd?.enabled) continue;
       const off = mods?.get(b);
-      row.forEach((f, s) => {
-        // sidechain offsets (they reach the filters through AudioParam inputs, which the
-        // nodes' own response doesn't include): mirror the stage on a scratch filter
-        const src = off ? this.offsetStage(f, s, off) : f;
-        src.getFrequencyResponse(freqs, mag, ph);
+      peqStages(bd).forEach((st, s) => {
+        sc.type = st.type;
+        sc.frequency.value = bd.freq;
+        sc.detune.value = off?.cents ?? 0;
+        sc.gain.value = st.gain + (s === 0 ? (off?.gain ?? 0) : 0);
+        // (cut filters keep their resonance in dB: only bells / notches / band-passes take a Q offset)
+        const qOff = s === 0 && (bd.type === 'bell' || bd.type === 'notch' || bd.type === 'bandpass') ? (off?.q ?? 0) : 0;
+        sc.Q.value = qOff ? Math.max(0.0001, st.q + qOff) : st.q;
+        sc.getFrequencyResponse(freqs, mag, ph);
         for (let i = 0; i < out.length; i++) out[i] = (out[i] as number) * (mag[i] as number);
       });
     }
     if (band === undefined) {
-      const g = this.out.gain.value;
+      const g = dbToGain(outputDb);
       for (let i = 0; i < out.length; i++) out[i] = (out[i] as number) * g;
     }
   }
 
-  private scratch: BiquadFilterNode[] = [];
-  private offsetStage(f: BiquadFilterNode, stage: number, off: PeqBandOffset): BiquadFilterNode {
-    const sc = (this.scratch[stage] ??= new BiquadFilterNode(this.ctx));
-    sc.type = f.type;
-    sc.frequency.value = f.frequency.value;
-    sc.detune.value = f.detune.value + (off.cents ?? 0);
-    sc.gain.value = f.gain.value + (stage === 0 ? (off.gain ?? 0) : 0);
-    // (cut filters keep their resonance in dB: only bells / notches / band-passes take a Q offset)
-    sc.Q.value = stage === 0 && off.q ? Math.max(0.0001, f.Q.value + off.q) : f.Q.value;
-    return sc;
-  }
+  private scratch: BiquadFilterNode | null = null;
 
   override dispose(): void {
     super.dispose();

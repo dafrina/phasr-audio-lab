@@ -93,6 +93,14 @@ function effectiveBand(trackId: string, slot: PeqSlot, i: number): PeqBand {
   return out;
 }
 
+/** Output level as heard right now (its automation lane at the playhead). */
+function effectiveOutput(trackId: string, slot: PeqSlot): number {
+  const track = getProject().tracks.find((t) => t.id === trackId);
+  const lane = track?.automation.find((l) => l.enabled && l.target.kind === 'fx' && l.target.slotId === slot.id && l.target.param === 'output');
+  const v = lane ? valueAt(lane.points, engine.transport?.getTick() ?? 0) : null;
+  return v ?? slot.params.output;
+}
+
 export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: PeqSlot; color: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const selected = useUiStore((s) => s.peqSelected[slot.id] ?? -1);
@@ -215,9 +223,12 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
       if (!unit) return;
       // the curve moves with the sidechain (a ducked band dips while its source plays)
       const mods = liveOffsets(trackId, slot.id);
+      // band values as heard now (automation at the playhead), for the curve, the nodes and the readout
+      const eff = s.params.bands.map((_, i) => effectiveBand(trackId, s, i));
+      const outDb = effectiveOutput(trackId, s);
       // selected band's own contribution
-      if (sel >= 0 && s.params.bands[sel]?.enabled) {
-        unit.response(FREQS, bandMag, sel, mods);
+      if (sel >= 0 && eff[sel]?.enabled) {
+        unit.response(eff, outDb, FREQS, bandMag, sel, mods);
         g.beginPath();
         g.moveTo(0, dbToY(0));
         for (let i = 0; i < N_POINTS; i++) g.lineTo((i / (N_POINTS - 1)) * W, dbToY(clampDb(20 * Math.log10(Math.max(1e-6, bandMag[i] as number)))));
@@ -228,7 +239,7 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
         g.fill();
       }
       // total response
-      unit.response(FREQS, mag, undefined, mods);
+      unit.response(eff, outDb, FREQS, mag, undefined, mods);
       g.beginPath();
       for (let i = 0; i < N_POINTS; i++) {
         const y = dbToY(clampDb(20 * Math.log10(Math.max(1e-6, mag[i] as number))));
@@ -244,8 +255,7 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
       g.textBaseline = 'middle';
       g.textAlign = 'center';
       g.font = '700 9px Inter, system-ui, sans-serif';
-      s.params.bands.forEach((_, i) => {
-        const b = effectiveBand(trackId, s, i);
+      eff.forEach((b, i) => {
         if (!b.enabled) return;
         const off = mods.get(i);
         const x = fToX(b.freq * Math.pow(2, (off?.cents ?? 0) / 1200));
@@ -266,7 +276,7 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
       });
       g.textAlign = 'left';
       // readout of the selected band
-      const sb = sel >= 0 ? effectiveBand(trackId, s, sel) : null;
+      const sb = sel >= 0 ? eff[sel] : null;
       if (sb?.enabled) {
         const txt = `${sel + 1} · ${PEQ_TYPE_LABELS[sb.type]} · ${PEQ_SPECS.freq.format(sb.freq)}${peqHasGain(sb.type) ? ` · ${PEQ_SPECS.gain.format(sb.gain)}` : ''}${peqHasQ(sb.type, sb.slope) ? ` · Q ${sb.q.toFixed(2)}` : ''}${sb.type === 'lowcut' || sb.type === 'highcut' ? ` · ${sb.slope} dB/oct` : ''}`;
         g.font = '10px Inter, system-ui, sans-serif';
