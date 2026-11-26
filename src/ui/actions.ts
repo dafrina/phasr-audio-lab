@@ -8,7 +8,7 @@ import { duplicateClip, setClipLoop, splitClip } from '../project/clipOps';
 import { createAudioClip, createMidiClip, createTrack, TRACK_COLORS } from '../project/defaults';
 import { INSTRUMENTS, type InstrumentType } from '../instruments/definitions';
 import { MAX_TRACKS, type Clip, type Project } from '../project/types';
-import { getProject, removeClips, upsertClips, useProjectStore } from '../state/projectStore';
+import { getProject, removeClips, removeTrack, upsertClips, useProjectStore } from '../state/projectStore';
 import { uiToast, useUiStore } from '../state/uiStore';
 
 export function currentTick(): number {
@@ -124,6 +124,23 @@ export function deleteSelectedClips(): void {
   if (!ids.length) return;
   removeClips(ids);
   useUiStore.getState().set({ selectedClipIds: [] });
+}
+
+/** Delete what is selected: the selected clips, or (no clips selected) the selected track. */
+export function deleteSelection(): void {
+  const ui = useUiStore.getState();
+  const p = getProject();
+  if (ui.selectedClipIds.some((id) => p.clips[id])) {
+    deleteSelectedClips();
+    return;
+  }
+  const track = p.tracks.find((t) => t.id === ui.selectedTrackId);
+  if (!track) return;
+  const clips = Object.values(p.clips).filter((c) => c.trackId === track.id).length;
+  if (!confirm(`Delete track "${track.name}"${clips ? ` and its ${clips} clip${clips === 1 ? '' : 's'}` : ''}? (Ctrl+Z brings it back)`)) return;
+  removeTrack(track.id);
+  ui.set({ selectedTrackId: null });
+  uiToast('info', `Deleted track "${track.name}". Ctrl+Z to undo.`);
 }
 
 export function duplicateSelectedClips(): void {

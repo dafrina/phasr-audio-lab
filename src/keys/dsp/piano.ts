@@ -72,7 +72,7 @@ const PROMPT_SHARE = 0.75;
 const PROMPT_RATE = 6.5;
 /** a resonator is dropped below this energy (≈ −94 dBFS amplitude) */
 const DEAD_ENERGY = 4e-10;
-const LEVEL = 0.145;
+const LEVEL = 0.178;
 /** soundboard (wood) resonator level at Body = 100 % */
 const WOOD_GAIN = 2.2;
 
@@ -463,6 +463,15 @@ const BODY_MODES: readonly (readonly [number, number, number])[] = [
   [980, 0.045, 0.16],
   [1400, 0.035, 0.12],
 ];
+/** early reflections: delay (ms), gain, pan (−1 left … 1 right) */
+const ER_TAPS: readonly (readonly [number, number, number])[] = [
+  [6.3, 0.42, -0.6],
+  [9.1, 0.36, 0.55],
+  [13.7, 0.3, -0.25],
+  [17.9, 0.26, 0.7],
+  [23.2, 0.2, -0.75],
+  [30.8, 0.15, 0.3],
+];
 const SYMPATHETIC_NOTES = 12;
 const SYMPATHETIC_BASE = 36;
 
@@ -508,6 +517,11 @@ export class PianoEngine implements KeysEngine {
   private readonly lidR = new ToneFilter();
   private readonly master = new Smoother(0.8);
   private readonly room: FdnReverb;
+  private readonly erLine: DelayLine;
+  private readonly msToSamples: number;
+  private weightL = 0;
+  private weightR = 0;
+  private readonly weightA: number;
   /** dense, short soundboard/case response: the wood colour of the string sound */
   private readonly wood: FdnReverb;
   private readonly roomLevel = new Smoother(0);
@@ -534,8 +548,14 @@ export class PianoEngine implements KeysEngine {
     this.thumpDecay = Math.exp(-1 / (0.004 * sampleRate));
     this.tickDecay = Math.exp(-1 / (0.0025 * sampleRate));
     // a medium recording room: short pre-delay, ~1.1 s decay, darker tail
-    this.room = new FdnReverb(sampleRate);
-    this.room.set(1.1, 0.62, 5200, 0.012);
+    this.erLine = new DelayLine(Math.ceil(0.04 * sampleRate));
+    this.msToSamples = sampleRate / 1000;
+    this.weightA = 1 - Math.exp((-TWO_PI * 220) / sampleRate);
+    // a medium-large recording room: denser, slightly moving tail (diffuse sound between the
+    // partials, as in recordings) — the strings themselves stay clean
+    this.room = new FdnReverb(sampleRate, 1.2);
+    this.room.set(1.45, 0.95, 5600, 0.016);
+    this.room.setModulation(0.6, 0.35);
     this.wood = new FdnReverb(sampleRate, 0.4);
     this.wood.set(0.16, 0.17, 11000, 0.0004);
     this.roomLevel.setTime(0.05, sampleRate);
@@ -806,7 +826,10 @@ export class PianoEngine implements KeysEngine {
     // the hit scales gently with velocity: soft notes are still struck, just with a softer felt
     // short treble strings: the impact is a larger part of the sound
     // the impact is as present in the bass and middle as in the (convincing) treble
-    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 0.55) * 2.6 * (2.3 + 0.2 * hammerTreble(note));
+    // C3–F♯4: recorded held notes start only ~1.1–1.3× brighter than their tone (a brighter
+    // onset is the twang of a plucked string); from G4 up the full hit matches (1.7–1.9×)
+    const midWarm = clamp((67 - note) / 5, 0, 1) * clamp((note - 40) / 6, 0, 1);
+    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 0.55) * 2.6 * (2.3 + 0.2 * hammerTreble(note)) * (1 - 0.75 * midWarm);
     const bassTilt = clamp((52 - note) / 31, 0, 1);
     // nonlinear: ∝ strike², fades out above the low middle
     const longAmt = (p.metal ?? 0.5) * vel * vel * 0.5 * clamp((70 - note) / 24, 0, 1);
@@ -1104,13 +1127,27 @@ export class PianoEngine implements KeysEngine {
       const outl = l + this.wood.outL * woodAmt + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + tick + sL * wet;
       const outr = r + this.wood.outR * woodAmt + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + tick + sR * wet;
       const g = this.master.next();
-      let ol = this.lidL.process(outl);
-      let or = this.lidR.process(outr);
+      // early reflections (stereo, 6–31 ms): the instrument sits in a space instead of in your ear
+      this.erLine.write(0.5 * (outl + outr));
+      let erL = 0;
+      let erR = 0;
+      for (let t = 0; t < ER_TAPS.length; t++) {
+        const [ms, gain, pan] = ER_TAPS[t] as readonly [number, number, number];
+        const v = this.erLine.read(ms * this.msToSamples) * gain;
+        erL += v * (1 - pan);
+        erR += v * (1 + pan);
+      }
+      const er = (p.room ?? 0) * 0.5;
+      // weight: a gentle low-mid lift (~+2.5 dB below ~220 Hz)
+      this.weightL += (outl - this.weightL) * this.weightA;
+      this.weightR += (outr - this.weightR) * this.weightA;
+      let ol = this.lidL.process(outl + this.weightL * 0.33 + erL * er);
+      let or = this.lidR.process(outr + this.weightR * 0.33 + erR * er);
       const rl = this.roomLevel.next();
       if (rl > 1e-4) {
         this.room.process(ol, or);
-        ol += this.room.outL * rl * 0.55;
-        or += this.room.outR * rl * 0.55;
+        ol += this.room.outL * rl * 0.62;
+        or += this.room.outR * rl * 0.62;
       }
       outL[offset + i] = (outL[offset + i] as number) + ol * g;
       outR[offset + i] = (outR[offset + i] as number) + or * g;

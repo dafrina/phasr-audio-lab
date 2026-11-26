@@ -1,6 +1,6 @@
 /**
  * Global keyboard shortcuts. Ignored while typing in text fields, and keys
- * claimed by a focused synth keyboard (data-capture-keys) are left alone.
+ * claimed by an open instrument window (see liveKeys.ts) never reach this handler.
  */
 import { useEffect } from 'react';
 import { useProjectStore, updateProjectFields, getProject } from '../state/projectStore';
@@ -9,7 +9,7 @@ import { recorder } from '../audio/recorder';
 import { saveNow } from '../persistence/session';
 import {
   copySelectedClips,
-  deleteSelectedClips,
+  deleteSelection,
   duplicateSelectedClips,
   pasteClips,
   splitSelectedAtPlayhead,
@@ -32,10 +32,6 @@ export function isTypingTarget(t: EventTarget | null): boolean {
     return !nonText.includes(t.type);
   }
   return false;
-}
-
-function capturedByKeyboard(t: EventTarget | null): boolean {
-  return t instanceof HTMLElement && t.closest('[data-capture-keys]') !== null;
 }
 
 /** Editors (piano roll) that handle their own Delete/copy/paste/arrow keys. */
@@ -92,8 +88,6 @@ export function useGlobalShortcuts(): void {
       if (isTypingTarget(e.target)) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      // Synth window owns letter/number keys for its on-screen keyboard
-      if (capturedByKeyboard(e.target) && !mod && key !== ' ' && key !== 'delete' && key !== 'escape') return;
       // Inside an editor, only transport and undo/redo stay global.
       if (inOwnShortcutScope(e.target) && !(key === ' ' || key === 'enter' || (mod && (key === 'z' || key === 'y')))) return;
       if (e.repeat && (key === ' ' || key === 'r')) return;
@@ -138,7 +132,8 @@ export function useGlobalShortcuts(): void {
         e.preventDefault();
         toggleLoopSelectedClips();
       } else if (key === 'delete' || key === 'backspace') {
-        deleteSelectedClips();
+        e.preventDefault();
+        deleteSelection();
       } else if (key === 's' && !mod) {
         splitSelectedAtPlayhead();
       } else if (key === 'l' && !mod) {

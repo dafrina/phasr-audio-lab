@@ -121,13 +121,7 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
     <div
       ref={root}
       tabIndex={-1}
-      data-capture-keys
       data-testid="slipperizer"
-      onKeyDown={kb.onKeyDown}
-      onKeyUp={kb.onKeyUp}
-      onBlur={(e) => {
-        if (!root.current?.contains(e.relatedTarget as Node | null)) kb.releaseAll();
-      }}
       style={{ left: pos.x, top: pos.y, width: WIN_W }}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
     >

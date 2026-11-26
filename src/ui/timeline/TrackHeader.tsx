@@ -156,17 +156,17 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
           />
           <span className={`w-9 text-right font-mono text-[10px] ${vol.automated ? 'text-[#f472b6]' : 'text-muted'}`}>{formatDb(vol.value)}</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1">
           {track.kind === 'instrument' ? (
             <button
               type="button"
               title={`Open ${instDef?.label ?? 'instrument'}`}
               onClick={() => setUi({ synthTrackId: synthOpen ? null : track.id, selectedTrackId: track.id })}
-              className={`flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+              className={`flex h-5 min-w-0 shrink items-center gap-1 rounded px-1.5 text-[10px] font-semibold uppercase tracking-wide ${
                 synthOpen ? 'bg-accent text-white' : 'bg-panel text-muted hover:text-fg'
               }`}
             >
-              {InstIcon && <InstIcon size={11} className="shrink-0" />} <span className="max-w-[64px] truncate">{track.instrument?.presetName ?? instDef?.label}</span>
+              {InstIcon && <InstIcon size={11} className="shrink-0" />} <span className="min-w-0 max-w-[64px] truncate">{track.instrument?.presetName ?? instDef?.label}</span>
             </button>
           ) : (
             <span className="text-[10px] text-dim">Audio</span>
@@ -185,7 +185,7 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
             type="button"
             title={`Insert effects (${track.effects.length}/4) — open the track device panel`}
             onClick={() => openTrackDevices(track.id)}
-            className={`flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-semibold uppercase ${
+            className={`flex h-5 shrink-0 items-center gap-1 rounded px-1.5 text-[10px] font-semibold uppercase ${
               fxOpen ? 'bg-accent text-white' : track.effects.length ? 'bg-panel text-fg' : 'bg-panel text-muted hover:text-fg'
             }`}
           >
@@ -200,7 +200,7 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
               else if (v.startsWith('duck:')) duckFrom(track.id, v.slice(5));
               else showLane(track.id, v || null);
             }}
-            className={`!h-5 max-w-[80px] !pl-1 !pr-4 !text-[10px] ${shownLane ? '!text-[#f472b6]' : '!text-muted'}`}
+            className={`!h-5 min-w-[34px] max-w-[80px] flex-1 !pl-1 !pr-4 !text-[10px] ${shownLane ? '!text-[#f472b6]' : '!text-muted'}`}
           >
             <option value="">Auto…</option>
             {track.automation.map((l) => (
@@ -223,11 +223,11 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
           </select>
           <button
             type="button"
-            title="Delete track"
+            title="Delete track (or select the track and press Delete)"
             onClick={() => {
               if (confirm(`Delete track "${track.name}" and its clips?`)) removeTrack(track.id);
             }}
-            className="ml-auto flex h-5 w-5 items-center justify-center rounded text-dim hover:bg-panel hover:text-bad"
+            className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded text-dim hover:bg-panel hover:text-bad"
           >
             <Trash2 size={11} />
           </button>

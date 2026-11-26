@@ -144,13 +144,7 @@ export function SamplerWindow({ trackId }: { trackId: string }) {
     <div
       ref={root}
       tabIndex={-1}
-      data-capture-keys
       data-testid="sampler-window"
-      onKeyDown={kb.onKeyDown}
-      onKeyUp={kb.onKeyUp}
-      onBlur={(e) => {
-        if (!root.current?.contains(e.relatedTarget as Node | null)) kb.releaseAll();
-      }}
       onDragOver={(e) => {
         if ([...e.dataTransfer.items].some((i) => i.kind === 'file')) {
           e.preventDefault();

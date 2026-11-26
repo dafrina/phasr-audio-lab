@@ -8,7 +8,7 @@ import { getProject, setInstrumentConfig, useProjectStore } from '../../state/pr
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
 import { AutoKnob } from '../common/AutoKnob';
-import { isTypingTarget } from '../shortcuts';
+import { useLiveKeys } from '../liveKeys';
 
 type DrumConfig = Extract<InstrumentConfig, { type: 'drumrack' }>;
 
@@ -70,6 +70,26 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
     return () => cancelAnimationFrame(raf);
   }, [trackId]);
 
+  // the open rack owns the computer keyboard, wherever the focus is (see liveKeys)
+  useLiveKeys({
+    keyDown: (e) => {
+      if (e.code === 'Escape') {
+        close();
+        return true;
+      }
+      const i = KEY_PADS[e.code];
+      if (i === undefined) return false;
+      if (!e.repeat) {
+        void engine.resume();
+        engine.previewNoteOn(trackId, padNote(i), 0.85);
+        setSel(i);
+      }
+      return true;
+    },
+    keyUp: (e) => KEY_PADS[e.code] !== undefined,
+    release: () => {},
+  });
+
   if (!track || track.instrument?.type !== 'drumrack') return null;
   const cfg = track.instrument;
   const pad = cfg.kit.pads[sel] as DrumPad;
@@ -119,19 +139,6 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
     if (audio.length > 1) uiToast('info', `Loaded ${i - start} samples into pads ${start + 1}–${i}.`);
   };
 
-  const onKey = (e: React.KeyboardEvent, down: boolean) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (isTypingTarget(e.target)) return;
-    if (e.code === 'Escape' && down) return close();
-    const i = KEY_PADS[e.code];
-    if (i === undefined) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (down && !e.repeat) {
-      hit(i, 0.85);
-      setSel(i);
-    }
-  };
 
   // rows top → bottom: pads 13-16, 9-12, 5-8, 1-4
   const rows = [12, 8, 4, 0].map((r) => [r, r + 1, r + 2, r + 3]);
@@ -140,9 +147,6 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
     <div
       ref={root}
       tabIndex={-1}
-      data-capture-keys
-      onKeyDown={(e) => onKey(e, true)}
-      onKeyUp={(e) => onKey(e, false)}
       style={{ left: pos.x, top: pos.y, width: 900 }}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
     >

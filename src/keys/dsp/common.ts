@@ -275,8 +275,21 @@ export class FdnReverb {
   private readonly pre: DelayLine;
   private preSamples = 1;
   private readonly sr: number;
+  /** slow delay-length modulation: smears the tail so it fills the gaps between partials */
+  private modDepth = 0;
+  private readonly modPhase = new Float64Array(8);
+  private readonly modInc = new Float64Array(8);
   outL = 0;
   outR = 0;
+
+  /** depth in ms (0 = off), base rate in Hz (each line drifts at a slightly different rate) */
+  setModulation(depthMs: number, rateHz: number): void {
+    this.modDepth = (depthMs / 1000) * this.sr;
+    for (let i = 0; i < 8; i++) {
+      this.modInc[i] = (rateHz * (0.7 + 0.09 * i)) / this.sr;
+      this.modPhase[i] = i / 8;
+    }
+  }
 
   constructor(sampleRate: number, maxSize = 1.6) {
     this.sr = sampleRate;
@@ -299,8 +312,15 @@ export class FdnReverb {
     this.pre.write(0.5 * (inL + inR));
     const x = this.pre.read(this.preSamples);
     const t = this.tmp;
+    const md = this.modDepth;
     for (let i = 0; i < 8; i++) {
-      const y = (this.lines[i] as DelayLine).read(this.len[i] as number);
+      let y: number;
+      if (md > 0) {
+        let ph = (this.modPhase[i] as number) + (this.modInc[i] as number);
+        if (ph >= 1) ph -= 1;
+        this.modPhase[i] = ph;
+        y = (this.lines[i] as DelayLine).readCubic((this.len[i] as number) + md * (1 + Math.sin(TWO_PI * ph)));
+      } else y = (this.lines[i] as DelayLine).read(this.len[i] as number);
       const l = y + ((this.lp[i] as number) - y) * this.damp;
       this.lp[i] = l;
       t[i] = l;

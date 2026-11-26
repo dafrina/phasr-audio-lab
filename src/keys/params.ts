@@ -56,7 +56,7 @@ export const KEYS_ENGINES: Record<KeysEngineType, { label: string; description: 
       p('body', 'Body', 'Body', 0, 1, 0.45, pct),
       p('board', 'Body', 'Board', 0, 1, 0.42, pct),
       p('tone', 'Body', 'Lid', 1500, 20000, 16000, hz, 'exp'),
-      p('room', 'Body', 'Room', 0, 1, 0.42, pct),
+      p('room', 'Body', 'Room', 0, 1, 0.5, pct),
       p('width', 'Output', 'Width', 0, 1, 0.6, pct),
       p('velCurve', 'Output', 'Dynamics', 0.5, 2.5, 1.6, (v) => v.toFixed(2)),
       MASTER,

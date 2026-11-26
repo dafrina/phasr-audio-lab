@@ -32,7 +32,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ['S', 'Split at playhead'],
       ['Ctrl+D / Ctrl+C / Ctrl+V', 'Duplicate / copy / paste'],
       ['Ctrl+L', 'Loop clip content'],
-      ['Delete', 'Delete selected clips'],
+      ['Delete / Backspace', 'Delete selected clips — or the selected track if no clips are selected'],
       ['Ctrl+wheel / Shift+wheel', 'Zoom / scroll horizontally'],
     ],
   },
@@ -52,7 +52,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
   {
     title: 'Instruments & knobs',
     items: [
-      ['Z–M / Q–P', 'Play TriOsc ([ ] octave)'],
+      ['Z–M / Q–P', 'Play the open instrument window, wherever you clicked last ([ ] octave, Esc closes)'],
       ['Z–V / A–F / Q–R / 1–4', 'Play drum pads'],
       ['Drag knob (Shift: fine)', 'Change value; double-click resets'],
       ['Right-click knob', 'Automate / sidechain'],

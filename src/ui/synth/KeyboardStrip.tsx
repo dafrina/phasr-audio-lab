@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { engine } from '../../audio/engine';
 import { BendWheel, PianoKeyboard } from './PianoKeyboard';
-import { isTypingTarget } from '../shortcuts';
+import { useLiveKeys } from '../liveKeys';
 
 /** Physical key codes → semitones above the base C. */
 const KEY_MAP: Record<string, number> = {
@@ -22,9 +22,7 @@ export interface ComputerKeyboard {
   sustain: boolean;
   toggleSustain: () => void;
   active: ReadonlySet<number>;
-  onKeyDown: (e: React.KeyboardEvent) => void;
-  onKeyUp: (e: React.KeyboardEvent) => void;
-  /** release every computer-key note (window lost focus) */
+  /** release every computer-key note */
   releaseAll: () => void;
 }
 
@@ -47,34 +45,34 @@ export function useComputerKeyboard(trackId: string, onEscape: () => void, veloc
   const refresh = () => setActive(new Set([...held.current.values()].map((h) => h.note)));
   const setOctave = useCallback((fn: (o: number) => number) => setOctaveState((o) => Math.min(8, Math.max(0, fn(o)))), []);
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    // dropdowns, text and number fields keep their own keys (type-ahead, arrows, typing)
-    if (isTypingTarget(e.target)) return;
+  // the window owns the computer keyboard while it is open, wherever the focus is (see liveKeys)
+  const keyDown = (e: KeyboardEvent): boolean => {
     if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
-      e.preventDefault();
       setOctave((o) => o + (e.code === 'BracketRight' ? 1 : -1));
-      return;
+      return true;
     }
-    if (e.code === 'Escape') return onEscape();
+    if (e.code === 'Escape') {
+      onEscape();
+      return true;
+    }
     const off = KEY_MAP[e.code];
-    if (off === undefined) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.repeat || held.current.has(e.code)) return;
+    if (off === undefined) return false;
+    if (e.repeat || held.current.has(e.code)) return true;
     const note = (octave + 1) * 12 + off;
-    if (note > 127) return;
+    if (note > 127) return true;
     const id = engine.previewNoteOn(trackId, note, velocity);
-    if (id === null) return;
+    if (id === null) return true;
     held.current.set(e.code, { note, id });
     refresh();
+    return true;
   };
-  const onKeyUp = (e: React.KeyboardEvent) => {
+  const keyUp = (e: KeyboardEvent): boolean => {
     const h = held.current.get(e.code);
-    if (!h) return;
+    if (!h) return false;
     engine.previewNoteOff(trackId, h.id);
     held.current.delete(e.code);
     refresh();
+    return true;
   };
   const releaseAll = () => {
     // Nothing held → no state change. (Re-rendering here, on blur, used to reset a native
@@ -89,7 +87,8 @@ export function useComputerKeyboard(trackId: string, onEscape: () => void, veloc
     setSustain(on);
     engine.sustain(trackId, on);
   };
-  return { octave, setOctave, sustain, toggleSustain, active, onKeyDown, onKeyUp, releaseAll };
+  useLiveKeys({ keyDown, keyUp, release: releaseAll });
+  return { octave, setOctave, sustain, toggleSustain, active, releaseAll };
 }
 
 export function KeyboardStrip({ trackId, kb, low = 36, high = 96, sustainLabel = 'Sustain' }: { trackId: string; kb: ComputerKeyboard; low?: number; high?: number; sustainLabel?: string }) {
@@ -115,7 +114,7 @@ export function KeyboardStrip({ trackId, kb, low = 36, high = 96, sustainLabel =
         >
           {sustainLabel}
         </button>
-        <div className="max-w-[92px] text-[9px] leading-tight text-dim">Keys Z–M / Q–P play · [ ] octave</div>
+        <div className="max-w-[92px] text-[9px] leading-tight text-dim" title="While this window is open the computer keyboard plays it, wherever you clicked last. Space still plays/stops the song.">Keys Z–M / Q–P play · [ ] octave</div>
       </div>
       <BendWheel onChange={(v) => engine.pitchBend(trackId, v)} />
       <div className="flex-1">
