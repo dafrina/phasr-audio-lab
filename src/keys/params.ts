@@ -44,6 +44,7 @@ export const KEYS_ENGINES: Record<KeysEngineType, { label: string; description: 
       p('bloom', 'Hammer', 'Bloom', 0, 1.5, 0.4, (v) => `×${v.toFixed(2)}`),
       p('impact', 'Hammer', 'Impact', 0, 1, 0.6, pct),
       p('hammerNoise', 'Hammer', 'Thump', 0, 1, 0.35, pct),
+      p('chordFeel', 'Hammer', 'Chord feel', 0, 1, 0.5, (v) => (v < 0.01 ? 'Exact' : `${Math.round((0.0015 + 0.009) * v * 1000)} ms`)),
       p('strike', 'Hammer', 'Strike Pos', 0.06, 0.2, 0.125, (v) => `1/${(1 / v).toFixed(1)}`),
       p('sustain', 'String', 'Sustain', 0.25, 2.5, 0.85, (v) => `×${v.toFixed(2)}`, 'exp'),
       p('damping', 'String', 'Hi Damp', 0, 1, 0.3, pct),

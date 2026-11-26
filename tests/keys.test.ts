@@ -708,3 +708,69 @@ describe('Analog pitch envelope', () => {
     expect(Math.abs(peakNear(spectrum(slice(mono(L, R), SR, 0, 0.05), SR, 1 << 15), f, f * 0.25).f / f - 1)).toBeLessThan(0.02);
   });
 });
+
+describe('piano: chords sound like separate strings (Chord feel, key personality, hammer)', () => {
+  it('a chord\'s strike grows less than its tone (independent hammers); a single note is unchanged', () => {
+    const notes = [60, 64, 67, 72];
+    const ev = (ns: number[]): ScoreEvent[] => ns.map((n, i) => ({ t: 0, type: 'on', id: i + 1, note: n, vel: 0.75 }) as ScoreEvent);
+    const share = (ns: number[]) => {
+      const full = mono(...renderKeys(cfg('piano', { room: 0, chordFeel: 0 }), ev(ns), 0.1, SR));
+      const tone = mono(...renderKeys(cfg('piano', { room: 0, chordFeel: 0, impact: 0, hammerNoise: 0, hit: 0 }), ev(ns), 0.1, SR));
+      const strike = full.map((v, i) => v - (tone[i] as number));
+      return db(rms(slice(strike, SR, 0, 0.06))) - db(rms(slice(tone, SR, 0, 0.06)));
+    };
+    expect(share(notes)).toBeLessThan(share([60]) - 1.5);
+  });
+
+  const onset = (x: Float32Array, from = 0) => {
+    for (let i = from; i < x.length; i++) if (Math.abs(x[i] as number) > 1e-4) return i;
+    return -1;
+  };
+  it('Chord feel: the first note is immediate, the others follow 1–11 ms later; 0 = exactly together', () => {
+    const chord: ScoreEvent[] = [60, 64, 67].flatMap((n, i) => [{ t: 0, type: 'on', id: i + 1, note: n, vel: 0.7 } as ScoreEvent]);
+    const solo = (note: number, feel: number) => {
+      const s = new KeysSynth(SR, cfg('piano', { chordFeel: feel, room: 0 }));
+      // the chord, but only this note audible: render the chord, subtract the chord without it
+      const all = mono(...renderKeys(cfg('piano'), chord, 0.05, SR, s));
+      const s2 = new KeysSynth(SR, cfg('piano', { chordFeel: feel, room: 0 }));
+      const rest = mono(...renderKeys(cfg('piano'), chord.filter((e) => e.type !== 'on' || e.note !== note), 0.05, SR, s2));
+      return onset(all.map((v, i) => v - (rest[i] as number)));
+    };
+    expect(solo(60, 0.5)).toBeLessThan(SR * 0.0005);
+    // with Chord feel the chord as a whole starts at once but is spread out
+    const spreadOn = mono(...renderKeys(cfg('piano', { chordFeel: 1, room: 0 }), chord, 0.05, SR));
+    const exact = mono(...renderKeys(cfg('piano', { chordFeel: 0, room: 0 }), chord, 0.05, SR));
+    expect(onset(spreadOn)).toBeLessThan(SR * 0.001);
+    let diff = 0;
+    for (let i = 0; i < SR * 0.004; i++) diff += ((spreadOn[i] as number) - (exact[i] as number)) ** 2;
+    expect(diff).toBeGreaterThan(1e-6);
+  });
+
+  it('a chord note released before its offset still sounds and is released (nothing hangs)', () => {
+    const s = new KeysSynth(SR, cfg('piano', { chordFeel: 1 }));
+    s.noteOn(1, 60, 0.7);
+    s.noteOn(2, 64, 0.7);
+    s.noteOff(2);
+    s.noteOff(1);
+    const L = new Float32Array(SR * 3);
+    const R = new Float32Array(SR * 3);
+    s.render(L, R, 0, L.length);
+    expect(peak(slice(L, SR, 0, 0.2))).toBeGreaterThan(0.001);
+    expect(s.activeVoices()).toBe(0);
+  });
+
+  it('every key has its own fixed personality, bounded and the same on every strike', async () => {
+    const { keyPersona } = await import('../src/keys/dsp/piano');
+    const a = keyPersona(60);
+    const b = keyPersona(61);
+    expect(keyPersona(60)).toEqual(a);
+    expect(a).not.toEqual(b);
+    for (let n = 21; n <= 108; n++) {
+      const p = keyPersona(n);
+      // ring length within about ±24 % (less in the top octave), tuning within ±1 cent
+      expect(p.t60).toBeGreaterThan(0.8);
+      expect(p.t60).toBeLessThan(1.25);
+      expect(Math.abs(1200 * Math.log2(p.tune))).toBeLessThan(1.01);
+    }
+  });
+});

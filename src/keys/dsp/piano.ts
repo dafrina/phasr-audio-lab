@@ -101,6 +101,8 @@ const FUND_T60: readonly (readonly [number, number])[] = [
 ];
 
 export interface PianoParams {
+  /** 0..1: chord notes struck together land a few ms apart with uneven touch (0 = all exact) */
+  chordFeel: number;
   brightness: number;
   hardness: number;
   hammerNoise: number;
@@ -338,6 +340,55 @@ function after2Share(note: number, k = 1): number {
 export function beatRate(note: number, k: number, unison: number): number {
   const h = hash01(note * 7 + 3, k * 13 + 1);
   return (unison / 0.8) * (k === 1 ? 0.15 + 0.25 * h : 0.45 + 2.1 * h);
+}
+
+/**
+ * Every key has its own fixed personality, as on a real instrument: a little
+ * longer or shorter ring, its own two-stage decay and overtone swell, its own
+ * string detune and beat rates, a fraction of a cent of tuning error. Smooth
+ * per-note curves made neighbouring keys near-clones, so a chord's notes moved
+ * in lockstep and sounded stacked instead of full. Seeded by the note number:
+ * the same key sounds the same on every strike. `amount` 0 = no personality.
+ */
+export const PIANO_INDIVIDUALITY = { amount: 1 };
+interface KeyPersona {
+  t60: number;
+  promptRate: number;
+  prompt: number;
+  swellRate: number;
+  swellAmt: number;
+  detune: number;
+  beat: number;
+  bloom: number;
+  tune: number;
+}
+const personaCache = new Map<number, KeyPersona>();
+let personaAmount = -1;
+export function keyPersona(note: number): KeyPersona {
+  const amt = PIANO_INDIVIDUALITY.amount;
+  if (amt !== personaAmount) {
+    personaCache.clear();
+    personaAmount = amt;
+  }
+  const hit = personaCache.get(note);
+  if (hit) return hit;
+  const h = (k: number) => hash01(note * 131 + 7, k * 97 + 11) - 0.5;
+  const oct = (k: number, range: number) => Math.pow(2, h(k) * range * amt);
+  const p: KeyPersona = {
+    // (the top octave rings briefly anyway: shortening it further would turn it plucky)
+    t60: oct(1, 0.62 * (1 - 0.6 * trebleness(note))),
+    promptRate: oct(2, 1.0),
+    prompt: 1 + h(3) * 0.5 * amt,
+    swellRate: oct(4, 1.2),
+    swellAmt: 1 + h(5) * 0.6 * amt,
+    detune: oct(6, 1.2),
+    beat: oct(7, 1.2),
+    bloom: oct(8, 0.8),
+    // cents → frequency ratio (±1 cent: a well-tuned piano, not a perfect one)
+    tune: Math.pow(2, (h(9) * 2 * amt) / 1200),
+  };
+  personaCache.set(note, p);
+  return p;
 }
 
 // ---------------------------------------------------------------------------
@@ -640,8 +691,36 @@ export class PianoEngine implements KeysEngine {
     }
   }
 
+  /** notes struck at this instant so far (reset when time moves on) */
+  private chordRank = 0;
+  /** sample clock and the recent strike times (chord detection for the hammer level) */
+  private clock = 0;
+  private readonly recentStrikes: number[] = [];
+  /** chord notes waiting for their few-ms offset (Chord feel) */
+  private readonly delayed: { id: number; note: number; vel: number; frames: number; off: boolean }[] = [];
+
   noteOn(id: number, note: number, velocity: number): void {
-    const vel = clamp(velocity, 0, 1);
+    // Chord feel: hands never land every key of a chord on the same sample with the same force.
+    // The first note sounds at once; the others follow a few ms later with slightly uneven touch,
+    // so the notes stay separate strings instead of fusing into one stacked sound.
+    const spread = this.p.chordFeel ?? 0.5;
+    const rank = this.chordRank++;
+    if (rank > 0 && spread > 0.001) {
+      const h1 = hash01(note * 61 + rank, 7 + this.orderCounter);
+      const h2 = hash01(note * 17 + rank, 31 + this.orderCounter);
+      const frames = Math.round((0.0015 + 0.009 * h1) * spread * this.sr);
+      const vel = clamp(velocity * (1 + (h2 - 0.5) * 0.16 * spread), 0, 1);
+      if (frames > 0) {
+        this.delayed.push({ id, note, vel, frames, off: false });
+        return;
+      }
+      this.strikeNote(id, note, vel);
+      return;
+    }
+    this.strikeNote(id, note, clamp(velocity, 0, 1));
+  }
+
+  private strikeNote(id: number, note: number, vel: number): void {
     // restrike: the hammer hits the string that is still vibrating
     for (const v of this.voices) {
       if (v.resonating && v.note === note) {
@@ -681,7 +760,7 @@ export class PianoEngine implements KeysEngine {
     // Bloom scales the middle and top; the deep bass keeps its natural, slow swell
     const bassKeep = clamp((48 - note) / 27, 0, 1);
     const scale = (this.p.bloom ?? 1) * (1 - bassKeep) + bassKeep;
-    v.onsetTau = Math.max(1, this.sr * bloomTime(note) * scale);
+    v.onsetTau = Math.max(1, this.sr * bloomTime(note) * scale * keyPersona(note).bloom);
     v.held.clear();
     v.held.add(id);
     v.sustained = false;
@@ -692,6 +771,12 @@ export class PianoEngine implements KeysEngine {
   }
 
   noteOff(id: number): void {
+    const d = this.delayed.find((x) => x.id === id);
+    if (d) {
+      // released before its offset came: play it, then let it go
+      d.off = true;
+      return;
+    }
     for (const v of this.voices) {
       if (!v.active || !v.held.remove(id) || !v.held.empty) continue;
       v.released = true;
@@ -701,6 +786,7 @@ export class PianoEngine implements KeysEngine {
   }
 
   allNotesOff(): void {
+    for (const d of this.delayed) d.off = true;
     for (const v of this.voices) {
       if (!v.active) continue;
       v.held.clear();
@@ -712,6 +798,7 @@ export class PianoEngine implements KeysEngine {
   }
 
   panic(): void {
+    this.delayed.length = 0;
     for (const v of this.voices) {
       v.active = false;
       v.killing = false;
@@ -737,7 +824,7 @@ export class PianoEngine implements KeysEngine {
   }
 
   activeVoices(): number {
-    let n = 0;
+    let n = this.delayed.length;
     for (const v of this.voices) if (v.active) n++;
     return n;
   }
@@ -768,7 +855,8 @@ export class PianoEngine implements KeysEngine {
   private updateCoefs(v: PianoVoice): void {
     const p = this.p;
     const note = v.note;
-    const f1 = pianoFundamental(note, p.stretch);
+    const pers = keyPersona(note);
+    const f1 = pianoFundamental(note, p.stretch) * pers.tune;
     const B = inharmonicityB(note, p.inharm);
     // damper: fast in the treble, slower and growlier in the bass
     const bass = clamp((60 - note) / 40, 0, 1);
@@ -783,13 +871,14 @@ export class PianoEngine implements KeysEngine {
       const s = id & 7;
       let f = s === S_LONG ? longitudinalFreq(note) * k * (k === 2 ? 1.01 : 1) : partialFrequency(f1, k, B);
       const t60 = s === S_LONG ? 0.45 - 0.15 * (k - 1) : partialT60(note, f, f1, p);
-      let sigma = LN_1000 / t60;
+      // (this key's own ring: a little longer or shorter than its neighbours)
+      let sigma = s === S_LONG ? LN_1000 / t60 : LN_1000 / t60 / pers.t60;
       if (s === S_HIT) sigma = LN_1000 / hitT60(f);
       else if (s === S_LONG) {
         // own decay, no string detune
       } else if (k <= DOUBLE_PARTIALS) {
-        const sigma1 = LN_1000 / fundamentalT60(note, p.sustain);
-        const d = stringDetune(note, k, p.unison) / 2400;
+        const sigma1 = LN_1000 / fundamentalT60(note, p.sustain) / pers.t60;
+        const d = (stringDetune(note, k, p.unison) * pers.detune) / 2400;
         if (s === S_PROMPT) {
           // prompt and aftersound are two decay modes of the same coupled strings: (nearly) the same
           // pitch. A large offset between them made deep beat nulls that sounded like a dying pluck;
@@ -797,7 +886,7 @@ export class PianoEngine implements KeysEngine {
           // (the top octaves keep their classic wider split — that shimmer is what made them convincing)
           f *= Math.pow(2, d * (0.8 - 1.8 * clamp((note - 86) / 8, 0, 1)));
           // bridge coupling adds a fixed extra loss (not one that scales the high-frequency losses)
-          sigma += k >= 3 && k <= 8 ? SWELL_SIGMA : (promptRate(note) - 1) * sigma1 * Math.pow(promptWeight(k), 2.2);
+          sigma += k >= 3 && k <= 8 ? SWELL_SIGMA * pers.swellRate : (promptRate(note) * pers.promptRate - 1) * sigma1 * Math.pow(promptWeight(k), 2.2);
         } else if (s === S_AFTER) f *= Math.pow(2, d);
         else if (s === S_PHANTOM) {
           // amplitude ∝ product of two partials → decays at the sum of their rates
@@ -810,7 +899,7 @@ export class PianoEngine implements KeysEngine {
           // at its own rate per partial (top octaves: the gentle shimmer they had)
           const live = clamp((84 - note) / 12, 0, 1);
           const shimmer = f * Math.pow(2, -d * (0.5 + 0.5 * h));
-          f = shimmer + live * (f - beatRate(note, k, p.unison) - shimmer);
+          f = shimmer + live * (f - beatRate(note, k, p.unison) * pers.beat - shimmer);
           sigma *= 1.15;
         }
       }
@@ -830,6 +919,13 @@ export class PianoEngine implements KeysEngine {
     const note = v.note;
     const sr = this.sr;
     v.vel = vel;
+    // notes struck together (a chord, within 40 ms): each one's bright hit a little smaller, so a
+    // chord's strike grows less than its tone (single notes: unchanged)
+    const window = 0.04 * sr;
+    while (this.recentStrikes.length && this.clock - (this.recentStrikes[0] as number) > window) this.recentStrikes.shift();
+    this.recentStrikes.push(this.clock);
+    const together = this.recentStrikes.length;
+    const chordHit = Math.pow(together, -0.3);
     // per-strike variation (deterministic sequence, so renders are reproducible)
     const sc = ++this.strikeCount;
     const varLevel = 1 + 0.08 * (hash01(sc, 17) - 0.5);
@@ -837,7 +933,8 @@ export class PianoEngine implements KeysEngine {
     const bassG = clamp((72 - note) / 50, 0, 1);
     v.glide = vel * vel * (0.5 + 6 * bassG) * (0.8 + 0.4 * hash01(sc, 41));
     v.damped = false;
-    const f1 = pianoFundamental(note, p.stretch);
+    const pers = keyPersona(note);
+    const f1 = pianoFundamental(note, p.stretch) * pers.tune;
     const B = inharmonicityB(note, p.inharm);
     // keep existing oscillation
     this.tmpHas.fill(0);
@@ -874,7 +971,7 @@ export class PianoEngine implements KeysEngine {
     // C3–F♯4: recorded held notes start only ~1.1–1.3× brighter than their tone (a brighter
     // onset is the twang of a plucked string); from G4 up the full hit matches (1.7–1.9×)
     const midWarm = clamp((67 - note) / 5, 0, 1) * clamp((note - 40) / 6, 0, 1);
-    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 0.55) * 2.6 * (2.3 + 0.2 * hammerTreble(note)) * (1 - 0.75 * midWarm);
+    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 0.55) * 2.6 * (2.3 + 0.2 * hammerTreble(note)) * (1 - 0.75 * midWarm) * chordHit;
     const bassTilt = clamp((52 - note) / 31, 0, 1);
     // nonlinear: ∝ strike², fades out above the low middle
     const longAmt = (p.metal ?? 0.5) * vel * vel * (0.5 + 1.2 * clamp((45 - note) / 24, 0, 1)) * clamp((70 - note) / 24, 0, 1);
@@ -893,7 +990,7 @@ export class PianoEngine implements KeysEngine {
         v.re[n] = this.tmpHas[id] ? (this.tmpRe[id] as number) : 0;
         v.im[n] = this.tmpHas[id] ? (this.tmpIm[id] as number) : 0;
         // positive: fast-decaying prompt part; negative (3rd–8th partials): the partial swells in
-        const ps = k >= 3 && k <= 8 ? -swellAmount(note) : Math.min(0.8, promptShare(note) * promptWeight(k));
+        const ps = k >= 3 && k <= 8 ? -swellAmount(note) * pers.swellAmt : Math.min(0.8, promptShare(note) * pers.prompt * promptWeight(k));
         // the third string shares what the prompt part leaves
         const a2 = ps > 0 ? Math.min(after2Share(note, k), (1 - ps) * 0.45) : after2Share(note, k);
         const after = 1 - ps - (triple ? a2 : 0);
@@ -974,12 +1071,14 @@ export class PianoEngine implements KeysEngine {
     // a big part of what makes a struck key sound like a key (most audible in the treble)
     // the woody part of the key/action knock; in the top octaves the impact is mostly a bright tick (below)
     // (bass: no thump spike ahead of the string — recorded low notes start ~12 dB under their swell)
-    this.knockPending += p.hammerNoise * Math.pow(vel, 1.1) * (1.5 - 1.1 * bass) * (1 - 0.55 * trebleness(note));
-    this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
+    // (each hammer is its own noise source: simultaneous strikes add up in power, not in step)
+    const psum = (a: number, b: number) => Math.sqrt(a * a + b * b);
+    this.knockPending = psum(this.knockPending, p.hammerNoise * Math.pow(vel, 1.1) * (1.5 - 1.1 * bass) * (1 - 0.55 * trebleness(note)) * chordHit);
+    this.thumpEnv = psum(this.thumpEnv, p.hammerNoise * vel * vel * 0.02 * chordHit);
     // treble: the hard hammer core hitting steel gives a short, bright "tick"
     // broadband impact noise: felt + action; lower and fuller in the bass and middle, a bright tick up top
     // the small bright click: much quieter than before (recordings: little energy above 6 kHz)
-    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.2) * (0.16 - 0.14 * bass - 0.055 * trebleness(note));
+    this.tickEnv = psum(this.tickEnv, p.hammerNoise * Math.pow(vel, 1.2) * (0.16 - 0.14 * bass - 0.055 * trebleness(note)) * chordHit);
     this.tickHpA = 0.04 + 0.09 * trebleness(note);
     // a heavy felt hammer moves the whole instrument: a low thud (recorded notes carry 40–160 Hz
     // energy at −13…−16 dB in the first 30 ms, even C5)
@@ -987,8 +1086,8 @@ export class PianoEngine implements KeysEngine {
     // (deep bass: its own low partials already carry the low end; recorded A0's strike is a high clang)
     const deep = Math.min(1, Math.max(0, (33 - note) / 12));
     const impact = (p.impact ?? 0.6) * noteLevel * (1 - 0.45 * bass - 0.4 * deep - 0.7 * trebleness(note));
-    this.impactNoise += impact * 1.3;
-    this.thudPending += impact * 0.6;
+    this.impactNoise = psum(this.impactNoise, impact * 1.3 * chordHit);
+    this.thudPending = psum(this.thudPending, impact * 0.6 * chordHit);
   }
 
   // -------------------------------------------------------------------------
@@ -1160,8 +1259,24 @@ export class PianoEngine implements KeysEngine {
     this.room.skip(n);
   }
 
+  /** Start the chord notes whose few-ms offset has passed (block resolution). */
+  private releaseDelayed(n: number): void {
+    this.chordRank = 0;
+    if (!this.delayed.length) return;
+    for (let i = this.delayed.length - 1; i >= 0; i--) {
+      const d = this.delayed[i] as (typeof this.delayed)[number];
+      d.frames -= n;
+      if (d.frames > 0) continue;
+      this.delayed.splice(i, 1);
+      this.strikeNote(d.id, d.note, d.vel);
+      if (d.off) this.noteOff(d.id);
+    }
+  }
+
   render(outL: Float32Array, outR: Float32Array, offset: number, count: number): void {
     const n = count;
+    this.releaseDelayed(n);
+    this.clock += n;
     const L = this.mixL;
     const R = this.mixR;
     L.fill(0, 0, n);
