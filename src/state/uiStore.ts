@@ -25,7 +25,7 @@ interface UiState {
   synthTrackId: string | null;
   /** track whose Gucci Slipper-izer window is open */
   chordsTrackId: string | null;
-  /** track whose Arp / Seq window is open */
+  /** track whose Monkey See, Monkey Seq (arp / step sequencer) window is open */
   arpTrackId: string | null;
   bottomPanel: BottomPanel;
   bottomHeight: number;

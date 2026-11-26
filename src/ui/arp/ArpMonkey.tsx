@@ -1,5 +1,5 @@
 /**
- * A wind-up toy monkey sitting on the Arp / Seq window with a toy keyboard in
+ * A wind-up toy monkey sitting on the Monkey See, Monkey Seq window with a toy keyboard in
  * its lap, "playing" every note the arp or sequencer plays: the left paw takes
  * the low keys, the right paw the high ones, accents hit harder, the head bobs.
  *

@@ -187,7 +187,7 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
           {track.arp && (
             <button
               type="button"
-              title={arpActive(track) ? `Arp / Seq is on (${track.arp.presetName}) — click to edit` : 'Arp / Seq (off) — click to edit'}
+              title={arpActive(track) ? `Monkey See, Monkey Seq is on (${track.arp.presetName}) — click to edit` : 'Monkey See, Monkey Seq (off): arpeggiator and step sequencer — click to edit'}
               onClick={() => openArp(track.id)}
               className={`flex h-5 w-6 shrink-0 items-center justify-center rounded ${arpActive(track) ? 'bg-[#22d3ee] text-black' : 'bg-panel text-muted hover:text-fg'}`}
             >

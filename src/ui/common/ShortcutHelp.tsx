@@ -60,7 +60,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ['Shift+letter', 'While letters play notes, Shift+S / R / L / M / A / Q still run their shortcut'],
       ['Z–V / A–F / Q–R / 1–4', 'Play drum pads'],
       ['Drum Rack → Pattern', 'Step grid: click a hit · Shift-click accent / ghost · right-click roll'],
-      ['Arp / Seq (track devices)', 'Hold keys → arpeggios or a 16-step line; press another key to transpose'],
+      ['Monkey See, Monkey Seq (track devices)', 'Hold keys → arpeggios or a 16-step line; press another key to transpose'],
       ['Drag knob (Shift: fine)', 'Change value; double-click resets'],
       ['Right-click knob', 'Automate / sidechain'],
     ],
