@@ -26,6 +26,7 @@ import { automatedInstKeys, targetInfo } from '../project/automation';
 import { TrackChannel, dbToGainFader } from './trackChannel';
 import { decodeWav, encodeWav, type WavFormat } from './wav';
 import modsourceWorkletUrl from './worklets/modsource.worklet.ts?worker&url';
+import phaserWorkletUrl from './worklets/phaser.worklet.ts?worker&url';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
 import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
 import { withChordsExpanded } from '../chords/expand';
@@ -67,6 +68,7 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
   await ctx.audioWorklet.addModule(trioscWorkletUrl);
   await ctx.audioWorklet.addModule(keysWorkletUrl);
   await ctx.audioWorklet.addModule(modsourceWorkletUrl);
+  await ctx.audioWorklet.addModule(phaserWorkletUrl);
 
   // master: insert effects → volume → (safety limiter) → output. The metronome is never exported.
   const masterFx = new EffectChain(ctx, false);

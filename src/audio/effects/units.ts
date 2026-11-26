@@ -7,10 +7,10 @@
  * All parameter changes use setTargetAtTime smoothing to avoid zipper noise.
  */
 import { dbToGain } from '../../core/ids';
-import type { AutoFilterMode, AutoFilterParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, PhaserParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
 import { parseBandKey } from '../../project/automation';
 import { generateImpulse } from './impulse';
-import { MAX_DELAY_SECONDS, PEQ_BANDS, autoFilterLfoHz, delayTimeSeconds, mixGains } from './specs';
+import { MAX_DELAY_SECONDS, PEQ_BANDS, autoFilterLfoHz, delayTimeSeconds, mixGains, phaserLfoHz } from './specs';
 
 const SMOOTH = 0.02;
 const EQ_LOW_FREQ = 220;
@@ -975,6 +975,97 @@ export class AutoFilterUnit extends BaseUnit {
   }
 }
 
+/**
+ * Phaser: the phasr-phaser worklet (swept all-passes with feedback, wet only)
+ * mixed with the dry signal. Its centre, depth, feedback and stereo offset are
+ * worklet AudioParams; the sidechain shifts the centre in octaves.
+ */
+export class PhaserUnit extends BaseUnit {
+  readonly type = 'phaser' as const;
+  private readonly node: AudioWorkletNode;
+  private readonly dGain: GainNode;
+  private readonly wGain: GainNode;
+  private readonly wetDuck: GainNode;
+  private stages = -1;
+
+  constructor(ctx: BaseAudioContext, id: string) {
+    super(ctx, id);
+    this.node = new AudioWorkletNode(ctx, 'phasr-phaser', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: 'explicit',
+      channelInterpretation: 'speakers',
+    });
+    this.dGain = new GainNode(ctx);
+    this.wGain = new GainNode(ctx);
+    this.wetDuck = new GainNode(ctx, { gain: 1 });
+    this.src.connect(this.dGain);
+    this.dGain.connect(this.wet);
+    this.src.connect(this.node);
+    this.node.connect(this.wGain);
+    this.wGain.connect(this.wetDuck);
+    this.wetDuck.connect(this.wet);
+  }
+
+  private param(name: string): AudioParam {
+    return this.node.parameters.get(name) as AudioParam;
+  }
+
+  update(slot: EffectSlot, bpm: number, auto: ReadonlySet<string> = NONE): void {
+    if (slot.type !== 'phaser') return;
+    const p: PhaserParams = slot.params;
+    const im = !this.initialized;
+    if (p.stages !== this.stages) {
+      this.stages = p.stages;
+      this.node.port.postMessage({ type: 'stages', stages: p.stages });
+    }
+    if (!auto.has('center')) setParam(this.param('center'), p.center, this.ctx, im);
+    if (!auto.has('depth')) setParam(this.param('depth'), p.depth, this.ctx, im);
+    if (!auto.has('feedback')) setParam(this.param('feedback'), p.feedback, this.ctx, im);
+    setParam(this.param('stereo'), p.stereo, this.ctx, im);
+    setParam(this.param('rate'), phaserLfoHz(p, bpm), this.ctx, im);
+    if (!auto.has('mix')) {
+      const g = mixGains(p.mix);
+      setParam(this.dGain.gain, g.dry, this.ctx, im);
+      setParam(this.wGain.gain, g.wet, this.ctx, im);
+    }
+    this.setEnabled(slot.enabled);
+    this.initialized = true;
+  }
+
+  automationParams(key: string): ParamTarget[] {
+    switch (key) {
+      case 'center':
+        return [{ param: this.param('center'), map: (v: number) => Math.min(18000, Math.max(20, v)), exp: true }];
+      case 'depth':
+        return [{ param: this.param('depth'), map: (v: number) => Math.max(0, v) }];
+      case 'feedback':
+        return [{ param: this.param('feedback'), map: (v: number) => Math.max(-0.95, Math.min(0.95, v)) }];
+      case 'mix':
+        return [
+          { param: this.dGain.gain, map: (v) => mixGains(v).dry },
+          { param: this.wGain.gain, map: (v) => mixGains(v).wet },
+        ];
+      default:
+        return [];
+    }
+  }
+
+  override modulationInputs(key: string): ModInput[] {
+    if (key === 'center') return [{ param: this.param('shift'), scale: ident }];
+    if (key === 'mix') return [{ param: this.wetDuck.gain, scale: wetDuckScale }];
+    return [];
+  }
+
+  override dispose(): void {
+    super.dispose();
+    this.node.port.postMessage({ type: 'dispose' });
+    for (const n of [this.node, this.dGain, this.wGain, this.wetDuck]) n.disconnect();
+  }
+}
+
 export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: number, automated?: ReadonlySet<string>): EffectUnit {
   let unit: BaseUnit;
   switch (slot.type) {
@@ -989,6 +1080,9 @@ export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: n
       break;
     case 'autofilter':
       unit = new AutoFilterUnit(ctx, slot.id);
+      break;
+    case 'phaser':
+      unit = new PhaserUnit(ctx, slot.id);
       break;
     case 'compressor':
       unit = new CompressorUnit(ctx, slot.id);

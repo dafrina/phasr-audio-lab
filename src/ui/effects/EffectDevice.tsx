@@ -7,6 +7,8 @@ import {
   CHORUS_SPECS,
   LFO_DIVISIONS,
   LFO_SHAPES,
+  PHASER_SPECS,
+  PHASER_STAGE_CHOICES,
   COMP_SPECS,
   DELAY_DIVISIONS,
   DELAY_SPECS,
@@ -19,7 +21,7 @@ import {
   saveUserEffectPresets,
   type EffectPreset,
 } from '../../audio/effects/specs';
-import type { AutoFilterMode, AutoFilterParams, EffectSlot, EqParams, LfoShape } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, EffectSlot, EqParams, LfoShape, PhaserParams } from '../../project/types';
 import { moveEffect, removeEffect, replaceEffectParams, setEffectEnabled, setEffectParams } from '../../state/effectActions';
 import { useProjectStore } from '../../state/projectStore';
 import { uiToast } from '../../state/uiStore';
@@ -32,6 +34,7 @@ const TYPE_COLOR: Record<EffectSlot['type'], string> = {
   peq: '#f472b6',
   chorus: '#60a5fa',
   autofilter: '#e879f9',
+  phaser: '#34d399',
   compressor: '#facc15',
   delay: '#4ade80',
   reverb: '#9b8aff',
@@ -134,6 +137,7 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
         )}
         {slot.type === 'delay' && <DelayBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'autofilter' && <AutoFilterBody trackId={trackId} slot={slot} color={color} set={set} />}
+        {slot.type === 'phaser' && <PhaserBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'chorus' && (
           <>
             <div className="flex justify-between">
@@ -258,6 +262,97 @@ function AutoFilterBody({ trackId, slot, color, set }: { trackId: string; slot: 
         )}
       </div>
     </>
+  );
+}
+
+function PhaserBody({ trackId, slot, color, set }: { trackId: string; slot: Extract<EffectSlot, { type: 'phaser' }>; color: string; set: (p: Partial<EffectSlot['params']>, k: string) => void }) {
+  const p = slot.params;
+  const knob = (key: 'center' | 'depth' | 'feedback' | 'mix', k: string) => (
+    <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: key }} spec={PHASER_SPECS[key]} value={p[key]} color={color} onChange={(v) => set({ [key]: v } as Partial<PhaserParams>, k)} />
+  );
+  return (
+    <>
+      <PhaserCurve params={p} color={color} />
+      <div className="flex items-center gap-1 text-[10px]" title="All-pass stages: every two make one notch (more = a denser, more intense sweep)">
+        <span className="text-muted">Stages</span>
+        <div className="inline-flex overflow-hidden rounded border border-line">
+          {PHASER_STAGE_CHOICES.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => set({ stages: n }, 'stages')}
+              className={`px-1.5 py-0.5 ${p.stages === n ? 'font-semibold text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
+              style={p.stages === n ? { background: color } : undefined}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex justify-between">
+        {knob('center', 'ctr')}
+        {knob('depth', 'dep')}
+        {knob('feedback', 'fb')}
+        {knob('mix', 'mix')}
+      </div>
+      <div className="flex items-center gap-1 text-[10px]">
+        <button
+          type="button"
+          title="Sync the sweep to the project tempo"
+          onClick={() => set({ sync: !p.sync }, 'sync')}
+          className={`h-5 rounded px-1.5 font-semibold uppercase tracking-wide ${p.sync ? 'text-black' : 'bg-panel-3 text-muted'}`}
+          style={p.sync ? { background: color } : undefined}
+        >
+          Sync
+        </button>
+        {p.sync ? (
+          <select value={p.division} onChange={(e) => set({ division: Number(e.target.value) }, 'div')} title="One sweep cycle lasts…" className="flex-1">
+            {LFO_DIVISIONS.map((d) => (
+              <option key={d.label} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="flex flex-1 justify-center">
+            <Knob spec={PHASER_SPECS.rate} value={p.rate} size={22} color={color} onChange={(v) => set({ rate: v }, 'rate')} />
+          </div>
+        )}
+        <Knob spec={PHASER_SPECS.stereo} value={p.stereo} size={22} color={color} onChange={(v) => set({ stereo: v }, 'st')} title="Stereo: the right channel sweeps ahead of the left (a swirl across the speakers)" />
+      </div>
+    </>
+  );
+}
+
+/** Where the phaser's notches sit at the centre of the sweep (dry + phased at the mix), with the sweep range shaded. */
+function PhaserCurve({ params, color }: { params: PhaserParams; color: string }) {
+  const W = 224;
+  const H = 54;
+  const fx = (f: number) => (Math.log10(Math.max(20, f) / 20) / 3) * W;
+  const N = 140;
+  const wet = Math.sin((params.mix * Math.PI) / 2);
+  const dry = Math.cos((params.mix * Math.PI) / 2);
+  const pts: string[] = [];
+  for (let i = 0; i < N; i++) {
+    const f = 20 * Math.pow(1000, i / (N - 1));
+    // N first-order all-passes: phase −2·atan(f/fc) each
+    const ph = -2 * params.stages * Math.atan(f / params.center);
+    const re = dry + wet * Math.cos(ph);
+    const im = wet * Math.sin(ph);
+    const db = 20 * Math.log10(Math.max(1e-4, Math.hypot(re, im) / (dry + wet)));
+    const y = 4 + (Math.min(0, Math.max(-30, db)) / -30) * (H - 8);
+    pts.push(`${i ? 'L' : 'M'}${((i / (N - 1)) * W).toFixed(1)},${y.toFixed(1)}`);
+  }
+  const lo = params.center / Math.pow(2, params.depth);
+  const hi = params.center * Math.pow(2, params.depth);
+  return (
+    <svg width={W} height={H} className="rounded bg-base" aria-label="Phaser notches">
+      {params.depth > 0.01 && <rect x={fx(lo)} y={0} width={Math.max(1, fx(hi) - fx(lo))} height={H} fill={color} opacity={0.12} />}
+      {[100, 1000, 10000].map((f) => (
+        <line key={f} x1={fx(f)} x2={fx(f)} y1={0} y2={H} stroke="#1f1f2e" />
+      ))}
+      <path d={pts.join(' ')} fill="none" stroke={color} strokeWidth={1.5} />
+    </svg>
   );
 }
 

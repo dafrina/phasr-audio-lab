@@ -129,6 +129,9 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
     case 'autofilter':
       // the sidechain opens (or with negative depth closes) the filter, in octaves
       return [{ key: 'cutoff', label: 'Cutoff', depth: { ...octDepth, min: -6, max: 6, default: 2 } }, wetParam()];
+    case 'phaser':
+      // the sweep's centre in octaves (a kick can push the notches up), and the wet level
+      return [{ key: 'center', label: 'Center', depth: { ...octDepth, min: -4, max: 4, default: 1 } }, wetParam()];
   }
 }
 

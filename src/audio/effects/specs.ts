@@ -18,17 +18,19 @@ import type {
   ReverbParams,
   AutoFilterParams,
   AutoFilterMode,
+  PhaserParams,
   LfoShape,
 } from '../../project/types';
 import type { NumericParamSpec } from '../../synth/params';
 
-export const EFFECT_TYPES: EffectType[] = ['eq', 'peq', 'compressor', 'autofilter', 'delay', 'chorus', 'reverb'];
+export const EFFECT_TYPES: EffectType[] = ['eq', 'peq', 'compressor', 'autofilter', 'delay', 'chorus', 'phaser', 'reverb'];
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
   eq: 'EQ-3',
   peq: 'Spectra EQ',
   chorus: 'Chorus / Flanger',
   autofilter: 'Auto-Filter',
+  phaser: 'Phaser',
   compressor: 'Compressor',
   delay: 'Delay',
   reverb: 'Reverb',
@@ -104,6 +106,19 @@ export const LFO_DIVISIONS: { value: number; label: string }[] = [
   { value: 16, label: '4 bars' },
   { value: 32, label: '8 bars' },
 ];
+export const PHASER_SPECS = {
+  center: { label: 'Center', min: 100, max: 6000, default: 700, curve: 'exp', format: hz },
+  depth: { label: 'Depth', min: 0, max: 4, default: 2, curve: 'linear', format: (v) => `±${v.toFixed(1)} oct` },
+  feedback: { label: 'Feedback', min: -0.9, max: 0.9, default: 0.5, curve: 'linear', bipolar: true, format: (v) => `${Math.round(v * 100)}%` },
+  rate: { label: 'Rate', min: 0.02, max: 10, default: 0.3, curve: 'exp', format: (v) => `${v.toFixed(2)} Hz` },
+  stereo: { label: 'Stereo', min: 0, max: 1, default: 0.5, curve: 'linear', format: (v) => `${Math.round(v * 180)}°` },
+  mix: { label: 'Mix', min: 0, max: 1, default: 0.5, curve: 'linear', format: pct },
+} satisfies Record<'center' | 'depth' | 'feedback' | 'rate' | 'stereo' | 'mix', NumericParamSpec>;
+export const PHASER_STAGE_CHOICES = [2, 4, 6, 8, 12];
+export function phaserLfoHz(p: PhaserParams, bpm: number): number {
+  return p.sync ? bpm / 60 / Math.max(0.0625, p.division) : p.rate;
+}
+
 /** LFO frequency in Hz (synced periods follow the tempo). */
 export function autoFilterLfoHz(p: AutoFilterParams, bpm: number): number {
   return p.sync ? bpm / 60 / Math.max(0.0625, p.division) : p.rate;
@@ -195,6 +210,7 @@ export function defaultParams(type: 'delay'): DelayParams;
 export function defaultParams(type: 'reverb'): ReverbParams;
 export function defaultParams(type: 'chorus'): ChorusParams;
 export function defaultParams(type: 'autofilter'): AutoFilterParams;
+export function defaultParams(type: 'phaser'): PhaserParams;
 export function defaultParams(type: EffectType): EffectSlot['params'];
 export function defaultParams(type: EffectType): EffectSlot['params'] {
   switch (type) {
@@ -212,6 +228,8 @@ export function defaultParams(type: EffectType): EffectSlot['params'] {
       return { rate: 0.8, depth: 0.003, delay: 0.012, feedback: 0, mix: 0.5, width: 0.5 };
     case 'autofilter':
       return { mode: 'lowpass', cutoff: 900, reso: 0.35, lfoDepth: 0, shape: 'sine', sync: true, division: 4, rate: 1, mix: 1 };
+    case 'phaser':
+      return { stages: 6, center: 700, depth: 2, feedback: 0.5, sync: true, division: 8, rate: 0.3, stereo: 0.5, mix: 0.5 };
   }
 }
 
@@ -232,6 +250,8 @@ export function createEffectSlot(type: EffectType): EffectSlot {
       return { id, type, enabled: true, params: defaultParams('chorus') };
     case 'autofilter':
       return { id, type, enabled: true, params: defaultParams('autofilter') };
+    case 'phaser':
+      return { id, type, enabled: true, params: defaultParams('phaser') };
   }
 }
 
@@ -341,6 +361,25 @@ export function sanitizeEffect(input: unknown): EffectSlot | null {
         },
       };
     }
+    case 'phaser': {
+      const d = defaultParams('phaser');
+      return {
+        id,
+        enabled,
+        type: 'phaser',
+        params: {
+          stages: PHASER_STAGE_CHOICES.includes(p.stages as number) ? (p.stages as number) : d.stages,
+          center: clampSpec(PHASER_SPECS.center, p.center),
+          depth: clampSpec(PHASER_SPECS.depth, p.depth),
+          feedback: clampSpec(PHASER_SPECS.feedback, p.feedback),
+          sync: p.sync !== false,
+          division: LFO_DIVISIONS.some((x) => x.value === p.division) ? (p.division as number) : d.division,
+          rate: clampSpec(PHASER_SPECS.rate, p.rate),
+          stereo: clampSpec(PHASER_SPECS.stereo, p.stereo),
+          mix: clampSpec(PHASER_SPECS.mix, p.mix),
+        },
+      };
+    }
     case 'reverb':
       return {
         id,
@@ -372,6 +411,8 @@ export function effectTailSeconds(slot: EffectSlot, bpm: number): number {
       return slot.params.preDelay + slot.params.decay + 0.05;
     case 'compressor':
       return slot.params.release;
+    case 'phaser':
+      return 0.05 + Math.abs(slot.params.feedback) * 0.2;
     case 'chorus': {
       const fb = Math.abs(slot.params.feedback);
       const d = slot.params.delay + slot.params.depth;
@@ -439,6 +480,11 @@ export const FACTORY_EFFECT_PRESETS: EffectPreset[] = [
   { name: 'Choppy Gate 1/16', type: 'autofilter', factory: true, params: { mode: 'lowpass', cutoff: 2500, reso: 0.2, lfoDepth: 3, shape: 'square', sync: true, division: 0.25, rate: 1, mix: 1 } },
   { name: 'Hi-Pass Riser', type: 'autofilter', factory: true, params: { mode: 'highpass', cutoff: 150, reso: 0.45, lfoDepth: 0, shape: 'sine', sync: true, division: 4, rate: 1, mix: 1 } },
   { name: 'Telephone Band', type: 'autofilter', factory: true, params: { mode: 'bandpass', cutoff: 1500, reso: 0.4, lfoDepth: 0, shape: 'sine', sync: true, division: 4, rate: 1, mix: 1 } },
+  { name: 'Classic (6 stages)', type: 'phaser', factory: true, params: defaultParams('phaser') },
+  { name: 'Hat Swirl 1/2', type: 'phaser', factory: true, params: { stages: 8, center: 2500, depth: 1.6, feedback: 0.6, sync: true, division: 2, rate: 0.3, stereo: 0.75, mix: 0.5 } },
+  { name: 'Slow Jet (4 bars)', type: 'phaser', factory: true, params: { stages: 12, center: 900, depth: 2.6, feedback: 0.75, sync: true, division: 16, rate: 0.3, stereo: 0.5, mix: 0.5 } },
+  { name: 'Subtle Shimmer', type: 'phaser', factory: true, params: { stages: 4, center: 1200, depth: 1.2, feedback: 0.25, sync: false, division: 8, rate: 0.18, stereo: 1, mix: 0.35 } },
+  { name: 'Funky Fast', type: 'phaser', factory: true, params: { stages: 4, center: 600, depth: 1.8, feedback: -0.6, sync: true, division: 0.5, rate: 0.3, stereo: 0.25, mix: 0.5 } },
   { name: 'Chorus', type: 'chorus', factory: true, params: { rate: 0.8, depth: 0.003, delay: 0.012, feedback: 0, mix: 0.5, width: 0.5 } },
   { name: 'Wide Chorus', type: 'chorus', factory: true, params: { rate: 0.35, depth: 0.0045, delay: 0.018, feedback: 0.1, mix: 0.55, width: 1 } },
   { name: 'Flanger', type: 'chorus', factory: true, params: { rate: 0.25, depth: 0.0018, delay: 0.002, feedback: 0.7, mix: 0.5, width: 0.25 } },

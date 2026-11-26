@@ -149,7 +149,28 @@ export type InstrumentConfig =
   | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string }
   | { type: 'sampler'; zones: SamplerZone[]; params: SamplerParams; autoMap: boolean; presetName: string };
 
-export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'autofilter';
+export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'autofilter' | 'phaser';
+
+/** Phaser: swept all-pass stages with feedback, mixed with the dry signal for moving notches. */
+export interface PhaserParams {
+  /** all-pass stages (2, 4, 6, 8 or 12): more = more notches */
+  stages: number;
+  /** Hz */
+  center: number;
+  /** sweep, octaves either side of the centre */
+  depth: number;
+  /** −0.9..0.9 (resonance) */
+  feedback: number;
+  sync: boolean;
+  /** LFO period in beats when synced */
+  division: number;
+  /** Hz when free */
+  rate: number;
+  /** 0..1: right channel's sweep offset (0..180°) */
+  stereo: number;
+  /** 0.5 = classic (deepest notches) */
+  mix: number;
+}
 
 export type AutoFilterMode = 'lowpass' | 'highpass' | 'bandpass';
 export type LfoShape = 'sine' | 'triangle' | 'square' | 'sawtooth';
@@ -243,7 +264,8 @@ export type EffectSlot =
   | { id: string; enabled: boolean; type: 'reverb'; params: ReverbParams }
   | { id: string; enabled: boolean; type: 'peq'; params: PeqParams }
   | { id: string; enabled: boolean; type: 'chorus'; params: ChorusParams }
-  | { id: string; enabled: boolean; type: 'autofilter'; params: AutoFilterParams };
+  | { id: string; enabled: boolean; type: 'autofilter'; params: AutoFilterParams }
+  | { id: string; enabled: boolean; type: 'phaser'; params: PhaserParams };
 
 /** What an automation lane controls. Effect params use a key like 'lowGain' or 'b3.freq'. */
 export type AutomationTarget =
