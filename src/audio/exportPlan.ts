@@ -3,7 +3,7 @@
  * release/effect tail to add after it.
  */
 import { ticksToSeconds } from '../core/time';
-import type { Project, Track } from '../project/types';
+import { sendsTo, type Project, type Track } from '../project/types';
 import { effectTailSeconds } from './effects/specs';
 
 export type ExportRangeMode = 'song' | 'loop';
@@ -64,7 +64,7 @@ export function estimateTailSeconds(p: Project, trackAudible: (t: Track) => bool
   // a send channel rings on after the tracks that feed it
   let sendTail = 0;
   (p.sends ?? []).forEach((bus, k) => {
-    if (bus.mute || !p.tracks.some((t) => trackAudible(t) && (t.sends?.[k] ?? 0) > 0)) return;
+    if (bus.mute || !p.tracks.some((t) => trackAudible(t) && sendsTo(t, k))) return;
     sendTail = Math.max(sendTail, bus.effects.reduce((a, s) => a + effectTailSeconds(s, p.bpm), 0));
   });
   tail += sendTail;

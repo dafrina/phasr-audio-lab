@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { AudioLines, Music, Shield } from 'lucide-react';
 import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
-import { MASTER_ID, MAX_EFFECT_SLOTS, SEND_IDS, sendLabel, type EffectSlot, type EffectType, type Track } from '../../project/types';
+import { MASTER_ID, MAX_EFFECT_SLOTS, SEND_IDS, sendLabel, sendsTo, type EffectSlot, type EffectType, type Track } from '../../project/types';
 import { addEffect, setEffectEnabled, setTrackSend, updateSendBus } from '../../state/effectActions';
 import { Knob } from '../common/Knob';
 import type { NumericParamSpec } from '../../synth/params';
@@ -221,7 +221,7 @@ export function SendKnobs({ track, size = 24 }: { track: Track; size?: number })
 /** A send channel's strip: what's in it, its effects, fader, mute and meter. */
 function SendStrip({ k, faderH }: { k: number; faderH: number }) {
   const bus = useProjectStore((s) => s.project.sends[k]);
-  const senders = useProjectStore((s) => s.project.tracks.filter((t) => (t.sends?.[k] ?? 0) > 0).length);
+  const senders = useProjectStore((s) => s.project.tracks.filter((t) => sendsTo(t, k)).length);
   if (!bus) return null;
   const id = SEND_IDS[k] as string;
   return (

@@ -400,3 +400,10 @@ export function sendLabel(bus: Pick<SendBus, 'id' | 'effects'>, effectLabel: (ty
   if (short) return `${letter} · ${names[0] ?? 'empty'}${names.length > 1 ? ' +' : ''}`;
   return `${letter} · ${names.join(' + ') || 'empty'}`;
 }
+
+/** Does this track feed send channel k — by its own Send knob, or (a drum rack) any pad's? */
+export function sendsTo(track: Pick<Track, 'sends' | 'instrument'>, k: number): boolean {
+  if ((track.sends?.[k] ?? 0) > 0) return true;
+  const inst = track.instrument;
+  return inst?.type === 'drumrack' && inst.kit.pads.some((p) => (p.sends?.[k] ?? 0) > 0);
+}

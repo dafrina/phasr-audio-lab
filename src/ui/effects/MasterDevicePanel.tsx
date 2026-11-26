@@ -1,6 +1,6 @@
 import { ArrowRight, Plus, Send, Shield, SlidersVertical } from 'lucide-react';
 import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
-import { MASTER_ID, MAX_EFFECT_SLOTS, SEND_IDS, sendLabel } from '../../project/types';
+import { MASTER_ID, MAX_EFFECT_SLOTS, SEND_IDS, sendLabel, sendsTo } from '../../project/types';
 import { addEffect, updateSendBus } from '../../state/effectActions';
 import { updateProjectFields, useProjectStore } from '../../state/projectStore';
 import { Meter } from '../common/Meter';
@@ -20,7 +20,7 @@ export function MasterDevicePanel({ busId = MASTER_ID }: { busId?: string }) {
   const isSend = !!bus;
   const effects = (bus ? bus.effects : master.effects) ?? [];
   const full = effects.length >= MAX_EFFECT_SLOTS;
-  const senders = bus ? tracks.filter((t) => (t.sends?.[k] ?? 0) > 0) : [];
+  const senders = bus ? tracks.filter((t) => sendsTo(t, k)) : [];
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-panel-2 px-2 text-[11px]">
@@ -38,7 +38,7 @@ export function MasterDevicePanel({ busId = MASTER_ID }: { busId?: string }) {
           <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-fg">{isSend ? 'Sends' : 'All tracks'}</div>
           {isSend ? (
             <div className="text-[10px] leading-tight text-muted">
-              {senders.length ? senders.map((t) => `${t.name} ${Math.round((t.sends[k] ?? 0) * 100)}%`).join(' · ') : 'No track sends here yet — turn up a track’s Send knob in the mixer'}
+              {senders.length ? senders.map((t) => ((t.sends?.[k] ?? 0) > 0 ? `${t.name} ${Math.round((t.sends[k] ?? 0) * 100)}%` : `${t.name} (pads)`)).join(' · ') : 'No track sends here yet — turn up a track’s Send knob in the mixer'}
             </div>
           ) : (
             <div className="text-[10px] text-muted">{trackCount} summed</div>
