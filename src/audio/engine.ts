@@ -24,7 +24,7 @@ import { automatedInstKeys, valueAt } from '../project/automation';
 import { chordToolActive } from '../chords/expand';
 import { withToolsExpanded } from '../arp/expand';
 import { LiveChords } from './chordLive';
-import { LiveArp } from './arpLive';
+import { LiveArp, type ArpNoteListener } from './arpLive';
 import { arpActive } from '../arp/expand';
 import { expandNote } from '../chords/theory';
 
@@ -263,7 +263,7 @@ export class AudioEngine {
   });
 
   /** Follow the notes the live arp plays (for visuals). Returns an unsubscribe function. */
-  onArpNote(fn: (trackId: string, pitch: number, velocity: number, at: number) => void): () => void {
+  onArpNote(fn: ArpNoteListener): () => void {
     this.liveArp.listeners.add(fn);
     return () => this.liveArp.listeners.delete(fn);
   }

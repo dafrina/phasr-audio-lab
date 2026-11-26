@@ -10,13 +10,15 @@ interface PianoKeyboardProps {
   /** notes held from elsewhere (computer keyboard) to highlight */
   externalActive?: ReadonlySet<number>;
   height?: number;
+  /** give every key a hidden overlay of this colour (`[data-note=n] > [data-flash]`) for flashing it from outside */
+  flashColor?: string;
 }
 
 /**
  * Horizontal piano keyboard. Click/drag to play (glissando while dragging);
  * vertical click position on the key sets velocity (lower = louder).
  */
-export function PianoKeyboard({ low, high, onNoteOn, onNoteOff, externalActive, height = 64 }: PianoKeyboardProps) {
+export function PianoKeyboard({ low, high, onNoteOn, onNoteOff, externalActive, height = 64, flashColor }: PianoKeyboardProps) {
   const [active, setActive] = useState<ReadonlySet<number>>(new Set());
   const held = useRef<{ note: number; id: number } | null>(null);
   const pointerDown = useRef(false);
@@ -60,6 +62,7 @@ export function PianoKeyboard({ low, high, onNoteOn, onNoteOff, externalActive, 
     };
   });
 
+  const flash = flashColor ? <span data-flash className="pointer-events-none absolute inset-0 rounded-b-[3px]" style={{ background: flashColor, opacity: 0, boxShadow: `0 0 10px ${flashColor}` }} /> : null;
   const isOn = (n: number) => active.has(n) || (externalActive?.has(n) ?? false);
   const keyHandlers = (n: number) => ({
     onPointerDown: (e: React.PointerEvent) => {
@@ -80,11 +83,13 @@ export function PianoKeyboard({ low, high, onNoteOn, onNoteOff, externalActive, 
       {whites.map((n, i) => (
         <div
           key={n}
+          data-note={n}
           {...keyHandlers(n)}
           className={`absolute top-0 h-full rounded-b-[3px] border border-[#0a0a10] ${isOn(n) ? 'bg-accent-hi' : 'bg-[#e9e9f2] hover:bg-white'}`}
           style={{ left: `${i * whiteW}%`, width: `${whiteW}%` }}
           title={midiNoteName(n)}
         >
+          {flash}
           {n % 12 === 0 && <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 text-center text-[8px] text-[#555]">{midiNoteName(n)}</span>}
         </div>
       ))}
@@ -94,11 +99,14 @@ export function PianoKeyboard({ low, high, onNoteOn, onNoteOff, externalActive, 
         return (
           <div
             key={b}
+            data-note={b}
             {...keyHandlers(b)}
             className={`absolute top-0 z-10 rounded-b-[3px] border border-black ${isOn(b) ? 'bg-accent' : 'bg-[#1a1a24] hover:bg-[#2a2a38]'}`}
             style={{ left: `${(i + 1) * whiteW - whiteW * 0.32}%`, width: `${whiteW * 0.64}%`, height: '60%' }}
             title={midiNoteName(b)}
-          />
+          >
+            {flash}
+          </div>
         );
       })}
     </div>

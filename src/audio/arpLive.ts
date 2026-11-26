@@ -39,8 +39,8 @@ const PUMP_MS = 20;
 let virtualIds = 0x50000000;
 let order = 0;
 
-/** a note the live arp schedules: track, pitch, velocity (1..127), context time */
-export type ArpNoteListener = (trackId: string, pitch: number, velocity: number, at: number) => void;
+/** a note the live arp schedules: track, pitch, velocity (1..127), context time, step index (on the song grid, or from the free clock's start) */
+export type ArpNoteListener = (trackId: string, pitch: number, velocity: number, at: number, step: number) => void;
 
 export class LiveArp {
   private readonly sessions = new Map<string, Session>();
@@ -172,7 +172,7 @@ export class LiveArp {
             const id = nextNoteInstanceId();
             inst.noteOn(id, e.pitch, e.velocity / 127, on);
             inst.noteOff(id, off);
-            for (const l of this.listeners) l(s.trackId, e.pitch, e.velocity, on);
+            for (const l of this.listeners) l(s.trackId, e.pitch, e.velocity, on, s.next);
           }
         }
         s.next++;

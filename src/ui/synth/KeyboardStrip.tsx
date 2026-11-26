@@ -130,7 +130,7 @@ export function useComputerKeyboard(trackId: string, onEscape: () => void, veloc
   return { octave, setOctave, sustain, toggleSustain, active, releaseAll };
 }
 
-export function KeyboardStrip({ trackId, kb, low = 36, high = 96, sustainLabel = 'Sustain' }: { trackId: string; kb: ComputerKeyboard; low?: number; high?: number; sustainLabel?: string }) {
+export function KeyboardStrip({ trackId, kb, low = 36, high = 96, sustainLabel = 'Sustain', flashColor }: { trackId: string; kb: ComputerKeyboard; low?: number; high?: number; sustainLabel?: string; flashColor?: string }) {
   return (
     <div className="flex items-stretch gap-2 border-t border-line bg-panel-2 px-2 py-2">
       <div className="flex flex-col justify-between gap-1">
@@ -161,6 +161,7 @@ export function KeyboardStrip({ trackId, kb, low = 36, high = 96, sustainLabel =
           low={low}
           high={high}
           externalActive={kb.active}
+          flashColor={flashColor}
           onNoteOn={(n, v) => engine.previewNoteOn(trackId, n, v)}
           onNoteOff={(_n, id) => engine.previewNoteOff(trackId, id)}
         />

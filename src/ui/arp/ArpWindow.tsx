@@ -11,13 +11,16 @@ import { arpActive, bakeArp } from '../../arp/expand';
 import { getProject, updateTrack, useProjectStore } from '../../state/projectStore';
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
-import { APE_RAIL_Y, APE_W, ArpApe } from './ArpApe';
+import { APE_RAIL_Y, APE_W, ArpApe, type ApeHits } from './ArpApe';
+import { useArpBeats } from './arpBeats';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
 import type { NumericParamSpec } from '../../synth/params';
 import { PPQ } from '../../core/time';
 
 const WIN_W = 940;
 const CYAN = '#22d3ee';
+/** a played note's step / key flashes this */
+const FLASH = '#a5f3fc';
 const GATE: NumericParamSpec = { label: 'Gate', min: 0.05, max: 1, default: 0.6, curve: 'linear', format: (v) => `${Math.round(v * 100)}%` };
 const SWING: NumericParamSpec = { label: 'Swing', min: 0, max: 0.75, default: 0, curve: 'linear', format: (v) => `${Math.round(v * 100)}%` };
 
@@ -38,6 +41,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
   const dragWin = useRef<{ dx: number; dy: number } | null>(null);
   const velDrag = useRef<number | null>(null);
   const [playStep, setPlayStep] = useState(-1);
+  const [apeHits] = useState<ApeHits>(() => new Set());
 
   const close = useCallback(() => {
     engine.allNotesOff(trackId);
@@ -71,6 +75,26 @@ export function ArpWindow({ trackId }: { trackId: string }) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  // every note the pattern plays: its step (sequencer) and its key flash as it sounds, and the gorilla hits it
+  useArpBeats(trackId, (b) => {
+    const el = root.current;
+    const c = cfgRef.current;
+    if (!el || !c) return;
+    const len = Math.max(1, Math.min(SEQ_STEPS, c.length));
+    const stepEl = c.mode === 'seq' ? el.querySelector<HTMLElement>(`[data-step="${((b.step % len) + len) % len}"]`) : null;
+    const keyEl = el.querySelector<HTMLElement>(`[data-note="${b.pitch}"]`);
+    const strength = 0.55 + 0.45 * Math.min(1, b.velocity / 110);
+    for (const f of [stepEl, keyEl]) {
+      f?.querySelector('[data-flash]')?.animate(
+        [{ opacity: 0 }, { opacity: strength, offset: 0.08 }, { opacity: 0 }],
+        { duration: 280, delay: b.landMs, easing: 'ease-out' },
+      );
+    }
+    const t = (stepEl ?? keyEl)?.getBoundingClientRect();
+    const hit = { ...b, target: t ? { x: t.left + t.width / 2, y: t.top + t.height / 2 } : null };
+    for (const f of apeHits) f(hit);
+  });
 
   if (!track || !track.arp) return null;
   const cfg = track.arp;
@@ -233,10 +257,10 @@ export function ArpWindow({ trackId }: { trackId: string }) {
         {!on && <div className="text-[11px] text-warn">Arp-Ape-ator is off — keys play normally. Switch it on to hear the pattern.</div>}
       </div>
 
-      <KeyboardStrip trackId={trackId} kb={kb} low={36} high={84} />
+      <KeyboardStrip trackId={trackId} kb={kb} low={36} high={84} flashColor={CYAN} />
     </div>
     {/* the gorilla on the window's top edge, drumming on the frame */}
-    <ArpApe x={pos.x + WIN_W - 290 - APE_W / 2} y={pos.y + 1 - APE_RAIL_Y} trackId={trackId} />
+    <ArpApe x={pos.x + WIN_W - 290 - APE_W / 2} y={pos.y + 1 - APE_RAIL_Y} hits={apeHits} />
     </>
   );
 }
@@ -273,14 +297,16 @@ function StepGrid({ cfg, playStep, setStep, velDrag }: { cfg: ArpConfig; playSte
           <button
             key={i}
             type="button"
+            data-step={i}
             onClick={() => setStep(i, { on: !s.on }, 'on')}
-            className={`h-8 rounded text-[10px] font-semibold ${i >= cfg.length ? 'opacity-25' : ''} ${i % 4 === 0 ? 'ring-1 ring-line-2' : ''}`}
+            className={`relative h-8 rounded text-[10px] font-semibold ${i >= cfg.length ? 'opacity-25' : ''} ${i % 4 === 0 ? 'ring-1 ring-line-2' : ''}`}
             style={{
               background: s.on ? (i === playStep ? '#ffffff' : CYAN) : i === playStep ? '#3a4a52' : 'var(--color-panel-3, #22222e)',
               color: s.on ? '#000' : 'var(--color-dim, #666)',
             }}
           >
-            {i + 1}
+            <span data-flash className="pointer-events-none absolute inset-0 rounded" style={{ background: FLASH, opacity: 0, boxShadow: `0 0 12px ${FLASH}` }} />
+            <span className="relative">{i + 1}</span>
           </button>
         ))}
       </div>
