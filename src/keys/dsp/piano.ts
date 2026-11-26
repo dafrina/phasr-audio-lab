@@ -60,7 +60,7 @@ const TRIPLE_PARTIALS = 12;
 const PHANTOM_MAX = 10;
 /** partials 2..HIT_MAX get a short "hit" component (the bright flash of the hammer strike) */
 const HIT_MAX = 40;
-const MAX_RES = PIANO_MAX_PARTIALS + DOUBLE_PARTIALS + TRIPLE_PARTIALS + PHANTOM_MAX + HIT_MAX;
+const MAX_RES = PIANO_MAX_PARTIALS + DOUBLE_PARTIALS + TRIPLE_PARTIALS + PHANTOM_MAX + HIT_MAX + 2;
 /** share of the second aftersound string (beating in the tail) */
 const AFTER2_SHARE = 0.1;
 const POLYPHONY = 32;
@@ -72,7 +72,7 @@ const PROMPT_SHARE = 0.6;
 const PROMPT_RATE = 2.6;
 /** a resonator is dropped below this energy (≈ −94 dBFS amplitude) */
 const DEAD_ENERGY = 4e-10;
-const LEVEL = 0.17;
+const LEVEL = 0.145;
 /** soundboard (wood) resonator level at Body = 100 % */
 const WOOD_GAIN = 2.2;
 
@@ -315,6 +315,21 @@ const S_PHANTOM = 3;
 const S_HIT = 4;
 
 /** how long the hit flash lasts at frequency f (T60, seconds) */
+/**
+ * Longitudinal modes: steel strings also vibrate lengthwise. Their
+ * frequencies don't follow the note (they depend on string length and
+ * material — roughly 1–3 kHz in the bass and low middle), they're driven
+ * through the string's stretching (so they grow with the square of the
+ * strike) and ring briefly. They give wound bass and low-mid strings the
+ * metallic "clang" at the onset that gut or nylon strings (a harp) lack.
+ */
+const S_LONG = 5;
+
+/** first longitudinal mode frequency for a note (Hz) */
+export function longitudinalFreq(note: number): number {
+  return clamp(midiToHz(note) * 15 * (1 + 0.08 * (hash01(note, 77) - 0.5)), 450, 3600);
+}
+
 function hitT60(f: number): number {
   return clamp(0.11 * Math.pow(1000 / f, 0.35), 0.025, 0.14);
 }
@@ -590,11 +605,13 @@ export class PianoEngine implements KeysEngine {
       const id = v.pid[r] as number;
       const k = id >> 3;
       const s = id & 7;
-      let f = partialFrequency(f1, k, B);
-      const t60 = partialT60(note, f, f1, p);
+      let f = s === S_LONG ? longitudinalFreq(note) * k * (k === 2 ? 1.01 : 1) : partialFrequency(f1, k, B);
+      const t60 = s === S_LONG ? 0.45 - 0.15 * (k - 1) : partialT60(note, f, f1, p);
       let sigma = LN_1000 / t60;
       if (s === S_HIT) sigma = LN_1000 / hitT60(f);
-      else if (k <= DOUBLE_PARTIALS) {
+      else if (s === S_LONG) {
+        // own decay, no string detune
+      } else if (k <= DOUBLE_PARTIALS) {
         const sigma1 = LN_1000 / fundamentalT60(note, p.sustain);
         const d = stringDetune(note, k, p.unison) / 2400;
         if (s === S_PROMPT) {
@@ -669,7 +686,11 @@ export class PianoEngine implements KeysEngine {
     const phantomAmt = (p.metal ?? 0.5) * vel * clamp((86 - note) / 30, 0, 1);
     // the hit scales gently with velocity: soft notes are still struck, just with a softer felt
     // short treble strings: the impact is a larger part of the sound
-    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 0.55) * 2.6 * (1 + 1.5 * hammerTreble(note));
+    // the impact is as present in the bass and middle as in the (convincing) treble
+    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 0.55) * 2.6 * (2.3 + 0.2 * hammerTreble(note));
+    const bassTilt = clamp((52 - note) / 31, 0, 1);
+    // nonlinear: ∝ strike², fades out above the low middle
+    const longAmt = (p.metal ?? 0.5) * vel * vel * 0.5 * clamp((70 - note) / 24, 0, 1);
     const hc = hammerCorner(f1, strikeBrightness(Math.min(1, vel * varTone), p), hammerTreble(note));
     for (let k = 1; k <= count; k++) {
       const a = (amps[k - 1] as number) * level;
@@ -696,7 +717,8 @@ export class PianoEngine implements KeysEngine {
         const hf = 1 / (1 + Math.pow(f / Math.max(hc.fc * 4, hc.open * 1.6), hc.slope));
         const h0 = 1 / (1 + Math.pow(f / hc.fc, hc.slope));
         // plus a little extra on the lower partials: the strike is also louder, not only brighter
-        const ratio = Math.min(8, Math.max(0, hf / h0 - 1) + 0.25);
+        // (the hit isn't subject to the steep bass tilt of the sustained tone: heavy bass hammers still crack)
+        const ratio = Math.min(10, (Math.max(0, hf / h0 - 1) + 0.25) * Math.pow(k, 0.5 * bassTilt));
         if (ratio > 0.05) {
           const id = pidOf(k, S_HIT);
           v.pid[n] = id;
@@ -706,6 +728,16 @@ export class PianoEngine implements KeysEngine {
           v.gin[n] = a * hitAmt * ratio;
           n++;
         }
+      }
+      // longitudinal modes (k = 1, 2 → first and second mode), bass and low middle
+      if (k <= 2 && longAmt > 0 && n < MAX_RES && longitudinalFreq(note) * k < fmax) {
+        const id = pidOf(k, S_LONG);
+        v.pid[n] = id;
+        v.side[n] = k - 1;
+        v.re[n] = this.tmpHas[id] ? (this.tmpRe[id] as number) : 0;
+        v.im[n] = this.tmpHas[id] ? (this.tmpIm[id] as number) : 0;
+        v.gin[n] = peakA * longAmt * (k === 1 ? 1 : 0.5);
+        n++;
       }
       // phantom partials: strongest in the bass and middle, gone in the top octaves
       if (k >= 2 && k <= PHANTOM_MAX && n < MAX_RES && phantomAmt > 0 && 2 * partialFrequency(f1, k, B) < fmax) {
