@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Download, FilePlus2, FolderOpen, HardDrive, Loader2, Package, Save, Trash2, Upload, X } from 'lucide-react';
+import { Check, Copy, Download, FilePlus2, FolderOpen, HardDrive, Loader2, Music, Package, Save, Trash2, Upload, X } from 'lucide-react';
+import { exportSongMidi } from '../actions';
 import { engine } from '../../audio/engine';
 import { exportRange, type ExportRangeMode } from '../../audio/exportPlan';
 import { renderProjectToWav, type ExportResult } from '../../audio/exportRender';
@@ -99,6 +100,7 @@ export function ProjectControls() {
           {item(<Upload size={13} />, 'Import project archive…', () => importInput.current?.click())}
           <div className="my-1 h-px bg-line" />
           {item(<Download size={13} />, 'Export audio (WAV / MP3)…', () => setDialog('export'))}
+          {item(<Music size={13} />, 'Export MIDI (.mid)', () => exportSongMidi())}
         </div>
       )}
       <input

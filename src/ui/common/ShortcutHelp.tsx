@@ -47,7 +47,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ['↑ ↓ (Shift: octave)', 'Transpose'],
       ['← →', 'Nudge'],
       ['Q (Shift+Q)', 'Quantize'],
-      ['Drop .mid file', 'Add its notes where you drop it'],
+      ['Drop .mid file', 'Add its notes where you drop it (the .mid button saves the clip as a MIDI file)'],
       ['Ctrl+A / C / X / V / D', 'Select all / copy / cut / paste / duplicate'],
     ],
   },

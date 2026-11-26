@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Music, Repeat, Wand2 } from 'lucide-react';
+import { Download, Music, Repeat, Wand2 } from 'lucide-react';
 import { DRUM_BASE_NOTE } from '../../drums/kit';
 import { INSTRUMENTS, noteLabelFor } from '../../instruments/definitions';
 import { chordToolActive } from '../../chords/expand';
@@ -22,7 +22,7 @@ import {
 import type { MidiClip, MidiNote } from '../../project/types';
 import { getProject, upsertClips, useProjectStore } from '../../state/projectStore';
 import { useUiStore } from '../../state/uiStore';
-import { importMidiIntoClip, togglePlay } from '../actions';
+import { exportClipMidi, importMidiIntoClip, togglePlay } from '../actions';
 import { isMidiFileName } from '../../midi/smf';
 
 const KEYS_W = 64;
@@ -845,6 +845,14 @@ export function PianoRoll({ clipId }: { clipId: string }) {
           className={`flex h-6 items-center gap-1 rounded px-2 ${clip.loop ? 'bg-accent text-white' : 'bg-panel-3 hover:bg-line-2'}`}
         >
           <Repeat size={12} /> Loop
+        </button>
+        <button
+          type="button"
+          title="Save this clip as a MIDI file (.mid) — drop .mid files here to import"
+          onClick={() => exportClipMidi(clipId)}
+          className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 hover:bg-line-2"
+        >
+          <Download size={12} /> .mid
         </button>
         <div className="ml-auto flex items-center gap-1">
           <span className="text-dim">Zoom</span>

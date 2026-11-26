@@ -18,6 +18,7 @@ import {
   duplicateSelectedClips,
   importAudioFiles,
   importMidiFiles,
+  exportClipMidi,
   NEW_TRACK,
   pasteClips,
   snapTick,
@@ -423,6 +424,7 @@ export function Arrangement() {
       items = [
         { label: hit.clip.kind === 'midi' ? 'Open in piano roll' : 'Open in editor', shortcut: 'Dbl-click', onClick: () => openClipEditor(hit.clip.id) },
         { label: 'Rename…', onClick: () => renameClip(hit.clip.id) },
+        ...(hit.clip.kind === 'midi' ? [{ label: 'Export as MIDI file (.mid)', onClick: () => exportClipMidi(hit.clip.id) }] : []),
         { label: 'Split at playhead', shortcut: 'S', onClick: splitSelectedAtPlayhead },
         { label: 'Duplicate', shortcut: 'Ctrl+D', onClick: duplicateSelectedClips },
         { label: hit.clip.loop ? 'Stop looping content' : 'Loop content', shortcut: 'Ctrl+L', onClick: toggleLoopSelectedClips },

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { MidiFileError, isMidiFileName, midiToClipNotes, parseMidiFile, writeMidiFile } from '../src/midi/smf';
+import { createMidiClip, createProject, createTrack } from '../src/project/defaults';
+import { INSTRUMENTS } from '../src/instruments/definitions';
+import { defaultChordTool } from '../src/chords/theory';
+import { clipToMidi, projectToMidi } from '../src/midi/export';
+import type { MidiClip, Project } from '../src/project/types';
 
 const PPQ = 960;
 let n = 0;
@@ -81,5 +86,62 @@ describe('MIDI file reader', () => {
   it('recognises MIDI file names', () => {
     for (const f of ['song.mid', 'Song.MIDI', 'x.kar']) expect(isMidiFileName(f)).toBe(true);
     for (const f of ['song.wav', 'mid.mp3', 'midi']) expect(isMidiFileName(f)).toBe(false);
+  });
+});
+
+function song(): { p: Project; lead: MidiClip; beat: MidiClip } {
+  const p = createProject('Song');
+  p.bpm = 126;
+  const keys = createTrack('instrument', 0, INSTRUMENTS.keys.createConfig());
+  keys.name = 'Keys';
+  const drums = createTrack('instrument', 1, INSTRUMENTS.drumrack.createConfig());
+  drums.name = 'Drums';
+  // a one-bar loop stretched over two bars
+  const lead: MidiClip = { ...createMidiClip(keys.id, PPQ * 4, PPQ * 8), loop: true, loopLength: PPQ * 4, notes: [{ id: 'a', pitch: 64, start: 0, length: PPQ, velocity: 90 }] };
+  const beat: MidiClip = { ...createMidiClip(drums.id, 0, PPQ * 4), notes: [{ id: 'k', pitch: 36, start: 0, length: PPQ / 4, velocity: 120 }] };
+  return { p: { ...p, tracks: [keys, drums], clips: { [lead.id]: lead, [beat.id]: beat } }, lead, beat };
+}
+
+describe('MIDI file export', () => {
+  it('writes the song: one track per instrument, tempo, loops written out, drums on channel 10', () => {
+    const { p } = song();
+    const m = parseMidiFile(projectToMidi(p)!);
+    expect(m.bpm).toBeCloseTo(126, 1);
+    expect(m.ppq).toBe(PPQ);
+    expect(m.tracks.map((t) => t.name)).toEqual(['Keys', 'Drums']);
+    // the looped bar plays twice, from bar 2
+    expect(m.tracks[0]!.notes.map((x) => x.start)).toEqual([PPQ * 4, PPQ * 8]);
+    expect(m.tracks[0]!.channels).toEqual([0]);
+    expect(m.tracks[1]!.channels).toEqual([9]);
+  });
+
+  it('a clip exports from its own start; an empty song or clip exports nothing', () => {
+    const { p, lead } = song();
+    const m = parseMidiFile(clipToMidi(p, lead.id)!);
+    expect(m.tracks[0]!.notes.map((x) => [x.pitch, x.start, x.length, x.velocity])).toEqual([
+      [64, 0, PPQ, 90],
+      [64, PPQ * 4, PPQ, 90],
+    ]);
+    const empty = createProject();
+    expect(projectToMidi(empty)).toBeNull();
+    const c = createMidiClip(empty.tracks[1]!.id, 0);
+    expect(clipToMidi({ ...empty, clips: { [c.id]: c } }, c.id)).toBeNull();
+  });
+
+  it('exports Slipper-izer tracks as the chords you hear', () => {
+    const { p, lead } = song();
+    const withChords = { ...p, tracks: p.tracks.map((t) => (t.id === lead.trackId ? { ...t, chords: defaultChordTool('deephouse') } : t)) };
+    const m = parseMidiFile(projectToMidi(withChords)!);
+    expect(m.tracks[0]!.notes.length).toBeGreaterThan(4);
+  });
+
+  it('round-trips through import with the same bars and beats', () => {
+    const { p } = song();
+    const m = parseMidiFile(projectToMidi(p)!);
+    const back = midiToClipNotes(m.tracks[0]!.notes, m.ppq, PPQ, { barTicks: PPQ * 4, makeId });
+    expect(back.map((x) => [x.pitch, x.start, x.length])).toEqual([
+      [64, PPQ * 4, PPQ],
+      [64, PPQ * 8, PPQ],
+    ]);
   });
 });

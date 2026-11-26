@@ -12,6 +12,8 @@ import { getProject, removeClips, removeTrack, upsertClips, useProjectStore } fr
 import { uiToast, useUiStore } from '../state/uiStore';
 import { MidiFileError, midiToClipNotes, parseMidiFile, type SmfFile, type SmfNote } from '../midi/smf';
 import { fitClipToNotes } from '../project/noteOps';
+import { clipToMidi, projectToMidi } from '../midi/export';
+import { downloadBlob, safeFileName } from '../persistence/download';
 import type { MidiClip, Track } from '../project/types';
 
 export function currentTick(): number {
@@ -382,4 +384,26 @@ export async function importMidiFiles(files: File[], opts: { trackId?: string; t
     // several files dropped on one track play one after another
     if (target) tick += Math.max(...clips.map((c) => c.length));
   }
+}
+
+/** Download the song as a .mid file (one MIDI track per instrument track). */
+export function exportSongMidi(): void {
+  const p = getProject();
+  const bytes = projectToMidi(p);
+  if (!bytes) {
+    uiToast('error', 'Nothing to export: no instrument track has MIDI notes yet.');
+    return;
+  }
+  downloadBlob(new Blob([bytes as BlobPart], { type: 'audio/midi' }), `${safeFileName(p.name)}.mid`);
+}
+
+/** Download one MIDI clip as a .mid file. */
+export function exportClipMidi(clipId: string): void {
+  const p = getProject();
+  const bytes = clipToMidi(p, clipId);
+  if (!bytes) {
+    uiToast('error', 'This clip has no notes to export.');
+    return;
+  }
+  downloadBlob(new Blob([bytes as BlobPart], { type: 'audio/midi' }), `${safeFileName(p.clips[clipId]?.name ?? 'clip')}.mid`);
 }
