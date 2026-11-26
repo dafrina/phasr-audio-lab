@@ -268,6 +268,9 @@ export class AudioEngine {
     return () => this.liveArp.listeners.delete(fn);
   }
 
+  /** tracks whose keys play plain notes for now (the arp / Slipper-izer skipped): step recording */
+  readonly toolBypass = new Set<string>();
+
   /** `at` = when the input happened (performance.now() ms; MIDI events carry their own timestamp). */
   previewNoteOn(trackId: string, note: number, velocity = 0.8, at = performance.now()): number | null {
     const inst = this.channels.get(trackId)?.instrument;
@@ -275,7 +278,8 @@ export class AudioEngine {
     if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume();
     const track = this.project?.tracks.find((t) => t.id === trackId);
     let id: number;
-    if (arpActive(track)) {
+    const bypass = this.toolBypass.has(trackId);
+    if (arpActive(track) && !bypass) {
       // the arp plays what the key means: with the Slipper-izer on (one key = one chord) the chord's notes
       const pitches =
         chordToolActive(track) && track.chords.play === 'chord' && this.project
@@ -284,7 +288,7 @@ export class AudioEngine {
       const vid = this.liveArp.keyDown(trackId, pitches, velocity);
       if (vid === null) return null;
       id = vid;
-    } else if (chordToolActive(track)) {
+    } else if (chordToolActive(track) && !bypass) {
       // one key → a whole chord (or the progression in auto-play); the virtual id releases it
       const vid = this.liveChords.noteOn(trackId, track.chords, note, velocity);
       if (vid === null) return null;

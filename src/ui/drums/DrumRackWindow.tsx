@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useWindowZ } from '../common/windowStack';
 import { Drum, FolderOpen, RotateCcw, Send, SlidersHorizontal, Sparkles, Split, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import { DRUM_CHOKE_GROUPS, DRUM_MODELS, DRUM_STYLES, DRUM_PADS, DRUM_SPECS, DRUM_VOICES, FACTORY_KITS, defaultKit, padNote } from '../../drums/kit';
@@ -41,6 +42,7 @@ function isAudioFile(f: File): boolean {
 }
 
 export function DrumRackWindow({ trackId }: { trackId: string }) {
+  const win = useWindowZ('drums');
   const track = useProjectStore((s) => s.project.tracks.find((t) => t.id === trackId));
   const assets = useProjectStore((s) => s.project.assets);
   const sendBuses = useProjectStore((s) => s.project.sends);
@@ -158,7 +160,8 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
     <div
       ref={root}
       tabIndex={-1}
-      style={{ left: pos.x, top: pos.y, width: 900 }}
+      onPointerDownCapture={win.raise}
+      style={{ left: pos.x, top: pos.y, width: 900, zIndex: win.z }}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
     >
       <div

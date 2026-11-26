@@ -83,7 +83,7 @@ const img = (url: string, p: Part, extra?: React.CSSProperties) => (
   <img src={url} alt="" draggable={false} decoding="async" className="absolute max-w-none select-none" style={{ ...box(p), ...extra }} />
 );
 
-export function ArpApe({ x, y, hits }: { x: number; y: number; hits: ApeHits }) {
+export function ArpApe({ x, y, hits, z = 40 }: { x: number; y: number; hits: ApeHits; z?: number }) {
   const root = useRef<HTMLDivElement>(null);
   const hands = useRef<(HTMLDivElement | null)[]>([]);
   const sparks = useRef<(HTMLDivElement | null)[]>([]);
@@ -174,7 +174,7 @@ export function ArpApe({ x, y, hits }: { x: number; y: number; hits: ApeHits }) 
   }, [hits]);
 
   return (
-    <div ref={root} aria-hidden className="phasr-ape pointer-events-none fixed z-40" style={{ left: x, top: y, width: APE_W, height: APE_H }}>
+    <div ref={root} aria-hidden className="phasr-ape pointer-events-none fixed" style={{ left: x, top: y, width: APE_W, height: APE_H, zIndex: z }}>
       <style>{CSS}</style>
       {/* body and head behind the rail (clipped at the rail so a bob never pokes out under it) */}
       <div className="absolute inset-0 overflow-hidden">

@@ -4,6 +4,7 @@
  * Built for people who don't know music theory: chords are shown as pads
  * on the keys that trigger them, and everything can be auditioned by click.
  */
+import { useWindowZ } from '../common/windowStack';
 import { DanglingSlippers } from './DanglingSlippers';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Footprints, Power, Wand2, X } from 'lucide-react';
@@ -46,6 +47,7 @@ export function openSlipperizer(trackId: string): void {
 }
 
 export function SlipperizerWindow({ trackId }: { trackId: string }) {
+  const win = useWindowZ('chords');
   const track = useProjectStore((s) => s.project.tracks.find((t) => t.id === trackId));
   const clipCount = useProjectStore((s) => Object.values(s.project.clips).filter((c) => c.trackId === trackId && c.kind === 'midi').length);
   const setUi = useUiStore((s) => s.set);
@@ -133,7 +135,8 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
       ref={root}
       tabIndex={-1}
       data-testid="slipperizer"
-      style={{ left: pos.x, top: pos.y, width: WIN_W }}
+      onPointerDownCapture={win.raise}
+      style={{ left: pos.x, top: pos.y, width: WIN_W, zIndex: win.z }}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
     >
       {/* header */}
@@ -346,7 +349,7 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
       <KeyboardStrip trackId={trackId} kb={kb} low={48} high={84} />
     </div>
     {/* the charm: a pair of slippers dangling from the window's bottom edge */}
-    <DanglingSlippers x={pos.x + 64} y={pos.y + winH} />
+    <DanglingSlippers x={pos.x + 64} y={pos.y + winH} z={win.z} />
     </>
   );
 }

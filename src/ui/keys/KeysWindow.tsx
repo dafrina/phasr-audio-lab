@@ -4,6 +4,7 @@
  * automated / sidechained via right-click), drawbars for the organ and the
  * shared keyboard strip.
  */
+import { useWindowZ } from '../common/windowStack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Save, Trash2, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
@@ -56,6 +57,7 @@ function sameParams(a: Record<string, number>, b: Record<string, number>): boole
 const DRAWBAR_COLORS = ['#8b4a2b', '#8b4a2b', '#e9e4da', '#e9e4da', '#1b1b1f', '#e9e4da', '#1b1b1f', '#1b1b1f', '#e9e4da'];
 
 export function KeysWindow({ trackId }: { trackId: string }) {
+  const win = useWindowZ('keys');
   const track = useProjectStore((s) => s.project.tracks.find((t) => t.id === trackId));
   const setUi = useUiStore((s) => s.set);
   const root = useRef<HTMLDivElement>(null);
@@ -145,7 +147,8 @@ export function KeysWindow({ trackId }: { trackId: string }) {
       ref={root}
       tabIndex={-1}
       data-testid="keys-window"
-      style={{ left: pos.x, top: pos.y, width: WIN_W }}
+      onPointerDownCapture={win.raise}
+      style={{ left: pos.x, top: pos.y, width: WIN_W, zIndex: win.z }}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
     >
       {/* ---------- header ---------- */}

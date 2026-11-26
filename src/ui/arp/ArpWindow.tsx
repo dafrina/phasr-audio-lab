@@ -2,23 +2,33 @@
  * Arp-Ape-ator: an arpeggiator and a 16-step sequencer in front of any
  * instrument. Hold keys (computer keyboard, MIDI, the keybed below, or long
  * notes in a clip) and they play the pattern, locked to the song grid.
+ *
+ * Rec: in the sequencer, step recording — each key you play fills the next
+ * step (relative to the first key of the take) and moves on; Rest / Tie /
+ * Back fill in the rest. In the arpeggiator, live recording onto the
+ * timeline: the keys you hold become a clip that plays back through the arp.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Power, Repeat2, Wand2, X } from 'lucide-react';
+import { ChevronLeft, Circle, Power, Repeat2, Wand2, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
+import { recorder } from '../../audio/recorder';
+import { useRecordingStore } from '../../state/recordingStore';
+import { midiNoteName } from '../../core/time';
+import { useWindowZ } from '../common/windowStack';
 import { ARP_DIRECTIONS, ARP_PRESETS, ARP_RATES, SEQ_STEPS, arpPreset, defaultArp, type ArpConfig, type SeqStep } from '../../arp/arp';
 import { arpActive, bakeArp } from '../../arp/expand';
 import { getProject, updateTrack, useProjectStore } from '../../state/projectStore';
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
 import { APE_RAIL_Y, APE_W, ArpApe, type ApeHits } from './ArpApe';
-import { noteColor, useArpBeats } from './arpBeats';
+import { noteColor, useArpBeats, type ArpBeat } from './arpBeats';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
 import type { NumericParamSpec } from '../../synth/params';
 import { PPQ } from '../../core/time';
 
 const WIN_W = 940;
 const CYAN = '#22d3ee';
+const REC = '#ef4444';
 /** a played note's step / key flashes this */
 const FLASH = '#a5f3fc';
 const GATE: NumericParamSpec = { label: 'Gate', min: 0.05, max: 1, default: 0.6, curve: 'linear', format: (v) => `${Math.round(v * 100)}%` };
@@ -33,6 +43,7 @@ export function openArp(trackId: string): void {
 }
 
 export function ArpWindow({ trackId }: { trackId: string }) {
+  const win = useWindowZ('arp');
   const track = useProjectStore((s) => s.project.tracks.find((t) => t.id === trackId));
   const clipCount = useProjectStore((s) => Object.values(s.project.clips).filter((c) => c.trackId === trackId && c.kind === 'midi').length);
   const setUi = useUiStore((s) => s.set);
@@ -42,6 +53,13 @@ export function ArpWindow({ trackId }: { trackId: string }) {
   const velDrag = useRef<number | null>(null);
   const [playStep, setPlayStep] = useState(-1);
   const [apeHits] = useState<ApeHits>(() => new Set());
+  /** step recording: the step the next key fills, and the key the take is relative to */
+  const [stepRec, setStepRec] = useState<{ cursor: number; root: number | null } | null>(null);
+  const stepRecRef = useRef(stepRec);
+  stepRecRef.current = stepRec;
+  const recStatus = useRecordingStore((s) => s.status);
+  const recTrack = useRecordingStore((s) => s.armedTrackId);
+  const liveRec = recTrack === trackId && (recStatus === 'recording' || recStatus === 'countIn');
 
   const close = useCallback(() => {
     engine.allNotesOff(trackId);
@@ -77,7 +95,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
   }, []);
 
   // every note the pattern plays: its step (sequencer) and its key flash as it sounds, and the gorilla hits it
-  useArpBeats(trackId, (b) => {
+  const onBeat = (b: ArpBeat) => {
     const el = root.current;
     const c = cfgRef.current;
     if (!el || !c) return;
@@ -99,7 +117,43 @@ export function ArpWindow({ trackId }: { trackId: string }) {
     const t = (stepEl ?? keyEl)?.getBoundingClientRect();
     const hit = { ...b, target: t ? { x: t.left + t.width / 2, y: t.top + t.height / 2 } : null };
     for (const f of apeHits) f(hit);
-  });
+  };
+  useArpBeats(trackId, onBeat);
+  const onBeatRef = useRef(onBeat);
+  onBeatRef.current = onBeat;
+
+  // step recording: keys play plain notes (not the pattern) and each one fills the next step
+  const recOn = stepRec !== null;
+  useEffect(() => {
+    if (!recOn) return;
+    engine.allNotesOff(trackId);
+    engine.toolBypass.add(trackId);
+    const off = engine.onLiveInput((e) => {
+      if (e.trackId !== trackId || e.type !== 'noteOn') return;
+      const r = stepRecRef.current;
+      const cur = getProject().tracks.find((t) => t.id === trackId)?.arp;
+      if (!r || !cur) return;
+      const root = r.root ?? e.note;
+      const len = Math.max(1, Math.min(SEQ_STEPS, cur.length));
+      const i = r.cursor % len;
+      const transpose = Math.max(-24, Math.min(24, e.note - root));
+      const vel = Math.round(Math.max(0.05, Math.min(1, e.velocity)) * 100) / 100;
+      updateTrack(trackId, { arp: { ...cur, presetName: 'Custom', steps: cur.steps.map((s, j) => (j === i ? { ...s, on: true, transpose, vel, tie: false } : s)) } }, 'Step record');
+      const next = { cursor: (i + 1) % len, root };
+      stepRecRef.current = next;
+      setStepRec(next);
+      onBeatRef.current({ pitch: e.note, velocity: Math.round(vel * 127), step: i, landMs: 0 });
+    });
+    return () => {
+      off();
+      engine.toolBypass.delete(trackId);
+    };
+  }, [recOn, trackId]);
+  // step recording is a sequencer thing
+  const isSeq = track?.arp?.mode === 'seq';
+  useEffect(() => {
+    if (!isSeq) setStepRec(null);
+  }, [isSeq]);
 
   if (!track || !track.arp) return null;
   const cfg = track.arp;
@@ -120,6 +174,45 @@ export function ArpWindow({ trackId }: { trackId: string }) {
     const cur = getProject().tracks.find((t) => t.id === trackId)?.arp ?? cfg;
     updateTrack(trackId, { arp: { ...structuredClone(p), enabled: cur.enabled, latch: cur.latch } }, `Arp-Ape-ator: ${name}`);
   };
+
+  // step-record helpers: Rest (an empty step), Tie (hold the previous note one more step), Back
+  const recEdit = (kind: 'rest' | 'tie' | 'back' | 'clear') => {
+    const r = stepRecRef.current;
+    const cur = getProject().tracks.find((t) => t.id === trackId)?.arp;
+    if (!r || !cur) return;
+    const len = Math.max(1, Math.min(SEQ_STEPS, cur.length));
+    const i = r.cursor % len;
+    const prevI = (i - 1 + len) % len;
+    let steps = cur.steps;
+    let cursor = (i + 1) % len;
+    if (kind === 'rest') steps = steps.map((s, j) => (j === i ? { ...s, on: false, tie: false } : s));
+    else if (kind === 'tie') {
+      const prev = steps[prevI];
+      if (!prev?.on) return;
+      steps = steps.map((s, j) => (j === prevI ? { ...s, tie: true } : j === i ? { ...s, on: true, transpose: prev.transpose, vel: prev.vel, tie: false } : s));
+    } else if (kind === 'back') cursor = prevI;
+    else {
+      steps = steps.map((s) => ({ ...s, on: false, tie: false, transpose: 0 }));
+      cursor = 0;
+    }
+    if (steps !== cur.steps) updateTrack(trackId, { arp: { ...cur, presetName: 'Custom', steps } }, kind === 'clear' ? 'Clear steps' : 'Step record');
+    const next = { cursor, root: kind === 'clear' ? null : r.root };
+    stepRecRef.current = next;
+    setStepRec(next);
+  };
+  const toggleRec = async () => {
+    if (seq) {
+      setStepRec((r) => (r ? null : { cursor: 0, root: null }));
+      return;
+    }
+    if (liveRec) {
+      await recorder.stop();
+      return;
+    }
+    if (!track.armed) await recorder.toggleArm(trackId);
+    await recorder.start();
+  };
+  const recActive = seq ? stepRec !== null : liveRec;
 
   const bake = () => {
     if (!clipCount) {
@@ -155,7 +248,8 @@ export function ArpWindow({ trackId }: { trackId: string }) {
       ref={root}
       tabIndex={-1}
       data-testid="arp-window"
-      style={{ left: pos.x, top: pos.y, width: WIN_W }}
+      onPointerDownCapture={win.raise}
+      style={{ left: pos.x, top: pos.y, width: WIN_W, zIndex: win.z }}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
       onPointerUp={() => (velDrag.current = null)}
     >
@@ -185,6 +279,24 @@ export function ArpWindow({ trackId }: { trackId: string }) {
           style={on ? { background: CYAN } : undefined}
         >
           <Power size={12} /> {on ? 'On' : 'Off'}
+        </button>
+        <button
+          type="button"
+          data-testid="arp-rec"
+          title={
+            seq
+              ? recActive
+                ? 'Stop step recording'
+                : 'Step record: each key you play fills the next step (relative to the first key) — Rest / Tie / Back fill in the gaps'
+              : recActive
+                ? 'Stop recording'
+                : 'Record onto the timeline: the keys you hold become a clip that plays back through the arp (with the count-in)'
+          }
+          onClick={() => void toggleRec()}
+          className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-semibold ${recActive ? 'text-white' : 'bg-panel-3 text-muted hover:text-fg'} ${recActive && !seq && recStatus === 'countIn' ? 'animate-pulse' : ''}`}
+          style={recActive ? { background: REC } : undefined}
+        >
+          <Circle size={10} fill="currentColor" style={recActive ? undefined : { color: REC }} /> {seq ? 'Step rec' : 'Rec'}
         </button>
         <select value={ARP_PRESETS.some((p) => p.presetName === cfg.presetName) ? cfg.presetName : ''} onChange={(e) => loadPreset(e.target.value)} className="h-6 max-w-[200px]" title="Pattern presets">
           <option value="">{cfg.presetName === 'Custom' ? 'Custom' : 'Presets…'}</option>
@@ -256,22 +368,75 @@ export function ArpWindow({ trackId }: { trackId: string }) {
               </select>
               <span className="text-[10px] text-dim">Click a step to turn it on · drag its bar for velocity · hold a key to hear it, press another key to transpose the whole line</span>
             </div>
-            <StepGrid cfg={cfg} playStep={playStep} setStep={setStep} velDrag={velDrag} />
+            {stepRec && (
+              <div className="flex items-center gap-2 rounded border px-2 py-1 text-[11px]" style={{ borderColor: REC, background: 'rgba(239,68,68,0.08)' }}>
+                <span className="font-semibold" style={{ color: REC }}>
+                  STEP REC
+                </span>
+                <span className="text-muted">
+                  step {stepRec.cursor + 1} ·{' '}
+                  {stepRec.root === null ? 'play a key — the first one is the root' : `root ${midiNoteName(stepRec.root)} (hold it to hear the line as played)`}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  {(
+                    [
+                      ['back', 'Back', 'Move back one step'],
+                      ['rest', 'Rest', 'Leave this step empty and move on'],
+                      ['tie', 'Tie', 'Hold the previous note through this step'],
+                      ['clear', 'Clear', 'Empty all steps and start over at step 1'],
+                    ] as const
+                  ).map(([k, label, title]) => (
+                    <button key={k} type="button" title={title} onClick={() => recEdit(k)} className="flex h-6 items-center gap-0.5 rounded bg-panel-3 px-2 text-[11px] text-fg hover:bg-line-2">
+                      {k === 'back' && <ChevronLeft size={12} />}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <StepGrid
+              cfg={cfg}
+              playStep={playStep}
+              setStep={setStep}
+              velDrag={velDrag}
+              recCursor={stepRec?.cursor ?? null}
+              onPickRecStep={(i) => {
+                const next = { cursor: i, root: stepRecRef.current?.root ?? null };
+                stepRecRef.current = next;
+                setStepRec(next);
+              }}
+            />
           </div>
         )}
+        {!seq && liveRec && <div className="text-[11px]" style={{ color: REC }}>{recStatus === 'countIn' ? 'Counting in…' : 'Recording'} — hold keys; they go into a clip on this track and play back through the arp. Click Rec (or Space) to stop. Bake to notes turns it into the actual notes.</div>}
         {!on && <div className="text-[11px] text-warn">Arp-Ape-ator is off — keys play normally. Switch it on to hear the pattern.</div>}
       </div>
 
       <KeyboardStrip trackId={trackId} kb={kb} low={36} high={84} flashColor={CYAN} />
     </div>
     {/* the gorilla on the window's top edge, drumming on the frame */}
-    <ArpApe x={pos.x + WIN_W - 290 - APE_W / 2} y={pos.y + 1 - APE_RAIL_Y} hits={apeHits} />
+    <ArpApe x={pos.x + WIN_W - 290 - APE_W / 2} y={pos.y + 1 - APE_RAIL_Y} hits={apeHits} z={win.z} />
     </>
   );
 }
 
 const ROW = 'grid gap-[3px]';
-function StepGrid({ cfg, playStep, setStep, velDrag }: { cfg: ArpConfig; playStep: number; setStep: (i: number, part: Partial<SeqStep>, key: string) => void; velDrag: React.MutableRefObject<number | null> }) {
+function StepGrid({
+  cfg,
+  playStep,
+  setStep,
+  velDrag,
+  recCursor,
+  onPickRecStep,
+}: {
+  cfg: ArpConfig;
+  playStep: number;
+  setStep: (i: number, part: Partial<SeqStep>, key: string) => void;
+  velDrag: React.MutableRefObject<number | null>;
+  /** step recording: the step the next key fills (a click moves it there instead of toggling) */
+  recCursor: number | null;
+  onPickRecStep: (i: number) => void;
+}) {
   const cols = { gridTemplateColumns: `64px repeat(${SEQ_STEPS}, minmax(0, 1fr))` };
   const rowLabel = (t: string, title: string) => (
     <div className="flex items-center text-[9px] uppercase tracking-wider text-muted" title={title}>
@@ -303,9 +468,11 @@ function StepGrid({ cfg, playStep, setStep, velDrag }: { cfg: ArpConfig; playSte
             key={i}
             type="button"
             data-step={i}
-            onClick={() => setStep(i, { on: !s.on }, 'on')}
+            onClick={() => (recCursor !== null ? onPickRecStep(i) : setStep(i, { on: !s.on }, 'on'))}
             className={`relative h-8 rounded text-[10px] font-semibold ${i >= cfg.length ? 'opacity-25' : ''} ${i % 4 === 0 ? 'ring-1 ring-line-2' : ''}`}
             style={{
+              outline: recCursor === i ? `2px solid ${REC}` : undefined,
+              outlineOffset: 1,
               background: s.on ? (i === playStep ? '#ffffff' : CYAN) : i === playStep ? '#3a4a52' : 'var(--color-panel-3, #22222e)',
               color: s.on ? '#000' : 'var(--color-dim, #666)',
             }}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useWindowZ } from '../common/windowStack';
 import { ChevronLeft, ChevronRight, Power, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import {
@@ -34,6 +35,7 @@ function samePatch(a: TriOscPatch, b: TriOscPatch): boolean {
 }
 
 export function SynthWindow({ trackId }: { trackId: string }) {
+  const win = useWindowZ('synth');
   const track = useProjectStore((s) => s.project.tracks.find((t) => t.id === trackId));
   const setUi = useUiStore((s) => s.set);
   const root = useRef<HTMLDivElement>(null);
@@ -116,7 +118,8 @@ export function SynthWindow({ trackId }: { trackId: string }) {
     <div
       ref={root}
       tabIndex={-1}
-      style={{ left: pos.x, top: pos.y, width: WIN_W }}
+      onPointerDownCapture={win.raise}
+      style={{ left: pos.x, top: pos.y, width: WIN_W, zIndex: win.z }}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
     >
       {/* ---------- header ---------- */}

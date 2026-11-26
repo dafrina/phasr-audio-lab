@@ -31,6 +31,8 @@ interface Props {
   /** pivot (the ring) in viewport px: bottom edge of the window */
   x: number;
   y: number;
+  /** stacking: its window's z-index */
+  z?: number;
 }
 
 type Pt = { x: number; y: number; px: number; py: number };
@@ -48,7 +50,7 @@ function restRope(ax: number, ay: number, k: number): Pt[] {
   return pts;
 }
 
-export function DanglingSlippers({ x, y }: Props) {
+export function DanglingSlippers({ x, y, z = 40 }: Props) {
   const anchor = useRef({ x, y });
   anchor.current = { x, y };
   const svg = useRef<SVGSVGElement>(null);
@@ -199,7 +201,7 @@ export function DanglingSlippers({ x, y }: Props) {
   useEffect(() => wake.current(), [x, y]);
 
   return (
-    <svg ref={svg} aria-hidden className="pointer-events-none fixed z-40" style={{ left: x - 80, top: y - 4, width: 160, height: 140, overflow: 'visible' }} viewBox="-80 -4 160 140">
+    <svg ref={svg} aria-hidden className="pointer-events-none fixed" style={{ left: x - 80, top: y - 4, width: 160, height: 140, overflow: 'visible', zIndex: z }} viewBox="-80 -4 160 140">
       {/* the hook on the window and the ring */}
       <rect x={-5} y={-4} width={10} height={4} rx={1.5} fill="#3a3320" />
       <circle cx={0} cy={4} r={4} fill="none" stroke={GOLD} strokeWidth={1.6} />

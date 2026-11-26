@@ -2,6 +2,7 @@
  * Sampler window: drop samples, see how they cover the keyboard (keys left
  * to right, velocity bottom to top), adjust zones, play.
  */
+import { useWindowZ } from '../common/windowStack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderOpen, Play, Trash2, Upload, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
@@ -40,6 +41,7 @@ function commitConfig(trackId: string, label: string, fn: (c: SamplerConfig) => 
 }
 
 export function SamplerWindow({ trackId }: { trackId: string }) {
+  const win = useWindowZ('sampler');
   const track = useProjectStore((s) => s.project.tracks.find((t) => t.id === trackId));
   const setUi = useUiStore((s) => s.set);
   const root = useRef<HTMLDivElement>(null);
@@ -157,7 +159,8 @@ export function SamplerWindow({ trackId }: { trackId: string }) {
         setDragOver(false);
         void addFiles([...e.dataTransfer.files]);
       }}
-      style={{ left: pos.x, top: pos.y, width: WIN_W }}
+      onPointerDownCapture={win.raise}
+      style={{ left: pos.x, top: pos.y, width: WIN_W, zIndex: win.z }}
       className={`fixed z-40 flex flex-col overflow-hidden rounded-lg border bg-panel shadow-2xl shadow-black/70 outline-none ${dragOver ? 'border-sky-400' : 'border-line-2'}`}
     >
       <div
