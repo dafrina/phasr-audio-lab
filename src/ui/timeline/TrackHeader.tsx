@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { AudioLines, Footprints, Music, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { AudioLines, Footprints, Music, SlidersHorizontal, Trash2, Repeat2 } from 'lucide-react';
 import { chordToolActive, chordToolAvailable } from '../../chords/expand';
+import { arpActive } from '../../arp/expand';
+import { openArp } from '../arp/ArpWindow';
 import { openSlipperizer } from '../chords/SlipperizerWindow';
 import { INSTRUMENTS, instrumentAutoParams } from '../../instruments/definitions';
 import { PITCH_BEND_KEY } from '../../synth/dsp/bend';
@@ -180,6 +182,16 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
               className={`flex h-5 w-6 shrink-0 items-center justify-center rounded ${chordToolActive(track) ? 'bg-[#d9b44a] text-black' : 'bg-panel text-muted hover:text-fg'}`}
             >
               <Footprints size={11} />
+            </button>
+          )}
+          {track.arp && (
+            <button
+              type="button"
+              title={arpActive(track) ? `Arp / Seq is on (${track.arp.presetName}) — click to edit` : 'Arp / Seq (off) — click to edit'}
+              onClick={() => openArp(track.id)}
+              className={`flex h-5 w-6 shrink-0 items-center justify-center rounded ${arpActive(track) ? 'bg-[#22d3ee] text-black' : 'bg-panel text-muted hover:text-fg'}`}
+            >
+              <Repeat2 size={11} />
             </button>
           )}
           <button

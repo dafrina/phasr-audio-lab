@@ -25,6 +25,8 @@ interface UiState {
   synthTrackId: string | null;
   /** track whose Gucci Slipper-izer window is open */
   chordsTrackId: string | null;
+  /** track whose Arp / Seq window is open */
+  arpTrackId: string | null;
   bottomPanel: BottomPanel;
   bottomHeight: number;
   /** Clip open in the bottom editor */
@@ -58,6 +60,7 @@ export const useUiStore = create<UiState>((set) => ({
   scrollY: 0,
   synthTrackId: null,
   chordsTrackId: null,
+  arpTrackId: null,
   bottomPanel: 'none',
   bottomHeight: 300,
   editorClipId: null,

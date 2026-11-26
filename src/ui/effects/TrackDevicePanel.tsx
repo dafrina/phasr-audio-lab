@@ -1,4 +1,6 @@
-import { ArrowRight, AudioLines, Footprints, Music, Plus, Send } from 'lucide-react';
+import { ArrowRight, AudioLines, Footprints, Music, Plus, Repeat2, Send } from 'lucide-react';
+import { arpActive } from '../../arp/expand';
+import { openArp } from '../arp/ArpWindow';
 import { SendKnobs } from '../mixer/Mixer';
 import { chordToolActive, chordToolAvailable } from '../../chords/expand';
 import { keyName, progressionOf, vibeById } from '../../chords/theory';
@@ -49,6 +51,19 @@ export function TrackDevicePanel({ trackId }: { trackId: string }) {
               )}
               <button type="button" onClick={() => openSlipperizer(track.id)} className="h-6 rounded bg-[#d9b44a] px-2 text-[11px] font-semibold text-black">
                 {track.chords ? 'Open' : 'Add chords'}
+              </button>
+            </div>
+            <ArrowRight size={14} className="mt-[68px] shrink-0 text-dim" />
+          </>
+        )}
+        {track.kind === 'instrument' && (
+          <>
+            <div className="flex h-[150px] w-[150px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-md border border-[#1f4a52] bg-[#0f1c20] p-2 text-center">
+              <Repeat2 size={20} className="text-[#22d3ee]" />
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#22d3ee]">Arp / Seq</div>
+              <div className="text-[10px] leading-tight text-muted">{track.arp ? (arpActive(track) ? track.arp.presetName : 'Off') : 'Hold keys → patterns'}</div>
+              <button type="button" onClick={() => openArp(track.id)} className="h-6 rounded bg-[#22d3ee] px-2 text-[11px] font-semibold text-black">
+                {track.arp ? 'Open' : 'Add arp'}
               </button>
             </div>
             <ArrowRight size={14} className="mt-[68px] shrink-0 text-dim" />

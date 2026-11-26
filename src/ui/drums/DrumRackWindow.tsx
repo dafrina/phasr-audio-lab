@@ -10,6 +10,7 @@ import { Knob } from '../common/Knob';
 import { AutoKnob } from '../common/AutoKnob';
 import { useLiveKeys } from '../liveKeys';
 import { EffectDevice } from '../effects/EffectDevice';
+import { DrumPatternGrid } from './DrumPatternGrid';
 import { SEND_SPEC } from '../mixer/Mixer';
 import { addEffect, setPadSend } from '../../state/effectActions';
 import { EFFECT_LABELS } from '../../audio/effects/specs';
@@ -45,6 +46,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
   const sendBuses = useProjectStore((s) => s.project.sends);
   const setUi = useUiStore((s) => s.set);
   const [sel, setSel] = useState(0);
+  const [view, setView] = useState<'pads' | 'pattern'>('pads');
   const [pos, setPos] = useState(() => ({ x: Math.max(8, (window.innerWidth - 900) / 2), y: Math.max(56, window.innerHeight - 790) }));
   const dragWin = useRef<{ dx: number; dy: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -214,12 +216,29 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
             void loadSamples(files, sel);
           }}
         />
+        <div className="ml-2 inline-flex overflow-hidden rounded border border-line" title="Pads: shape each sound · Pattern: a step grid for this track's clip">
+          {(['pads', 'pattern'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`h-6 px-2 text-[11px] ${view === v ? 'font-semibold text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
+              style={view === v ? { background: ACCENT } : undefined}
+            >
+              {v === 'pads' ? 'Pads' : 'Pattern'}
+            </button>
+          ))}
+        </div>
         <span className="ml-auto text-[9px] text-dim">Keys Z–V / A–F / Q–R / 1–4 · drop audio on a pad</span>
         <button type="button" title="Close (Esc)" onClick={close} className="flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-panel-3 hover:text-fg">
           <X size={14} />
         </button>
       </div>
 
+      {view === 'pattern' ? (
+        <DrumPatternGrid trackId={trackId} pads={cfg.kit.pads} onPickPad={setSel} />
+      ) : (
+        <>
       <div className="flex gap-3 p-3">
         {/* pad grid */}
         <div className="grid grid-cols-4 gap-1.5">
@@ -471,6 +490,8 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
           </button>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

@@ -35,6 +35,7 @@ export function createTrack(kind: TrackKind, index: number, instrument?: Instrum
     automation: [],
     modulations: [],
     chords: null,
+    arp: null,
     sends: [0, 0],
   };
 }

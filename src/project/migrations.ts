@@ -11,6 +11,7 @@ import { createId } from '../core/ids';
 import { MAX_EFFECT_SLOTS, MAX_TRACKS, PROJECT_SCHEMA_VERSION, SEND_COUNT, SEND_IDS, type Clip, type Project, type SendBus, type Track } from './types';
 import { TRACK_COLORS, defaultSendBuses } from './defaults';
 import { sanitizeChordTool } from '../chords/theory';
+import { sanitizeArp } from '../arp/arp';
 
 type RawProject = Record<string, unknown>;
 type Migration = (p: RawProject) => RawProject;
@@ -94,6 +95,7 @@ function validateProject(raw: RawProject): Project {
       automation: [],
       modulations: [],
       chords: kind === 'instrument' ? sanitizeChordTool(t.chords) : null,
+      arp: kind === 'instrument' ? sanitizeArp(t.arp) : null,
       sends: Array.from({ length: SEND_COUNT }, (_, k) => n(Array.isArray(t.sends) ? t.sends[k] : 0, 0, 0, 1)),
     } satisfies Track;
   });

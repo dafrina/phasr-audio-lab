@@ -1,3 +1,4 @@
+import { ArpWindow } from './ui/arp/ArpWindow';
 import { useEffect } from 'react';
 import { startAudioBridge } from './audio/bridge';
 import { useTransportStore } from './state/transportStore';
@@ -34,6 +35,7 @@ export default function App() {
   }, []);
   const synthTrackId = useUiStore((s) => s.synthTrackId);
   const chordsTrackId = useUiStore((s) => s.chordsTrackId);
+  const arpTrackId = useUiStore((s) => s.arpTrackId);
   return (
     <div className="relative flex h-full flex-col">
       <Toolbar />
@@ -42,6 +44,7 @@ export default function App() {
       <BottomPanel />
       {synthTrackId && <InstrumentEditor trackId={synthTrackId} />}
       {chordsTrackId && <SlipperizerWindow trackId={chordsTrackId} />}
+      {arpTrackId && <ArpWindow trackId={arpTrackId} />}
       <Toasts />
       <BusyOverlay />
       <ShortcutHelp />

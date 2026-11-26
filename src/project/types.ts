@@ -9,6 +9,7 @@
  */
 import type { KeysEngineType } from '../keys/params';
 import type { ChordToolConfig } from '../chords/theory';
+import type { ArpConfig } from '../arp/arp';
 import type { SamplerParams, SamplerZone } from '../sampler/zones';
 import type { TimeSignature } from '../core/time';
 import type { TriOscPatch } from '../synth/params';
@@ -342,6 +343,8 @@ export interface Track {
   modulations: ModRoute[];
   /** Gucci Slipper-izer chord tool (instrument tracks); clips keep the single played notes */
   chords?: ChordToolConfig | null;
+  /** Arp / step sequencer: clips keep the held keys; playback turns them into the pattern */
+  arp?: ArpConfig | null;
   /** send levels 0..1 to the send channels A and B (post-fader) */
   sends: number[];
 }

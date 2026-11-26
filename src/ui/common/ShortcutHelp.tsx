@@ -40,7 +40,9 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
   {
     title: 'Piano roll',
     items: [
-      ['Click / drag', 'Add / move notes; drag right edge to resize'],
+      ['Click (or press and hold ~150 ms)', 'Add a note (keep dragging after the hold to move it)'],
+      ['Drag on empty space', 'Select notes (a quick drag of more than 10 px)'],
+      ['Drag a note / its right edge', 'Move / resize'],
       ['Right-click', 'Delete notes'],
       ['Ctrl/Shift-drag', 'Select notes'],
       ['Space+drag, middle-drag', 'Pan'],
@@ -57,6 +59,8 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ['Z–M / Q–P', 'Play the open instrument window — or, with none open, the selected instrument track ([ ] octave, Esc closes a window)'],
       ['Shift+letter', 'While letters play notes, Shift+S / R / L / M / A / Q still run their shortcut'],
       ['Z–V / A–F / Q–R / 1–4', 'Play drum pads'],
+      ['Drum Rack → Pattern', 'Step grid: click a hit · Shift-click accent / ghost · right-click roll'],
+      ['Arp / Seq (track devices)', 'Hold keys → arpeggios or a 16-step line; press another key to transpose'],
       ['Drag knob (Shift: fine)', 'Change value; double-click resets'],
       ['Right-click knob', 'Automate / sidechain'],
     ],

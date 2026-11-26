@@ -29,7 +29,7 @@ import modsourceWorkletUrl from './worklets/modsource.worklet.ts?worker&url';
 import phaserWorkletUrl from './worklets/phaser.worklet.ts?worker&url';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
 import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
-import { withChordsExpanded } from '../chords/expand';
+import { withToolsExpanded } from '../arp/expand';
 
 export interface ExportOptions {
   sampleRate: number;
@@ -58,7 +58,7 @@ export interface ExportResult {
 const SILENCE = Math.pow(10, -90 / 20);
 
 export async function renderProjectToWav(source: Project, assets: AssetRegistry, opts: ExportOptions): Promise<ExportResult> {
-  const project = withChordsExpanded(source);
+  const project = withToolsExpanded(source);
   const range = exportRange(project, opts.range);
   const audible = trackAudibleFn(project);
   const tailMax = opts.tail ? estimateTailSeconds(project, audible) : 0;

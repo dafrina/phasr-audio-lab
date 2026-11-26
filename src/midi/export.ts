@@ -5,7 +5,7 @@
  * racks on the General MIDI drum channel 10), plus the tempo and metre.
  */
 import { PPQ } from '../core/time';
-import { withChordsExpanded } from '../chords/expand';
+import { withToolsExpanded } from '../arp/expand';
 import { expandMidiClipNotes } from '../project/clipOps';
 import type { MidiClip, Project, Track } from '../project/types';
 import { writeMidiFile } from './smf';
@@ -32,7 +32,7 @@ function clipNotes(clip: MidiClip, offset: number): OutNote[] {
 
 /** The whole song: every instrument track that has notes. Returns null if there are none. */
 export function projectToMidi(project: Project): Uint8Array | null {
-  const p = withChordsExpanded(project);
+  const p = withToolsExpanded(project);
   const tracks: { name: string; channel: number; notes: OutNote[] }[] = [];
   let melodic = 0;
   for (const t of p.tracks) {
@@ -50,7 +50,7 @@ export function projectToMidi(project: Project): Uint8Array | null {
 
 /** One clip, starting at 0. Returns null if the clip has no notes. */
 export function clipToMidi(project: Project, clipId: string): Uint8Array | null {
-  const p = withChordsExpanded(project);
+  const p = withToolsExpanded(project);
   const clip = p.clips[clipId];
   if (!clip || clip.kind !== 'midi') return null;
   const notes = clipNotes(clip, 0);

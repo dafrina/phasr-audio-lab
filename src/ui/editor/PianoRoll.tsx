@@ -42,7 +42,13 @@ type Drag =
   | { mode: 'keys'; pitch: number; id: number | null }
   | { mode: 'end'; key: string }
   | { mode: 'seek' }
-  | { mode: 'pan'; x: number; y: number; sx: number; sy: number };
+  | { mode: 'pan'; x: number; y: number; sx: number; sy: number }
+  /** pressed on empty space: a drag (> 10 px within 150 ms) selects; otherwise a note drops on release or after 150 ms */
+  | { mode: 'pending'; key: string; x: number; y: number; timer: ReturnType<typeof setTimeout> };
+
+/** how long a press on empty space waits before it drops a note, and how far a drag must go to select instead */
+const DROP_MS = 150;
+const SELECT_PX = 10;
 
 interface View {
   pxPerBeat: number;
@@ -510,17 +516,35 @@ export function PianoRoll({ clipId }: { clipId: string }) {
       const p = yToP(y);
       drag.current = { mode: 'marquee', t0: t, p0: p, t1: t, p1: p, base: e.shiftKey ? new Set(sel.current) : new Set() };
     } else {
-      // place a new note and keep dragging it
-      const t = floorT(Math.max(0, xToT(x)));
+      // empty space: wait a moment — a quick drag selects, a click (or a still hold) drops a note
       const pitch = yToP(y);
       if (pitch < 0 || pitch > 127) return;
-      const note = createNote(pitch, t, lastLen.current, newVel);
-      const notes = [...c.notes, note];
-      commitNotes(notes, 'Add note', key);
-      sel.current = new Set([note.id]);
-      drag.current = { mode: 'move', key, anchor: note, orig: notes, ids: new Set([note.id]), x, y, last: '0:0', previewPitch: pitch };
-      preview(pitch);
+      const timer = setTimeout(() => {
+        const d = drag.current;
+        if (d?.mode === 'pending' && d.timer === timer) dropNote(d.x, d.y, d.key);
+      }, DROP_MS);
+      drag.current = { mode: 'pending', key, x, y, timer };
     }
+    redraw();
+    force((n) => n + 1);
+  };
+
+  /** Place a new note where the press happened and keep dragging it (moves it, as always). */
+  const dropNote = (x: number, y: number, key: string) => {
+    const c = latestClip();
+    if (!c) return;
+    const t = floorT(Math.max(0, xToT(x)));
+    const pitch = yToP(y);
+    if (pitch < 0 || pitch > 127) {
+      drag.current = null;
+      return;
+    }
+    const note = createNote(pitch, t, lastLen.current, newVel);
+    const notes = [...c.notes, note];
+    commitNotes(notes, 'Add note', key);
+    sel.current = new Set([note.id]);
+    drag.current = { mode: 'move', key, anchor: note, orig: notes, ids: new Set([note.id]), x, y, last: '0:0', previewPitch: pitch };
+    preview(pitch);
     redraw();
     force((n) => n + 1);
   };
@@ -537,6 +561,19 @@ export function PianoRoll({ clipId }: { clipId: string }) {
       else {
         const hit = hitNote(c, x, y);
         e.currentTarget.style.cursor = hit ? (hit.edge ? 'ew-resize' : 'grab') : 'crosshair';
+      }
+      return;
+    }
+    if (d.mode === 'pending') {
+      // dragged far enough before the note dropped: this is a selection
+      if (Math.hypot(x - d.x, y - d.y) > SELECT_PX) {
+        clearTimeout(d.timer);
+        const t0 = xToT(d.x);
+        const p0 = yToP(d.y);
+        drag.current = { mode: 'marquee', t0, p0, t1: xToT(x), p1: yToP(y), base: new Set() };
+        sel.current = new Set(notesInRect(c.notes, t0, xToT(x), p0, yToP(y)));
+        redraw();
+        force((n) => n + 1);
       }
       return;
     }
@@ -595,6 +632,12 @@ export function PianoRoll({ clipId }: { clipId: string }) {
   };
 
   const onUp = () => {
+    const pending = drag.current;
+    if (pending?.mode === 'pending') {
+      // a click on empty space: the note drops now (before the 150 ms were up)
+      clearTimeout(pending.timer);
+      dropNote(pending.x, pending.y, pending.key);
+    }
     const d = drag.current;
     drag.current = null;
     if (d?.mode === 'keys' && d.id !== null && track) engine.previewNoteOff(track.id, d.id);
