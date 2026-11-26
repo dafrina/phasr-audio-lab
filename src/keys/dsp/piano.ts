@@ -77,6 +77,14 @@ const LEVEL = 0.178;
 const WOOD_GAIN = 2.2;
 
 /** fundamental T60 (seconds) by MIDI note, before the Sustain multiplier */
+/** heavy-hammer thud: body/case resonances [Hz, T60 s, weight, pan] */
+const THUD_MODES = [
+  [72, 0.16, 1, 0],
+  [118, 0.12, 0.8, -0.35],
+  [176, 0.09, 0.6, 0.35],
+  [240, 0.06, 0.4, -0.15],
+] as const;
+
 const FUND_T60: readonly (readonly [number, number])[] = [
   // (recorded A♯0: the whole note fades ≈ 6–7 dB/s, i.e. ~9–10 s)
   [21, 10],
@@ -516,10 +524,10 @@ export class PianoEngine implements KeysEngine {
   private impactLp3 = 0;
   private readonly impactHpA: number;
   private impactDecay = 0;
-  private readonly thudRe = new Float64Array(2);
-  private readonly thudIm = new Float64Array(2);
-  private readonly thudA = new Float64Array(2);
-  private readonly thudB = new Float64Array(2);
+  private readonly thudRe = new Float64Array(THUD_MODES.length);
+  private readonly thudIm = new Float64Array(THUD_MODES.length);
+  private readonly thudA = new Float64Array(THUD_MODES.length);
+  private readonly thudB = new Float64Array(THUD_MODES.length);
   private thudPending = 0;
   private readonly impactLpA: number;
   private thumpDecay = 0;
@@ -565,10 +573,11 @@ export class PianoEngine implements KeysEngine {
     }
     this.thumpDecay = Math.exp(-1 / (0.004 * sampleRate));
     this.tickDecay = Math.exp(-1 / (0.0025 * sampleRate));
-    this.impactDecay = Math.exp(-1 / (0.011 * sampleRate));
-    this.impactLpA = 1 - Math.exp((-TWO_PI * 320) / sampleRate);
-    this.impactHpA = 1 - Math.exp((-TWO_PI * 150) / sampleRate);
-    for (const [i, f, t60] of [[0, 78, 0.12], [1, 132, 0.09]] as const) {
+    this.impactDecay = Math.exp(-1 / (0.016 * sampleRate));
+    this.impactLpA = 1 - Math.exp((-TWO_PI * 420) / sampleRate);
+    this.impactHpA = 1 - Math.exp((-TWO_PI * 120) / sampleRate);
+    for (let i = 0; i < THUD_MODES.length; i++) {
+      const [f, t60] = THUD_MODES[i] as readonly [number, number, number, number];
       const r = Math.exp(-LN_1000 / (t60 * sampleRate));
       this.thudA[i] = r * Math.cos((TWO_PI * f) / sampleRate);
       this.thudB[i] = r * Math.sin((TWO_PI * f) / sampleRate);
@@ -947,7 +956,7 @@ export class PianoEngine implements KeysEngine {
     // contact time: a heavier hammer (Impact) stays on the string longer → rounder top, fuller strike
     // (treble hammers are small and light: barely longer)
     const heavy = (p.impact ?? 0.6) * (1 - 0.8 * trebleness(note));
-    const tauSec = (0.000012 + 0.00005 * (1 - vel) * (1 - vel) + 0.00009 * heavy) * Math.pow(262 / f1, 0.2);
+    const tauSec = (0.000012 + 0.00005 * (1 - vel) * (1 - vel) + 0.00011 * heavy) * Math.pow(262 / f1, 0.2);
     const tau = Math.max(0.6, tauSec * sr);
     v.pulseTau = tau;
     v.pulseLen = Math.ceil(9 * tau) + 1;
@@ -971,9 +980,10 @@ export class PianoEngine implements KeysEngine {
     // energy at −13…−16 dB in the first 30 ms, even C5)
     const noteLevel = LEVEL * Math.pow(Math.max(vel, 1e-3), p.velCurve);
     // (deep bass: its own low partials already carry the low end; recorded A0's strike is a high clang)
-    const impact = (p.impact ?? 0.6) * noteLevel * (1 - 0.7 * bass - 0.35 * trebleness(note));
-    this.impactNoise += impact * 0.9;
-    this.thudPending += impact * 0.35;
+    const deep = Math.min(1, Math.max(0, (33 - note) / 12));
+    const impact = (p.impact ?? 0.6) * noteLevel * (1 - 0.45 * bass - 0.4 * deep - 0.7 * trebleness(note));
+    this.impactNoise += impact * 1.3;
+    this.thudPending += impact * 0.6;
   }
 
   // -------------------------------------------------------------------------
@@ -1119,18 +1129,20 @@ export class PianoEngine implements KeysEngine {
       }
       // heavy-hammer impact: low-passed noise burst + two decaying low resonances
       let imp = 0;
+      let impL = 0;
+      let impR = 0;
       if (this.impactNoise > 1e-7) {
         const nz = noise.next() * this.impactNoise;
         this.impactLp1 += (nz - this.impactLp1) * this.impactLpA;
         this.impactLp2 += (this.impactLp1 - this.impactLp2) * this.impactLpA;
         // band-pass (~150–320 Hz): the felt's body, not a rumble — the lowest part is the thud below
         this.impactLp3 += (this.impactLp2 - this.impactLp3) * this.impactHpA;
-        imp = (this.impactLp2 - this.impactLp3) * 7;
+        imp = (this.impactLp2 - this.impactLp3) * 6;
         this.impactNoise *= this.impactDecay;
       }
       const tk = i === 0 ? this.thudPending : 0;
       if (i === 0) this.thudPending = 0;
-      for (let m = 0; m < 2; m++) {
+      for (let m = 0; m < THUD_MODES.length; m++) {
         const re = this.thudRe[m] as number;
         const im = this.thudIm[m] as number;
         if (re === 0 && im === 0 && tk === 0) continue;
@@ -1138,7 +1150,10 @@ export class PianoEngine implements KeysEngine {
         const ni = (this.thudB[m] as number) * re + (this.thudA[m] as number) * im;
         this.thudRe[m] = Math.abs(nr) < 1e-9 && Math.abs(ni) < 1e-9 ? 0 : nr;
         this.thudIm[m] = Math.abs(nr) < 1e-9 && Math.abs(ni) < 1e-9 ? 0 : ni;
-        imp += ni * (m === 0 ? 1 : 0.7);
+        // the case and board radiate from different places: a wide, room-filling thud
+        const [, , w, pan] = THUD_MODES[m] as readonly [number, number, number, number];
+        impL += ni * w * (1 - pan);
+        impR += ni * w * (1 + pan);
       }
       let tick = 0;
       if (this.tickEnv > 1e-7) {
@@ -1189,8 +1204,8 @@ export class PianoEngine implements KeysEngine {
       // soundboard: the strings are heard through a dense wooden resonator
       this.wood.process(l, r);
       const woodAmt = p.body * WOOD_GAIN;
-      const outl = l + this.wood.outL * woodAmt + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + tick + imp + sL * wet;
-      const outr = r + this.wood.outR * woodAmt + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + tick + imp + sR * wet;
+      const outl = l + this.wood.outL * woodAmt + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + tick + imp + impL + sL * wet;
+      const outr = r + this.wood.outR * woodAmt + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + tick + imp + impR + sR * wet;
       const g = this.master.next();
       // early reflections (stereo, 6–31 ms): the instrument sits in a space instead of in your ear
       this.erLine.write(0.5 * (outl + outr));

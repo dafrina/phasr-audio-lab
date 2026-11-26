@@ -309,7 +309,7 @@ describe('Keyforge piano', () => {
     const f8 = partialFrequency(pianoFundamental(note, 1), 8, inharmonicityB(note, 1));
     const pitch = (vel: number, from: number, to: number) => {
       // string physics only: no soundboard/knock modes next to the measured partial
-      const [L, R] = renderKeys(cfg('piano', { unison: 0, room: 0, metal: 0, body: 0, hammerNoise: 0 }), hit(note, vel), to + 0.01, SR);
+      const [L, R] = renderKeys(cfg('piano', { unison: 0, room: 0, metal: 0, body: 0, hammerNoise: 0, impact: 0 }), hit(note, vel), to + 0.01, SR);
       return peakNear(spectrum(slice(mono(L, R), SR, from, to), SR, 1 << 18), f8, 15).f;
     };
     const glide = 1200 * Math.log2(pitch(1, 0.005, 0.06) / pitch(1, 0.6, 0.9));
