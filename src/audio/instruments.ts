@@ -7,6 +7,7 @@ import type { InstrumentConfig } from '../project/types';
 import type { SynthEvent } from '../synth/dsp/TriOscCore';
 import { DrumRackInstrument } from './drumRack';
 import { KeysInstrument } from './keysNode';
+import { SamplerInstrument } from './samplerNode';
 import { TriOscInstrument } from './trioscNode';
 
 /** What the transport and engine need from any instrument. */
@@ -70,6 +71,18 @@ export const INSTRUMENT_AUDIO: { [T in InstrumentType]: AudioFactory<T> } = {
     update: (node, c) => {
       if (!(node instanceof KeysInstrument)) return false;
       node.setConfig({ engine: c.engine, params: c.params });
+      return true;
+    },
+  },
+  sampler: {
+    create: (ctx, c, env) => {
+      const s = new SamplerInstrument(ctx, c, env.resolveAsset);
+      if (env.events) s.schedule(env.events);
+      return s;
+    },
+    update: (node, c) => {
+      if (!(node instanceof SamplerInstrument)) return false;
+      node.setConfig(c);
       return true;
     },
   },

@@ -46,6 +46,11 @@ export function estimateTailSeconds(p: Project, trackAudible: (t: Track) => bool
       // undamped treble strings / tine damper / rotary / amp release
       inst = cfg.engine === 'piano' ? 3 : cfg.engine === 'epiano' ? 0.8 : cfg.engine === 'organ' ? 0.3 : (cfg.params.release ?? 1);
     }
+    if (cfg?.type === 'sampler') {
+      // release tail, or (one-shot) the longest sample
+      const longest = Math.max(0, ...cfg.zones.map((z) => p.assets[z.assetId]?.durationSec ?? 0));
+      inst = cfg.params.oneShot ? longest : cfg.params.release * 1.2;
+    }
     if (cfg?.type === 'drumrack') {
       for (const pad of cfg.kit.pads) {
         const rate = Math.pow(2, pad.tune / 12);

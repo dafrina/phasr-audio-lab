@@ -93,6 +93,8 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
     are slower in the bass, undamped top keys, key-off noise; restrikes hit the vibrating string; soundboard body
     modes + hammer knock, 12 sympathetic "strings" that bloom with the sustain pedal, lid filter, pitch-based stereo.
     Tension modulation (hard strikes start a few cents sharp), per-strike variation and a recording-room ambience.
+    A short, bright hammer *hit* on the upper partials (Hit knob), phantom partials (Metal), a dense soundboard
+    resonator (Body), key-action knock (Thump), treble trichord shimmer.
     Presets: Concert Grand, Felt Piano, Bright Upright.
   - *Electric Piano* — tine (fundamental + clamped-free beam bell modes 6.27×/17.55×) and detuned tonebar, through an
     asymmetric magnetic pickup (time derivative of flux) so hard hits bark; damper, stereo tremolo, preamp drive.
@@ -121,7 +123,13 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   and the progression plays in rhythm (hold, stabs, house offbeat, groove, arp; ½/1/2 bars per chord), locked to the
   song tempo. Clips store the single keys you play (recording included) and are expanded at playback/export; the piano
   roll names the chord on every key and note; **Bake to notes** writes the chords into the clips (undoable).
-- **Add tracks** from the *+ Add track* row under the last track (Audio / TriOsc / Drum Rack / Keyforge) or the lane context menu.
+- **Sampler** (bring your own samples; nothing is shipped): drop or pick one or more audio files and each becomes a
+  zone. Root notes are read from file names (`Piano_C4.wav`, `Bass A#1`, `pad-060`) or found by pitch detection (YIN).
+  *Auto* mapping splits keys halfway between roots and stretches the outer zones to the ends of the keyboard, so every
+  key plays (pitched from the nearest sample); samples sharing a root become velocity layers ordered by loudness.
+  *Manual* mapping keeps your key/velocity ranges, and uncovered keys borrow the nearest zone. Attack, release,
+  velocity, transpose, volume (automatable), one-shot mode, sustain pedal, pitch bend; key map with velocity axis.
+- **Add tracks** from the *+ Add track* row under the last track (Audio / TriOsc / Drum Rack / Keyforge / Sampler) or the lane context menu.
 - **Piano roll navigation:** Space + drag (or middle-drag) pans, Shift + wheel scrolls horizontally, horizontal scrollbar.
 - **Milestone 6 (persistence & export): done.** Projects autosave (~1 s after each edit) to IndexedDB; audio assets go
   to the Origin Private File System where writable, else IndexedDB. The last project reopens on load. Project menu

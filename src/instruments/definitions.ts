@@ -17,6 +17,19 @@ import { PARAM_SPECS, type NumericParamSpec, type TriOscPatch } from '../synth/p
 import { defaultPatch, sanitizePatch } from '../synth/params';
 import { KEYS_ENGINES, KEYS_ENGINE_TYPES, sanitizeKeysParams, type KeysEngineType } from '../keys/params';
 import { KEYS_PRESETS } from '../keys/presets';
+import { DEFAULT_SAMPLER_PARAMS, sanitizeSamplerParams, sanitizeZone, type SamplerParams, type SamplerZone } from '../sampler/zones';
+
+const secsFmt = (v: number) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`);
+/** Sampler parameters that knobs and automation lanes use */
+export const SAMPLER_SPECS: Record<keyof SamplerParams, NumericParamSpec> = {
+  attack: { label: 'Attack', min: 0.001, max: 5, default: DEFAULT_SAMPLER_PARAMS.attack, curve: 'exp', format: secsFmt },
+  release: { label: 'Release', min: 0.005, max: 10, default: DEFAULT_SAMPLER_PARAMS.release, curve: 'exp', format: secsFmt },
+  velSens: { label: 'Velocity', min: 0, max: 1, default: DEFAULT_SAMPLER_PARAMS.velSens, curve: 'linear', format: (v) => `${Math.round(v * 100)}%` },
+  gain: { label: 'Volume', min: -36, max: 12, default: DEFAULT_SAMPLER_PARAMS.gain, curve: 'linear', format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` },
+  transpose: { label: 'Transpose', min: -24, max: 24, default: 0, step: 1, curve: 'linear', bipolar: true, format: (v) => `${v > 0 ? '+' : ''}${Math.round(v)} st` },
+  oneShot: { label: 'One-shot', min: 0, max: 1, default: 0, step: 1, curve: 'linear', format: (v) => (v >= 0.5 ? 'On' : 'Off') },
+};
+const SAMPLER_AUTO: AutoParamInfo[] = (['attack', 'release', 'velSens', 'gain', 'transpose'] as const).map((k) => ({ key: k, label: SAMPLER_SPECS[k].label, spec: SAMPLER_SPECS[k] }));
 
 // ---- automatable instrument parameters ----
 
@@ -161,6 +174,25 @@ export const INSTRUMENTS: { [T in InstrumentType]: InstrumentDefinition<T> } = {
     defaultSidechainNote: () => null,
     automatableParams: (c) => KEYS_AUTO[c.engine],
     staticValue: (c, key) => c.params[key] ?? null,
+  },
+  sampler: {
+    type: 'sampler',
+    label: 'Sampler',
+    description: 'Play your own samples: map one or more to keys and velocities; unmapped keys are pitched from the nearest sample',
+    trackName: 'Sampler',
+    createConfig: () => ({ type: 'sampler', zones: [], params: { ...DEFAULT_SAMPLER_PARAMS }, autoMap: true, presetName: 'Empty bank' }),
+    sanitize: (r) => ({
+      type: 'sampler',
+      zones: (Array.isArray(r.zones) ? r.zones : []).map(sanitizeZone).filter((z): z is SamplerZone => z !== null).slice(0, 128),
+      params: sanitizeSamplerParams(r.params),
+      autoMap: r.autoMap !== false,
+      presetName: typeof r.presetName === 'string' ? r.presetName : 'Bank',
+    }),
+    assetIds: (c) => [...new Set(c.zones.map((z) => z.assetId))],
+    noteLabel: () => null,
+    defaultSidechainNote: () => null,
+    automatableParams: () => SAMPLER_AUTO,
+    staticValue: (c, key) => (key in c.params ? (c.params[key as keyof SamplerParams] ?? null) : null),
   },
 };
 

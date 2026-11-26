@@ -9,6 +9,7 @@
  */
 import type { KeysEngineType } from '../keys/params';
 import type { ChordToolConfig } from '../chords/theory';
+import type { SamplerParams, SamplerZone } from '../sampler/zones';
 import type { TimeSignature } from '../core/time';
 import type { TriOscPatch } from '../synth/params';
 
@@ -117,7 +118,8 @@ export interface DrumKit {
 export type InstrumentConfig =
   | { type: 'triosc'; patch: TriOscPatch; presetName: string }
   | { type: 'drumrack'; kit: DrumKit; presetName: string }
-  | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string };
+  | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string }
+  | { type: 'sampler'; zones: SamplerZone[]; params: SamplerParams; autoMap: boolean; presetName: string };
 
 export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'chorus';
 
