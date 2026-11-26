@@ -254,7 +254,7 @@ describe('Keyforge piano', () => {
     }
   });
 
-  it('guard rail: the soundboard (wood) and the key action (knock) are audible', () => {
+  it('guard rail: the soundboard (wood) and the strike (hit + knock) are audible', () => {
     const share = (note: number, over: Record<string, number>, from: number, to: number) => {
       const [a, b] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.75), to + 0.05, SR);
       const [c, d] = renderKeys(cfg('piano', { room: 0, ...over }), hit(note, 0.75), to + 0.05, SR);
@@ -264,16 +264,19 @@ describe('Keyforge piano', () => {
       return 20 * Math.log10(rms(slice(diff, SR, from, to)) / rms(slice(full, SR, from, to)));
     };
     expect(share(60, { body: 0 }, 0.1, 1)).toBeGreaterThan(-18);
-    expect(share(96, { hammerNoise: 0 }, 0, 0.04)).toBeGreaterThan(-18);
+    // the strike (hammer hit + action knock) is clearly heard in the treble, at soft and normal touch
+    expect(share(96, { hammerNoise: 0, hit: 0 }, 0, 0.04)).toBeGreaterThan(-15);
+    // and the woody knock is still part of the middle register
+    expect(share(60, { hammerNoise: 0 }, 0, 0.04)).toBeGreaterThan(-24);
   });
 
-  it('guard rail: a strike starts with a short bright hit, then settles', () => {
-    for (const note of [60, 84]) {
-      const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.8), 0.4, SR);
+  it('guard rail: a strike starts with a short bright hit, then settles — also at soft touch and in the top octave', () => {
+    for (const [note, vel] of [[60, 0.8], [84, 0.8], [60, 0.2], [96, 0.3]] as const) {
+      const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, vel), 0.4, SR);
       const m = mono(L, R);
       const hitC = centroid(spectrum(slice(m, SR, 0, 0.015), SR));
       const toneC = centroid(spectrum(slice(m, SR, 0.1, 0.3), SR));
-      expect(hitC, `note ${note}`).toBeGreaterThan(toneC * 1.15);
+      expect(hitC, `note ${note} vel ${vel}`).toBeGreaterThan(toneC * 1.15);
     }
   });
 

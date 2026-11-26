@@ -201,10 +201,11 @@ export function hammerTreble(note: number): number {
  * which caps the corner at a few harmonics (treble notes are dominated by
  * their fundamental).
  */
-export function hammerCorner(f1: number, b: number, treb: number): { fc: number; slope: number } {
+export function hammerCorner(f1: number, b: number, treb: number): { fc: number; slope: number; open: number } {
   const absCorner = (700 + 7000 * b * b) * Math.pow(f1 / 262, f1 < 262 ? 0.6 : 0.3);
   const harmonicCap = f1 * (0.9 + 2.2 * b + 20 * (1 - treb) * (1 - treb));
-  return { fc: Math.min(f1 + absCorner, harmonicCap), slope: 1.6 + 0.6 * treb };
+  // `open`: the uncapped corner — the instant of impact itself is not limited by the contact time
+  return { fc: Math.min(f1 + absCorner, harmonicCap), slope: 1.6 + 0.6 * treb, open: f1 + absCorner };
 }
 
 export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'>): number {
@@ -666,7 +667,9 @@ export class PianoEngine implements KeysEngine {
     for (let k = 1; k <= count; k++) peakA = Math.max(peakA, (amps[k - 1] as number) * level);
     // nonlinear: harder strikes stretch the string more
     const phantomAmt = (p.metal ?? 0.5) * vel * clamp((86 - note) / 30, 0, 1);
-    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 1.2) * 2.6;
+    // the hit scales gently with velocity: soft notes are still struck, just with a softer felt
+    // short treble strings: the impact is a larger part of the sound
+    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 0.55) * 2.6 * (1 + 1.5 * hammerTreble(note));
     const hc = hammerCorner(f1, strikeBrightness(Math.min(1, vel * varTone), p), hammerTreble(note));
     for (let k = 1; k <= count; k++) {
       const a = (amps[k - 1] as number) * level;
@@ -690,7 +693,7 @@ export class PianoEngine implements KeysEngine {
       // hit: brief extra drive of the upper partials while the hammer is in contact
       if (k >= 2 && k <= HIT_MAX && n < MAX_RES && hitAmt > 0) {
         const f = partialFrequency(f1, k, B);
-        const hf = 1 / (1 + Math.pow(f / (hc.fc * 4), hc.slope));
+        const hf = 1 / (1 + Math.pow(f / Math.max(hc.fc * 4, hc.open * 1.6), hc.slope));
         const h0 = 1 / (1 + Math.pow(f / hc.fc, hc.slope));
         // plus a little extra on the lower partials: the strike is also louder, not only brighter
         const ratio = Math.min(8, Math.max(0, hf / h0 - 1) + 0.25);
@@ -730,10 +733,11 @@ export class PianoEngine implements KeysEngine {
     // hammer knock into the soundboard
     // key bottoming and the hammer knock through the wooden action and soundboard:
     // a big part of what makes a struck key sound like a key (most audible in the treble)
-    this.knockPending += p.hammerNoise * Math.pow(vel, 1.3) * (1.5 + 0.5 * bass + 3 * trebleness(note));
+    // the woody part of the key/action knock; in the top octaves the impact is mostly a bright tick (below)
+    this.knockPending += p.hammerNoise * Math.pow(vel, 1.1) * (1.5 + 0.5 * bass) * (1 - 0.55 * trebleness(note));
     this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
     // treble: the hard hammer core hitting steel gives a short, bright "tick"
-    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.5) * (0.04 + 0.015 * trebleness(note));
+    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.2) * (0.04 + 0.14 * trebleness(note));
   }
 
   // -------------------------------------------------------------------------
