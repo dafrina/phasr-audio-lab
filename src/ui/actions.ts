@@ -7,7 +7,6 @@ import { PPQ, quantize, secondsToTicks, snapToTicks, ticksPerBar } from '../core
 import { duplicateClip, setClipLoop, splitClip } from '../project/clipOps';
 import { createAudioClip, createMidiClip, createTrack, TRACK_COLORS } from '../project/defaults';
 import { INSTRUMENTS, type InstrumentType } from '../instruments/definitions';
-import { keysPreset } from '../keys/presets';
 import { MAX_TRACKS, type Clip, type Project } from '../project/types';
 import { getProject, removeClips, removeTrack, upsertClips, useProjectStore } from '../state/projectStore';
 import { uiToast, useUiStore } from '../state/uiStore';
@@ -83,17 +82,13 @@ export async function importAudioFiles(files: File[], opts: { trackId?: string; 
 /** What a new track can be: an audio track, or any registered instrument. */
 export type NewTrackSpec = 'audio' | InstrumentType;
 
-export function addNewTrack(spec: NewTrackSpec, opts: { keysPreset?: string; name?: string } = {}): void {
+export function addNewTrack(spec: NewTrackSpec): void {
   const p = getProject();
   if (p.tracks.length >= MAX_TRACKS) {
     uiToast('error', `A project can have at most ${MAX_TRACKS} tracks.`);
     return;
   }
-  // a Keyforge track can start on a given preset (the 808 button)
-  const kp = spec === 'keys' && opts.keysPreset ? keysPreset(opts.keysPreset) : undefined;
-  const inst = spec === 'audio' ? undefined : kp ? { type: 'keys' as const, engine: kp.engine, params: { ...kp.params }, presetName: kp.name } : INSTRUMENTS[spec].createConfig();
-  const track = spec === 'audio' ? createTrack('audio', p.tracks.length) : createTrack('instrument', p.tracks.length, inst);
-  if (opts.name) track.name = `${opts.name} ${p.tracks.length + 1}`;
+  const track = spec === 'audio' ? createTrack('audio', p.tracks.length) : createTrack('instrument', p.tracks.length, INSTRUMENTS[spec].createConfig());
   // pick a color no other track uses, when one is left
   const used = new Set(p.tracks.map((t) => t.color));
   track.color = TRACK_COLORS.find((c) => !used.has(c)) ?? track.color;
