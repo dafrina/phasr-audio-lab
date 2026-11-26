@@ -18,6 +18,7 @@ import {
   quantizeNotes,
   resizeNotesTo,
   setVelocity,
+  setVelocityFrom,
 } from '../../project/noteOps';
 import type { MidiClip, MidiNote } from '../../project/types';
 import { getProject, upsertClips, useProjectStore } from '../../state/projectStore';
@@ -606,12 +607,39 @@ export function PianoRoll({ clipId }: { clipId: string }) {
   };
 
   // ---- velocity lane ----
-  const velDrag = useRef<string | null>(null);
+  // Drag across notes to paint each one's velocity (only selected notes when a selection
+  // exists). Grabbing one of several selected notes instead moves the whole selection with
+  // it, keeping the differences between them (Alt: all take the same value).
+  const velDrag = useRef<{ key: string; group: { anchor: MidiNote; orig: MidiNote[]; ids: Set<string> } | null } | null>(null);
+  const velAt = (y: number) => Math.round(((VEL_H - 2 - y) / (VEL_H - 8)) * 127);
+  const startVelocity = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const c = latestClip();
+    if (!c) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    let group: { anchor: MidiNote; orig: MidiNote[]; ids: Set<string> } | null = null;
+    if (sel.current.size > 1) {
+      const { x, y } = local(e, e.currentTarget);
+      const v = velAt(y);
+      // the selected bar under the cursor (for a chord: the one whose top is nearest)
+      const dist = (n: MidiNote) => Math.abs(tToX(n.start) + 1.5 - x);
+      const anchor = c.notes
+        .filter((n) => sel.current.has(n.id) && dist(n) <= 5)
+        .sort((a, b) => dist(a) - dist(b) || Math.abs(a.velocity - v) - Math.abs(b.velocity - v))[0];
+      if (anchor) group = { anchor, orig: c.notes, ids: new Set(sel.current) };
+    }
+    velDrag.current = { key: `vel-${Date.now()}`, group };
+    paintVelocity(e);
+  };
   const paintVelocity = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const c = latestClip();
-    if (!c || !velDrag.current) return;
+    const d = velDrag.current;
+    if (!c || !d) return;
     const { x, y } = local(e, e.currentTarget);
-    const v = Math.round(((VEL_H - 2 - y) / (VEL_H - 8)) * 127);
+    const v = velAt(y);
+    if (d.group) {
+      commitNotes(setVelocityFrom(d.group.orig, d.group.ids, d.group.anchor, v, e.altKey), 'Velocity', d.key);
+      return;
+    }
     const hasSel = sel.current.size > 0;
     const hits = new Set(
       c.notes
@@ -619,7 +647,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
         .map((n) => n.id),
     );
     if (!hits.size) return;
-    commitNotes(setVelocity(c.notes, hits, v), 'Velocity', velDrag.current);
+    commitNotes(setVelocity(c.notes, hits, v), 'Velocity', d.key);
   };
 
   // ---- wheel ----
@@ -940,14 +968,11 @@ export function PianoRoll({ clipId }: { clipId: string }) {
           ref={vel}
           style={{ width: size.w, height: VEL_H }}
           className="block cursor-ns-resize"
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId);
-            velDrag.current = `vel-${Date.now()}`;
-            paintVelocity(e);
-          }}
+          onPointerDown={startVelocity}
           onPointerMove={paintVelocity}
           onPointerUp={() => (velDrag.current = null)}
-          title="Drag to paint velocities (only selected notes when a selection exists)"
+          onPointerCancel={() => (velDrag.current = null)}
+          title="Drag to paint velocities (only selected notes when a selection exists). Drag one of several selected notes to change them all together (Alt: all to the same value)"
         />
         <div className="flex" style={{ height: SB_H }}>
           <div style={{ width: KEYS_W }} className="shrink-0 bg-panel" />

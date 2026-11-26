@@ -70,6 +70,17 @@ export function scaleVelocity(notes: MidiNote[], ids: ReadonlySet<string>, delta
   return notes.map((n) => (ids.has(n.id) ? { ...n, velocity: clampVelocity(n.velocity + delta) } : n));
 }
 
+/**
+ * Velocity drag on one note of a selection: the anchor goes to `velocity` and the
+ * other selected notes move by the same amount (accents are kept), or with `same`
+ * all take that value. Pass the notes as they were when the drag began, so values
+ * clamped at 1 or 127 come back when the drag returns.
+ */
+export function setVelocityFrom(notes: MidiNote[], ids: ReadonlySet<string>, anchor: MidiNote, velocity: number, same = false): MidiNote[] {
+  if (same) return setVelocity(notes, ids, velocity);
+  return scaleVelocity(notes, ids, clampVelocity(velocity) - anchor.velocity);
+}
+
 export interface QuantizeOptions {
   grid: number;
   /** 0..1, how far starts move toward the grid */

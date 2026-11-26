@@ -11,6 +11,7 @@ import {
   resizeNotesTo,
   scaleVelocity,
   setVelocity,
+  setVelocityFrom,
 } from '../src/project/noteOps';
 import { createMidiClip } from '../src/project/defaults';
 import type { MidiNote } from '../src/project/types';
@@ -49,6 +50,21 @@ describe('note operations', () => {
     expect(deleteNotes(notes, new Set(['a'])).map((x) => x.id)).toEqual(['b']);
     expect(setVelocity(notes, new Set(['b']), 300)[1]?.velocity).toBe(127);
     expect(scaleVelocity(notes, new Set(['a']), -500)[0]?.velocity).toBe(1);
+  });
+
+  it('dragging one selected velocity moves the whole selection with it', () => {
+    const notes = [n('a', 60, 0, 240, 100), n('b', 62, 240, 240, 80), n('c', 64, 480, 240, 120), n('d', 65, 720, 240, 90)];
+    const sel = new Set(['a', 'b', 'c']);
+    const anchor = notes[1] as MidiNote;
+    // b goes 80 → 60; a and c move by the same −20 (the accent on c stays), d is not selected
+    expect(setVelocityFrom(notes, sel, anchor, 60).map((x) => x.velocity)).toEqual([80, 60, 100, 90]);
+    // with `same`, every selected note takes the value
+    expect(setVelocityFrom(notes, sel, anchor, 60, true).map((x) => x.velocity)).toEqual([60, 60, 60, 90]);
+    // pushed past the top, c clamps at 127; computed from the drag-start notes, it comes back on the way down
+    expect(setVelocityFrom(notes, sel, anchor, 120).map((x) => x.velocity)).toEqual([127, 120, 127, 90]);
+    expect(setVelocityFrom(notes, sel, anchor, 80).map((x) => x.velocity)).toEqual([100, 80, 120, 90]);
+    // the cursor value is clamped too (the anchor never goes below 1)
+    expect(setVelocityFrom(notes, sel, anchor, -40).map((x) => x.velocity)).toEqual([21, 1, 41, 90]);
   });
 
   it('quantizes starts (with strength) and optionally ends', () => {
