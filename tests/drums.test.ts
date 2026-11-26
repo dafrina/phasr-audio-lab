@@ -187,12 +187,12 @@ describe('per-pad EQ, pad sends and split to own track', () => {
   });
 });
 
-describe('drum voice characters (2–3 sounds per pad)', () => {
-  it('every voice offers three characters; each renders clean, full-level and different from the classic one', async () => {
+describe('drum voice styles (Classic + House / Techno / Hip-Hop / Trap / Lo-Fi, per pad)', () => {
+  it('every voice offers six styles; each renders clean, full-level and different from the classic one', async () => {
     const { DRUM_MODELS } = await import('../src/drums/kit');
     for (const v of DRUM_VOICES) {
       const models = DRUM_MODELS[v.type];
-      expect(models.length, v.type).toBe(3);
+      expect(models.length, v.type).toBe(6);
       const classic = renderDrumVoice({ kind: 'synth', voice: v.type, tone: 0.5, snap: 0.5, length: 0.4, model: 0 }, 48000);
       for (let m = 1; m < models.length; m++) {
         const x = renderDrumVoice({ kind: 'synth', voice: v.type, tone: 0.5, snap: 0.5, length: 0.4, model: m }, 48000);
@@ -213,14 +213,15 @@ describe('drum voice characters (2–3 sounds per pad)', () => {
     const b = renderDrumVoice({ kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4, model: 0 }, 48000);
     expect(Array.from(a)).toEqual(Array.from(b));
     const k = sanitizeKit({ pads: [{ name: 'K', source: { kind: 'synth', voice: 'kick', tone: 0.5, snap: 0.5, length: 0.4, model: 9 } }, { name: 'S', source: { kind: 'synth', voice: 'snare', tone: 0.5, snap: 0.5, length: 0.4 } }] });
-    expect(k.pads[0]?.source).toMatchObject({ model: 2 });
+    expect(k.pads[0]?.source).toMatchObject({ model: 5 });
     expect(k.pads[1]?.source).toMatchObject({ model: 0 });
   });
 
-  it('the new 909 and Hard Techno kits use the alternative characters', () => {
-    const names = FACTORY_KITS.map((k) => k.name);
-    expect(names).toEqual(expect.arrayContaining(['909 House Kit', 'Hard Techno Kit']));
-    const hard = FACTORY_KITS.find((k) => k.name === 'Hard Techno Kit')!.kit;
-    expect(hard.pads.filter((p) => p.source.kind === 'synth' && (p.source.model ?? 0) > 0).length).toBeGreaterThan(10);
+  it('one kit per style: House, Techno and Hip-Hop kits are built from that style', () => {
+    for (const [name, model] of [['House Kit', 1], ['Techno Kit', 2], ['Hip-Hop Kit', 3], ['Trap Kit', 4], ['Lo-Fi Kit', 5]] as const) {
+      const k = FACTORY_KITS.find((x) => x.name === name)?.kit;
+      expect(k, name).toBeTruthy();
+      expect(k!.pads.filter((p) => p.source.kind === 'synth' && p.source.model === model).length, name).toBeGreaterThanOrEqual(12);
+    }
   });
 });

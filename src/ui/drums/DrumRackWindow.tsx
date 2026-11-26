@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Drum, FolderOpen, RotateCcw, Send, SlidersHorizontal, Sparkles, Split, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
-import { DRUM_CHOKE_GROUPS, DRUM_MODELS, DRUM_PADS, DRUM_SPECS, DRUM_VOICES, FACTORY_KITS, defaultKit, padNote } from '../../drums/kit';
+import { DRUM_CHOKE_GROUPS, DRUM_MODELS, DRUM_STYLES, DRUM_PADS, DRUM_SPECS, DRUM_VOICES, FACTORY_KITS, defaultKit, padNote } from '../../drums/kit';
 import { midiNoteName } from '../../core/time';
 import type { DrumKit, DrumPad, DrumVoiceType, InstrumentConfig } from '../../project/types';
 import { getProject, setInstrumentConfig, useProjectStore } from '../../state/projectStore';
@@ -298,7 +298,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-[10px]">
+          <div className="flex flex-wrap items-center gap-2 text-[10px]">
             <span className="w-12 text-muted">Sound</span>
             <div className="inline-flex overflow-hidden rounded border border-line">
               <button
@@ -349,19 +349,20 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
                   </option>
                 ))}
               </select>
-              <div className="inline-flex overflow-hidden rounded border border-line" title="Character: a different sound for this voice (tone, snap and length still shape it)">
-                {(DRUM_MODELS[pad.source.voice] ?? []).map((label, m) => {
+              <div className="inline-flex overflow-hidden rounded border border-line" title="Style: this voice as it sounds in house, techno or hip-hop (Tone, Snap and Length still shape it)">
+                {DRUM_STYLES.map((label, m) => {
                   const on = (pad.source.kind === 'synth' ? (pad.source.model ?? 0) : 0) === m;
                   return (
                     <button
                       key={label}
                       type="button"
+                      title={pad.source.kind === 'synth' ? DRUM_MODELS[pad.source.voice][m] : label}
                       onClick={() => {
                         setSynth({ model: m }, 'model');
                         // hear the new character right away
                         setTimeout(() => hit(sel, 0.85), 30);
                       }}
-                      className={`px-1.5 py-0.5 ${on ? 'font-semibold text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
+                      className={`whitespace-nowrap px-1.5 py-0.5 ${on ? 'font-semibold text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
                       style={on ? { background: ACCENT } : undefined}
                     >
                       {label}

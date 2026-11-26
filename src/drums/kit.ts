@@ -25,20 +25,22 @@ export const DRUM_VOICES: { type: DrumVoiceType; label: string }[] = [
   { type: 'zap', label: 'Zap' },
 ];
 
-/** The characters every built-in voice offers (index = model; 0 = the classic sound). */
+/** Every built-in voice comes in these styles (index = model; 0 = the classic sound), chosen per pad. */
+export const DRUM_STYLES = ['Classic', 'House', 'Techno', 'Hip-Hop', 'Trap', 'Lo-Fi'] as const;
+/** What each style is, per voice (tooltips). */
 export const DRUM_MODELS: Record<DrumVoiceType, string[]> = {
-  kick: ['Classic', '909', 'Distorted'],
-  snare: ['Classic', '909', 'Trap'],
-  clap: ['Classic', '909', 'Snap'],
-  rim: ['Classic', 'Wood Rim', 'Click'],
-  tom: ['Classic', 'Electronic', 'Floor Tom'],
-  hatClosed: ['Classic', '808', 'Noise'],
-  hatOpen: ['Classic', '808', 'Noise'],
-  crash: ['Crash', 'Ride', 'Reverse'],
-  cowbell: ['808', 'Big Bell', 'Tight'],
-  shaker: ['Shaker', 'Soft', 'Tight'],
-  perc: ['FM Blip', 'Bongo', 'Metal Ping'],
-  zap: ['Zap', 'Laser', 'Noise Sweep'],
+  kick: ['Classic', 'House · 909 punch', 'Techno · distorted boom', 'Hip-Hop · boom-bap thump', 'Trap · 808 boom', 'Lo-Fi · dusty classic'],
+  snare: ['Classic', 'House · 909', 'Techno · gated industrial', 'Hip-Hop · fat boom-bap', 'Trap · crack + clap', 'Lo-Fi · dusty classic'],
+  clap: ['Classic', 'House · 909 roomy', 'Techno · tight snap', 'Hip-Hop · thick layered', 'Trap · tight bright', 'Lo-Fi · dusty classic'],
+  rim: ['Classic', 'House · 909 rim', 'Techno · click', 'Hip-Hop · wood knock', 'Trap · high tick', 'Lo-Fi · dusty classic'],
+  tom: ['Classic', 'House · 909 tom', 'Techno · electronic sweep', 'Hip-Hop · dusty floor tom', 'Trap · 808 tom', 'Lo-Fi · dusty classic'],
+  hatClosed: ['Classic', 'House · crisp noise', 'Techno · hard metal', 'Hip-Hop · dusty lo-fi', 'Trap · 808 metal (for rolls)', 'Lo-Fi · dusty classic'],
+  hatOpen: ['Classic', 'House · crisp noise', 'Techno · hard metal', 'Hip-Hop · dusty lo-fi', 'Trap · 808 metal', 'Lo-Fi · dusty classic'],
+  crash: ['Classic', 'House · ride', 'Techno · reverse crash', 'Hip-Hop · dark trashy crash', 'Trap · bright splash', 'Lo-Fi · dusty classic'],
+  cowbell: ['Classic', 'House · tight bell', 'Techno · big driven bell', 'Hip-Hop · lo-fi bell', 'Trap · 808 bell', 'Lo-Fi · dusty classic'],
+  shaker: ['Classic', 'House · soft egg', 'Techno · tight', 'Hip-Hop · dusty lo-fi', 'Trap · crisp short', 'Lo-Fi · dusty classic'],
+  perc: ['Classic', 'House · bongo', 'Techno · metal ping', 'Hip-Hop · wood knock', 'Trap · water drop', 'Lo-Fi · dusty classic'],
+  zap: ['Classic', 'House · laser', 'Techno · noise sweep', 'Hip-Hop · vinyl scratch', 'Trap · rising swoosh', 'Lo-Fi · dusty classic'],
 };
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -92,52 +94,107 @@ function kit(variant: 'electro' | 'punchy' | 'lofi'): DrumKit {
     pad('Perc', synth('perc', 0.5, 0.5, 0.18), { gain: -5, pan: -0.3 }),
     pad('Zap', synth('zap', 0.5, 0.5, 0.25), { gain: -6 }),
   ];
-  if (variant === 'lofi') for (const p of pads) p.tune = -2;
+  if (variant === 'lofi') {
+    // the Lo-Fi style on every pad, tuned down a little
+    for (const p of pads) {
+      p.tune = -2;
+      if (p.source.kind === 'synth') p.source = { ...p.source, model: 5 };
+    }
+  }
   return { pads };
 }
 
-/** 909-flavoured house / techno kit and a hard techno kit, built from the alternative characters. */
-function kit909(): DrumKit {
+const H = 1;
+const T = 2;
+const HH = 3;
+/** One kit per style, built from the House / Techno / Hip-Hop voices. */
+function kitHouse(): DrumKit {
   return {
     pads: [
-      pad('Kick 909', synth('kick', 0.45, 0.6, 0.5, 1)),
-      pad('Rim', synth('rim', 0.5, 0.6, 0.06), { gain: -4 }),
-      pad('Snare 909', synth('snare', 0.5, 0.6, 0.25, 1)),
-      pad('Clap 909', synth('clap', 0.5, 0.6, 0.35, 1), { gain: -2 }),
-      pad('Tom Low', synth('tom', 0.2, 0.4, 0.45, 1), { pan: -0.25 }),
-      pad('Closed Hat', synth('hatClosed', 0.6, 0.5, 0.05, 1), { gain: -5, choke: 1 }),
-      pad('Tom Mid', synth('tom', 0.45, 0.4, 0.4, 1), { pan: 0.05 }),
-      pad('Open Hat', synth('hatOpen', 0.6, 0.5, 0.45, 1), { gain: -6, choke: 1 }),
-      pad('Tom High', synth('tom', 0.7, 0.4, 0.35, 1), { pan: 0.3 }),
-      pad('Ride', synth('crash', 0.5, 0.5, 1.6, 1), { gain: -9 }),
-      pad('Shaker Soft', synth('shaker', 0.5, 0.5, 0.2, 1), { gain: -8, pan: 0.35 }),
-      pad('Cowbell', synth('cowbell', 0.5, 0.5, 0.3), { gain: -7 }),
-      pad('Kick Short', synth('kick', 0.55, 0.8, 0.25, 1)),
-      pad('Snap Clap', synth('clap', 0.6, 0.5, 0.15, 2), { gain: -3 }),
-      pad('Bongo', synth('perc', 0.4, 0.5, 0.2, 1), { gain: -5, pan: -0.3 }),
-      pad('Noise Hat', synth('hatClosed', 0.7, 0.6, 0.04, 2), { gain: -7, choke: 1 }),
+      pad('Kick House', synth('kick', 0.45, 0.6, 0.5, H)),
+      pad('Rim House', synth('rim', 0.5, 0.6, 0.05, H), { gain: -4 }),
+      pad('Snare House', synth('snare', 0.5, 0.6, 0.25, H)),
+      pad('Clap House', synth('clap', 0.5, 0.6, 0.35, H), { gain: -2 }),
+      pad('Tom Low', synth('tom', 0.2, 0.4, 0.45, H), { pan: -0.25 }),
+      pad('Closed Hat', synth('hatClosed', 0.6, 0.5, 0.05, H), { gain: -5, choke: 1 }),
+      pad('Tom Mid', synth('tom', 0.45, 0.4, 0.4, H), { pan: 0.05 }),
+      pad('Open Hat', synth('hatOpen', 0.6, 0.5, 0.45, H), { gain: -6, choke: 1 }),
+      pad('Tom High', synth('tom', 0.7, 0.4, 0.35, H), { pan: 0.3 }),
+      pad('Ride', synth('crash', 0.5, 0.5, 1.6, H), { gain: -9 }),
+      pad('Shaker Soft', synth('shaker', 0.5, 0.5, 0.2, H), { gain: -8, pan: 0.35 }),
+      pad('Cowbell', synth('cowbell', 0.5, 0.5, 0.15, H), { gain: -7 }),
+      pad('Kick Short', synth('kick', 0.55, 0.8, 0.25, H)),
+      pad('Clap Tight', synth('clap', 0.6, 0.5, 0.15, T), { gain: -3 }),
+      pad('Bongo', synth('perc', 0.4, 0.5, 0.2, H), { gain: -5, pan: -0.3 }),
+      pad('Laser', synth('zap', 0.5, 0.5, 0.25, H), { gain: -8 }),
     ],
   };
 }
-function kitHardTechno(): DrumKit {
+function kitTechno(): DrumKit {
   return {
     pads: [
-      pad('Kick Distorted', synth('kick', 0.35, 0.6, 0.6, 2), { gain: -2 }),
-      pad('Click', synth('rim', 0.7, 0.4, 0.05, 2), { gain: -6 }),
-      pad('Snare Trap', synth('snare', 0.5, 0.6, 0.2, 2)),
-      pad('Clap 909', synth('clap', 0.55, 0.6, 0.4, 1), { gain: -2 }),
-      pad('Tom Electronic', synth('tom', 0.25, 0.6, 0.4, 1), { pan: -0.25 }),
-      pad('Hat 808', synth('hatClosed', 0.65, 0.5, 0.05, 1), { gain: -6, choke: 1 }),
-      pad('Metal Ping', synth('perc', 0.4, 0.6, 0.3, 2), { gain: -8, pan: 0.2 }),
-      pad('Open Hat 808', synth('hatOpen', 0.65, 0.5, 0.4, 1), { gain: -7, choke: 1 }),
-      pad('Laser', synth('zap', 0.5, 0.5, 0.25, 1), { gain: -8, pan: 0.3 }),
-      pad('Reverse Crash', synth('crash', 0.5, 0.6, 1.2, 2), { gain: -10 }),
-      pad('Noise Hat', synth('hatClosed', 0.8, 0.7, 0.03, 2), { gain: -8, pan: 0.35 }),
-      pad('Noise Sweep', synth('zap', 0.5, 0.4, 0.8, 2), { gain: -10 }),
-      pad('Kick Rumble', synth('kick', 0.25, 0.4, 1.2, 2), { gain: -3 }),
-      pad('Snare 909', synth('snare', 0.65, 0.8, 0.18, 1), { gain: -2 }),
-      pad('Cowbell Tight', synth('cowbell', 0.5, 0.5, 0.08, 2), { gain: -8, pan: -0.3 }),
+      pad('Kick Techno', synth('kick', 0.35, 0.6, 0.6, T), { gain: -2 }),
+      pad('Click', synth('rim', 0.7, 0.4, 0.05, T), { gain: -6 }),
+      pad('Snare Techno', synth('snare', 0.5, 0.6, 0.18, T)),
+      pad('Clap House', synth('clap', 0.55, 0.6, 0.4, H), { gain: -2 }),
+      pad('Tom Electronic', synth('tom', 0.25, 0.6, 0.4, T), { pan: -0.25 }),
+      pad('Hat Metal', synth('hatClosed', 0.65, 0.5, 0.05, T), { gain: -7, choke: 1 }),
+      pad('Metal Ping', synth('perc', 0.4, 0.6, 0.3, T), { gain: -8, pan: 0.2 }),
+      pad('Open Hat Metal', synth('hatOpen', 0.65, 0.5, 0.4, T), { gain: -8, choke: 1 }),
+      pad('Tom Electronic Hi', synth('tom', 0.6, 0.6, 0.3, T), { gain: -2, pan: 0.3 }),
+      pad('Reverse Crash', synth('crash', 0.5, 0.6, 1.2, T), { gain: -10 }),
+      pad('Shaker Tight', synth('shaker', 0.8, 0.7, 0.06, T), { gain: -8, pan: 0.35 }),
+      pad('Noise Sweep', synth('zap', 0.5, 0.4, 0.8, T), { gain: -10 }),
+      pad('Kick Rumble', synth('kick', 0.25, 0.4, 1.2, T), { gain: -3 }),
+      pad('Snare House', synth('snare', 0.65, 0.8, 0.18, H), { gain: -2 }),
+      pad('Big Bell', synth('cowbell', 0.5, 0.5, 0.3, T), { gain: -9, pan: -0.3 }),
       pad('Zap', synth('zap', 0.5, 0.5, 0.25), { gain: -6 }),
+    ],
+  };
+}
+function kitHipHop(): DrumKit {
+  return {
+    pads: [
+      pad('Kick Boom-Bap', synth('kick', 0.45, 0.6, 0.45, HH)),
+      pad('Rim Wood', synth('rim', 0.4, 0.5, 0.08, HH), { gain: -4 }),
+      pad('Snare Crack', synth('snare', 0.5, 0.6, 0.25, HH)),
+      pad('Clap Thick', synth('clap', 0.45, 0.6, 0.3, HH), { gain: -2 }),
+      pad('Floor Tom', synth('tom', 0.2, 0.4, 0.5, HH), { pan: -0.25 }),
+      pad('Closed Hat', synth('hatClosed', 0.5, 0.5, 0.05, HH), { gain: -6, choke: 1 }),
+      pad('Tom Mid', synth('tom', 0.5, 0.4, 0.4, HH), { pan: 0.05 }),
+      pad('Open Hat', synth('hatOpen', 0.5, 0.5, 0.4, HH), { gain: -7, choke: 1 }),
+      pad('Scratch', synth('zap', 0.5, 0.5, 0.35, HH), { gain: -6, pan: 0.3 }),
+      pad('Crash Dark', synth('crash', 0.5, 0.5, 1.4, HH), { gain: -9 }),
+      pad('Shaker Dusty', synth('shaker', 0.5, 0.5, 0.15, HH), { gain: -8, pan: 0.35 }),
+      pad('Lo-fi Bell', synth('cowbell', 0.5, 0.5, 0.25, HH), { gain: -8 }),
+      pad('Kick Short', synth('kick', 0.55, 0.8, 0.25, HH)),
+      pad('Snare Trap', synth('snare', 0.7, 0.8, 0.14, 4), { gain: -2 }),
+      pad('Knock', synth('perc', 0.45, 0.5, 0.12, HH), { gain: -5, pan: -0.3 }),
+      pad('Hat Fast', synth('hatClosed', 0.65, 0.6, 0.03, HH), { gain: -8, choke: 1 }),
+    ],
+  };
+}
+
+function kitTrap(): DrumKit {
+  const TR = 4;
+  return {
+    pads: [
+      pad('808 Kick', synth('kick', 0.4, 0.5, 0.6, TR)),
+      pad('Rim Tick', synth('rim', 0.6, 0.6, 0.04, TR), { gain: -6 }),
+      pad('Snare Trap', synth('snare', 0.6, 0.7, 0.22, TR)),
+      pad('Clap Trap', synth('clap', 0.6, 0.6, 0.3, TR), { gain: -2 }),
+      pad('808 Tom Low', synth('tom', 0.2, 0.4, 0.5, TR), { pan: -0.25 }),
+      pad('Hat 808', synth('hatClosed', 0.65, 0.5, 0.04, TR), { gain: -7, choke: 1 }),
+      pad('808 Tom Mid', synth('tom', 0.45, 0.4, 0.45, TR), { pan: 0.05 }),
+      pad('Open Hat 808', synth('hatOpen', 0.65, 0.5, 0.35, TR), { gain: -8, choke: 1 }),
+      pad('808 Tom High', synth('tom', 0.7, 0.4, 0.4, TR), { pan: 0.3 }),
+      pad('Crash Splash', synth('crash', 0.5, 0.5, 1.4, TR), { gain: -10 }),
+      pad('Shaker Crisp', synth('shaker', 0.7, 0.6, 0.06, TR), { gain: -9, pan: 0.35 }),
+      pad('808 Bell', synth('cowbell', 0.5, 0.5, 0.3, TR), { gain: -8 }),
+      pad('808 Kick Long', synth('kick', 0.3, 0.4, 1.2, TR)),
+      pad('Snare Boom-Bap', synth('snare', 0.5, 0.6, 0.25, 3), { gain: -2 }),
+      pad('Water Drop', synth('perc', 0.5, 0.5, 0.12, TR), { gain: -6, pan: -0.3 }),
+      pad('Swoosh', synth('zap', 0.5, 0.5, 0.6, TR), { gain: -10 }),
     ],
   };
 }
@@ -146,8 +203,10 @@ export const FACTORY_KITS: { name: string; kit: DrumKit }[] = [
   { name: 'Electro Kit', kit: kit('electro') },
   { name: 'Punchy Kit', kit: kit('punchy') },
   { name: 'Lo-Fi Kit', kit: kit('lofi') },
-  { name: '909 House Kit', kit: kit909() },
-  { name: 'Hard Techno Kit', kit: kitHardTechno() },
+  { name: 'House Kit', kit: kitHouse() },
+  { name: 'Techno Kit', kit: kitTechno() },
+  { name: 'Hip-Hop Kit', kit: kitHipHop() },
+  { name: 'Trap Kit', kit: kitTrap() },
 ];
 
 export function defaultKit(): DrumKit {
