@@ -3,6 +3,7 @@ import { startAudioBridge } from './audio/bridge';
 import { useTransportStore } from './state/transportStore';
 import { useUiStore } from './state/uiStore';
 import { Toasts } from './ui/common/Toasts';
+import { useSelectedTrackKeys } from './ui/selectedTrackKeys';
 import { useGlobalShortcuts } from './ui/shortcuts';
 import { Arrangement } from './ui/timeline/Arrangement';
 import { Toolbar } from './ui/toolbar/Toolbar';
@@ -26,6 +27,7 @@ function AudioUnlockBanner() {
 
 export default function App() {
   useGlobalShortcuts();
+  useSelectedTrackKeys();
   useEffect(() => {
     startAudioBridge();
     void initPersistence();

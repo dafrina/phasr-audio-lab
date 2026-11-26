@@ -281,7 +281,9 @@ describe('Keyforge piano', () => {
       const m = mono(L, R);
       const hitC = centroid(spectrum(slice(m, SR, 0, 0.015), SR));
       const toneC = centroid(spectrum(slice(m, SR, 0.1, 0.3), SR));
-      expect(hitC, `note ${note} vel ${vel}`).toBeGreaterThan(toneC * 1.15);
+      // recorded grand (held keys C4…C5): hit/tone centroid 1.08–1.89 — a heavy felt hammer's low
+      // impact keeps the onset from being much brighter than the tone
+      expect(hitC, `note ${note} vel ${vel}`).toBeGreaterThan(toneC * 1.05);
     }
   });
 

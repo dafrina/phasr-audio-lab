@@ -100,6 +100,8 @@ export interface PianoParams {
   unison: number;
   inharm: number;
   stretch: number;
+  /** weight of the hammer impact: low thud through soundboard and case */
+  impact: number;
   /** strength of the soundboard radiation response (0 = bare strings) */
   board: number;
   /** onset bloom time scale (0 = instant) */
@@ -267,7 +269,9 @@ export function hammerSpectrum(note: number, k: number, f: number, f1: number, v
   // the hammer is wide relative to the string and the comb all but disappears
   // (deeper in the bass: the recorded A0 shows −30 dB notches at the strike-point partials)
   const floor = 0.35 - 0.25 * clamp((48 - note) / 27, 0, 1);
-  const comb0 = floor + (1 - floor) * Math.abs(Math.sin(Math.PI * k * x0));
+  // a wide felt hammer hardly cuts the fundamental at its strike point (the recorded middle notes
+  // have their strongest component at the fundamental)
+  const comb0 = k === 1 ? 0.9 : floor + (1 - floor) * Math.abs(Math.sin(Math.PI * k * x0));
   const comb = comb0 + (1 - comb0) * 0.6 * treb;
   // real partial levels are irregular (hammer–string interaction, soundboard
   // radiation): ±3 dB fixed per note and partial. Perfectly smooth spectra sound synthetic.
@@ -421,7 +425,8 @@ const S_LONG = 5;
 
 /** first longitudinal mode frequency for a note (Hz) */
 export function longitudinalFreq(note: number): number {
-  return clamp(midiToHz(note) * 15 * (1 + 0.08 * (hash01(note, 77) - 0.5)), 450, 3600);
+  // f = c / 2L for steel (c ≈ 5 km/s): ≈ 1.25 kHz for a ~2 m A0 string, rising as strings get shorter
+  return clamp(1250 * Math.pow(2, (note - 21) / 26) * (1 + 0.08 * (hash01(note, 77) - 0.5)), 900, 5000);
 }
 
 /** onset bloom time constant (s): ~15 ms in the bass and middle, short in the top octaves */
@@ -504,6 +509,19 @@ export class PianoEngine implements KeysEngine {
   private tickLp2 = 0;
   /** high-pass corner of the impact noise (set by the latest strike's register) */
   private tickHpA = 0.13;
+  // heavy-hammer impact: two low resonances + low-passed noise (soundboard, rim, keybed)
+  private impactNoise = 0;
+  private impactLp1 = 0;
+  private impactLp2 = 0;
+  private impactLp3 = 0;
+  private readonly impactHpA: number;
+  private impactDecay = 0;
+  private readonly thudRe = new Float64Array(2);
+  private readonly thudIm = new Float64Array(2);
+  private readonly thudA = new Float64Array(2);
+  private readonly thudB = new Float64Array(2);
+  private thudPending = 0;
+  private readonly impactLpA: number;
   private thumpDecay = 0;
   private readonly noise = new Noise(0x51a7e);
   // sympathetic strings
@@ -547,6 +565,14 @@ export class PianoEngine implements KeysEngine {
     }
     this.thumpDecay = Math.exp(-1 / (0.004 * sampleRate));
     this.tickDecay = Math.exp(-1 / (0.0025 * sampleRate));
+    this.impactDecay = Math.exp(-1 / (0.011 * sampleRate));
+    this.impactLpA = 1 - Math.exp((-TWO_PI * 320) / sampleRate);
+    this.impactHpA = 1 - Math.exp((-TWO_PI * 150) / sampleRate);
+    for (const [i, f, t60] of [[0, 78, 0.12], [1, 132, 0.09]] as const) {
+      const r = Math.exp(-LN_1000 / (t60 * sampleRate));
+      this.thudA[i] = r * Math.cos((TWO_PI * f) / sampleRate);
+      this.thudB[i] = r * Math.sin((TWO_PI * f) / sampleRate);
+    }
     // a medium recording room: short pre-delay, ~1.1 s decay, darker tail
     this.erLine = new DelayLine(Math.ceil(0.04 * sampleRate));
     this.msToSamples = sampleRate / 1000;
@@ -685,6 +711,11 @@ export class PianoEngine implements KeysEngine {
     this.knockPending = 0;
     this.thumpEnv = 0;
     this.tickEnv = 0;
+    this.impactNoise = 0;
+    this.thudPending = 0;
+    this.impactLp1 = this.impactLp2 = this.impactLp3 = 0;
+    this.thudRe.fill(0);
+    this.thudIm.fill(0);
     for (const c of this.combs) c.clear();
     this.room.clear();
     this.wood.clear();
@@ -832,7 +863,7 @@ export class PianoEngine implements KeysEngine {
     const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 0.55) * 2.6 * (2.3 + 0.2 * hammerTreble(note)) * (1 - 0.75 * midWarm);
     const bassTilt = clamp((52 - note) / 31, 0, 1);
     // nonlinear: ∝ strike², fades out above the low middle
-    const longAmt = (p.metal ?? 0.5) * vel * vel * 0.5 * clamp((70 - note) / 24, 0, 1);
+    const longAmt = (p.metal ?? 0.5) * vel * vel * (0.5 + 1.2 * clamp((45 - note) / 24, 0, 1)) * clamp((70 - note) / 24, 0, 1);
     const hc = hammerCorner(f1, strikeBrightness(Math.min(1, vel * varTone), p), hammerTreble(note));
     for (let k = 1; k <= count; k++) {
       const a = (amps[k - 1] as number) * level;
@@ -913,7 +944,10 @@ export class PianoEngine implements KeysEngine {
     this.updateCoefs(v);
     // hammer contact: shorter and sharper for loud notes and high strings
     // contact-pulse smoothing only; the tone colour comes from hammerSpectrum()
-    const tauSec = (0.000012 + 0.00005 * (1 - vel) * (1 - vel)) * Math.pow(262 / f1, 0.2);
+    // contact time: a heavier hammer (Impact) stays on the string longer → rounder top, fuller strike
+    // (treble hammers are small and light: barely longer)
+    const heavy = (p.impact ?? 0.6) * (1 - 0.8 * trebleness(note));
+    const tauSec = (0.000012 + 0.00005 * (1 - vel) * (1 - vel) + 0.00009 * heavy) * Math.pow(262 / f1, 0.2);
     const tau = Math.max(0.6, tauSec * sr);
     v.pulseTau = tau;
     v.pulseLen = Math.ceil(9 * tau) + 1;
@@ -930,8 +964,16 @@ export class PianoEngine implements KeysEngine {
     this.thumpEnv += p.hammerNoise * vel * vel * 0.02;
     // treble: the hard hammer core hitting steel gives a short, bright "tick"
     // broadband impact noise: felt + action; lower and fuller in the bass and middle, a bright tick up top
-    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.2) * (0.1 - 0.07 * bass + 0.08 * trebleness(note));
+    // the small bright click: much quieter than before (recordings: little energy above 6 kHz)
+    this.tickEnv += p.hammerNoise * Math.pow(vel, 1.2) * (0.16 - 0.14 * bass - 0.055 * trebleness(note));
     this.tickHpA = 0.04 + 0.09 * trebleness(note);
+    // a heavy felt hammer moves the whole instrument: a low thud (recorded notes carry 40–160 Hz
+    // energy at −13…−16 dB in the first 30 ms, even C5)
+    const noteLevel = LEVEL * Math.pow(Math.max(vel, 1e-3), p.velCurve);
+    // (deep bass: its own low partials already carry the low end; recorded A0's strike is a high clang)
+    const impact = (p.impact ?? 0.6) * noteLevel * (1 - 0.7 * bass - 0.35 * trebleness(note));
+    this.impactNoise += impact * 0.9;
+    this.thudPending += impact * 0.35;
   }
 
   // -------------------------------------------------------------------------
@@ -1075,6 +1117,29 @@ export class PianoEngine implements KeysEngine {
         thump = noise.next() * this.thumpEnv;
         this.thumpEnv *= this.thumpDecay;
       }
+      // heavy-hammer impact: low-passed noise burst + two decaying low resonances
+      let imp = 0;
+      if (this.impactNoise > 1e-7) {
+        const nz = noise.next() * this.impactNoise;
+        this.impactLp1 += (nz - this.impactLp1) * this.impactLpA;
+        this.impactLp2 += (this.impactLp1 - this.impactLp2) * this.impactLpA;
+        // band-pass (~150–320 Hz): the felt's body, not a rumble — the lowest part is the thud below
+        this.impactLp3 += (this.impactLp2 - this.impactLp3) * this.impactHpA;
+        imp = (this.impactLp2 - this.impactLp3) * 7;
+        this.impactNoise *= this.impactDecay;
+      }
+      const tk = i === 0 ? this.thudPending : 0;
+      if (i === 0) this.thudPending = 0;
+      for (let m = 0; m < 2; m++) {
+        const re = this.thudRe[m] as number;
+        const im = this.thudIm[m] as number;
+        if (re === 0 && im === 0 && tk === 0) continue;
+        const nr = (this.thudA[m] as number) * re - (this.thudB[m] as number) * im + tk;
+        const ni = (this.thudB[m] as number) * re + (this.thudA[m] as number) * im;
+        this.thudRe[m] = Math.abs(nr) < 1e-9 && Math.abs(ni) < 1e-9 ? 0 : nr;
+        this.thudIm[m] = Math.abs(nr) < 1e-9 && Math.abs(ni) < 1e-9 ? 0 : ni;
+        imp += ni * (m === 0 ? 1 : 0.7);
+      }
       let tick = 0;
       if (this.tickEnv > 1e-7) {
         // high-passed noise burst (one-pole low-pass subtracted)
@@ -1082,7 +1147,7 @@ export class PianoEngine implements KeysEngine {
         // band-limited (~1–8 kHz) impact noise: felt on steel plus the key action
         this.tickLp += (nz - this.tickLp) * this.tickHpA;
         const hp = nz - this.tickLp;
-        this.tickLp2 += (hp - this.tickLp2) * 0.6;
+        this.tickLp2 += (hp - this.tickLp2) * 0.4;
         tick = this.tickLp2 * this.tickEnv;
         this.tickEnv *= this.tickDecay;
       }
@@ -1124,8 +1189,8 @@ export class PianoEngine implements KeysEngine {
       // soundboard: the strings are heard through a dense wooden resonator
       this.wood.process(l, r);
       const woodAmt = p.body * WOOD_GAIN;
-      const outl = l + this.wood.outL * woodAmt + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + tick + sL * wet;
-      const outr = r + this.wood.outR * woodAmt + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + tick + sR * wet;
+      const outl = l + this.wood.outL * woodAmt + (bodyL * 0.8 + bodyR * 0.2) * bodyGain + thump * 0.15 + tick + imp + sL * wet;
+      const outr = r + this.wood.outR * woodAmt + (bodyR * 0.8 + bodyL * 0.2) * bodyGain + thump * 0.15 + tick + imp + sR * wet;
       const g = this.master.next();
       // early reflections (stereo, 6–31 ms): the instrument sits in a space instead of in your ear
       this.erLine.write(0.5 * (outl + outr));
