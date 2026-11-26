@@ -1,14 +1,15 @@
-import { ArrowRight, AudioLines, Footprints, Music, Plus } from 'lucide-react';
+import { ArrowRight, AudioLines, Footprints, Music, Plus, Send } from 'lucide-react';
+import { SendKnobs } from '../mixer/Mixer';
 import { chordToolActive, chordToolAvailable } from '../../chords/expand';
 import { keyName, progressionOf, vibeById } from '../../chords/theory';
 import { openSlipperizer } from '../chords/SlipperizerWindow';
 import { INSTRUMENTS } from '../../instruments/definitions';
 import { INSTRUMENT_UI } from '../instruments';
 import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
-import { MAX_EFFECT_SLOTS } from '../../project/types';
+import { MAX_EFFECT_SLOTS, SEND_IDS } from '../../project/types';
 import { addEffect } from '../../state/effectActions';
 import { useProjectStore } from '../../state/projectStore';
-import { useUiStore } from '../../state/uiStore';
+import { openTrackDevices, useUiStore } from '../../state/uiStore';
 import { Meter } from '../common/Meter';
 import { EffectDevice } from './EffectDevice';
 import { ModulationCard } from './ModulationCard';
@@ -95,6 +96,18 @@ export function TrackDevicePanel({ trackId }: { trackId: string }) {
                 <span className="px-2">{EFFECT_LABELS[t]}</span>
               </button>
             ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <ArrowRight size={14} className="shrink-0 text-dim" />
+          <div className="flex w-[120px] shrink-0 flex-col items-center gap-1 rounded-md border border-line bg-panel-2 p-2" title="Send part of this track (after its fader) to a shared send channel — e.g. one reverb for many tracks">
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted">
+              <Send size={11} /> Sends
+            </div>
+            <SendKnobs track={track} size={32} />
+            <button type="button" onClick={() => openTrackDevices(SEND_IDS[0])} className="text-[9px] text-dim hover:text-fg">
+              edit send channels…
+            </button>
           </div>
         </div>
         <div className="flex items-start gap-2">

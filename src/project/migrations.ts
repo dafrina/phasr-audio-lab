@@ -8,8 +8,8 @@ import { sanitizeEffect } from '../audio/effects/specs';
 import { sanitizeLanes } from './automation';
 import { sanitizeAllRoutes } from './modulation';
 import { createId } from '../core/ids';
-import { MAX_EFFECT_SLOTS, MAX_TRACKS, PROJECT_SCHEMA_VERSION, type Clip, type Project, type Track } from './types';
-import { TRACK_COLORS } from './defaults';
+import { MAX_EFFECT_SLOTS, MAX_TRACKS, PROJECT_SCHEMA_VERSION, SEND_COUNT, SEND_IDS, type Clip, type Project, type SendBus, type Track } from './types';
+import { TRACK_COLORS, defaultSendBuses } from './defaults';
 import { sanitizeChordTool } from '../chords/theory';
 
 type RawProject = Record<string, unknown>;
@@ -48,6 +48,27 @@ function n(v: unknown, fallback: number, min = -Infinity, max = Infinity): numbe
   return Math.min(max, Math.max(min, x));
 }
 
+/** Both send channels, always; missing ones (older projects) get the defaults (Reverb / Delay). */
+function sanitizeSendBuses(raw: unknown): SendBus[] {
+  const list = Array.isArray(raw) ? raw.filter(isRec) : [];
+  const defs = defaultSendBuses();
+  return SEND_IDS.map((id, k) => {
+    const r = list.find((b) => b.id === id);
+    const d = defs[k] as SendBus;
+    if (!r) return d;
+    return {
+      id,
+      name: typeof r.name === 'string' && r.name.trim() ? r.name.slice(0, 24) : d.name,
+      volumeDb: n(r.volumeDb, 0, -60, 6),
+      mute: r.mute === true,
+      effects: (Array.isArray(r.effects) ? r.effects : [])
+        .map(sanitizeEffect)
+        .filter((e): e is NonNullable<typeof e> => e !== null)
+        .slice(0, MAX_EFFECT_SLOTS),
+    };
+  });
+}
+
 function validateProject(raw: RawProject): Project {
   if (!Array.isArray(raw.tracks)) throw new ProjectFormatError('Project has no track list.');
   const tracks: Track[] = raw.tracks.slice(0, MAX_TRACKS).filter(isRec).map((t, i) => {
@@ -73,6 +94,7 @@ function validateProject(raw: RawProject): Project {
       automation: [],
       modulations: [],
       chords: kind === 'instrument' ? sanitizeChordTool(t.chords) : null,
+      sends: Array.from({ length: SEND_COUNT }, (_, k) => n(Array.isArray(t.sends) ? t.sends[k] : 0, 0, 0, 1)),
     } satisfies Track;
   });
   // automation lanes are validated against the (already sanitized) track they belong to
@@ -108,6 +130,7 @@ function validateProject(raw: RawProject): Project {
         .filter((e): e is NonNullable<typeof e> => e !== null)
         .slice(0, MAX_EFFECT_SLOTS),
     },
+    sends: sanitizeSendBuses(raw.sends),
     loop: { enabled: loop.enabled === true, start: n(loop.start, 0, 0), end: n(loop.end, 15360, 1) },
     metronome: raw.metronome === true,
     countInBars: n(raw.countInBars, 1, 0, 4),

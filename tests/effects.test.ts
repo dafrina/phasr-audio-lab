@@ -181,3 +181,63 @@ describe('master effects', () => {
     expect(wet).toBeGreaterThan(dry + 1);
   });
 });
+
+describe('send channels', () => {
+  it('new projects have Send A (reverb) and Send B (delay), fully wet; tracks start at 0', async () => {
+    const { SEND_IDS, sendLabel } = await import('../src/project/types');
+    const { EFFECT_LABELS } = await import('../src/audio/effects/specs');
+    const p = createProject();
+    expect(p.sends.map((b) => b.id)).toEqual([...SEND_IDS]);
+    expect(p.sends.map((b) => b.effects.map((e) => e.type))).toEqual([['reverb'], ['delay']]);
+    expect(p.sends.every((b) => b.effects[0]!.params && (b.effects[0]!.params as { mix: number }).mix === 1)).toBe(true);
+    expect(p.tracks.every((t) => t.sends.every((v) => v === 0))).toBe(true);
+    expect(sendLabel(p.sends[0]!, (t) => EFFECT_LABELS[t])).toBe('A · Reverb');
+    expect(sendLabel({ ...p.sends[1]!, effects: [] }, (t) => EFFECT_LABELS[t])).toBe('B · empty');
+  });
+
+  it('older projects get both send channels and zero sends; saved ones are sanitized', () => {
+    const p = createProject();
+    const old = JSON.parse(JSON.stringify(p));
+    delete old.sends;
+    for (const t of old.tracks) delete t.sends;
+    const m = migrateProject(old);
+    expect(m.sends).toHaveLength(2);
+    expect(m.tracks.every((t) => t.sends.length === 2 && t.sends.every((v) => v === 0))).toBe(true);
+    const raw = JSON.parse(JSON.stringify(p));
+    raw.tracks[0].sends = [2, -1];
+    raw.sends[1] = { id: '__sendB__', name: 'Echo', volumeDb: 99, mute: true, effects: [{ type: 'nope' }] };
+    const s = migrateProject(raw);
+    expect(s.tracks[0]!.sends).toEqual([1, 0]);
+    expect(s.sends[1]).toMatchObject({ name: 'Echo', volumeDb: 6, mute: true, effects: [] });
+  });
+
+  it('send levels, send-channel fader/mute and their effects are undoable edits', async () => {
+    const { useProjectStore } = await import('../src/state/projectStore');
+    const fx = await import('../src/state/effectActions');
+    const { SEND_IDS } = await import('../src/project/types');
+    useProjectStore.getState().loadProject(createProject());
+    const tid = useProjectStore.getState().project.tracks[1]!.id;
+    fx.setTrackSend(tid, 0, 0.7);
+    fx.updateSendBus(1, { mute: true, volumeDb: -3 }, 'x');
+    const ch = fx.addEffect(SEND_IDS[0], 'chorus');
+    let p = useProjectStore.getState().project;
+    expect(p.tracks[1]!.sends).toEqual([0.7, 0]);
+    expect(p.sends[1]).toMatchObject({ mute: true, volumeDb: -3 });
+    expect(p.sends[0]!.effects.map((e) => e.type)).toEqual(['reverb', 'chorus']);
+    fx.removeEffect(SEND_IDS[0], ch!.id);
+    useProjectStore.getState().undo();
+    useProjectStore.getState().undo();
+    p = useProjectStore.getState().project;
+    expect(p.sends[0]!.effects).toHaveLength(1);
+  });
+
+  it('a send to a reverb lengthens the export tail only while some audible track uses it', async () => {
+    const { estimateTailSeconds } = await import('../src/audio/exportPlan');
+    const p = createProject();
+    const base = estimateTailSeconds(p, () => true);
+    const sending = { ...p, tracks: p.tracks.map((t, i) => (i === 1 ? { ...t, sends: [0.5, 0] } : t)) };
+    expect(estimateTailSeconds(sending, () => true)).toBeGreaterThan(base + 1);
+    expect(estimateTailSeconds(sending, () => false)).toBeLessThan(base + 0.5);
+    expect(estimateTailSeconds({ ...sending, sends: sending.sends.map((b, k) => (k === 0 ? { ...b, mute: true } : b)) }, () => true)).toBeLessThan(base + 0.5);
+  });
+});

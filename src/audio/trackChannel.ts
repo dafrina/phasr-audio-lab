@@ -12,6 +12,7 @@ import { createInstrumentNode, updateInstrumentNode, type InstrumentNode } from 
 import { automatedKeys, isTrackParamAutomated } from '../project/automation';
 import { createEffectUnit, type EffectUnit, type ModInput, type ParamTarget } from './effects/units';
 import { StereoMeter } from './meter';
+import { sendGain } from './sendBus';
 
 const PARAM_SMOOTH = 0.015;
 
@@ -55,6 +56,8 @@ export class TrackChannel {
   private wantedOrder: string[] = [];
   private rewireTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly realtime: boolean;
+  /** post-fader send taps to the send channels (created on first use) */
+  private readonly sendTaps: (GainNode | null)[] = [];
 
   constructor(ctx: BaseAudioContext, track: Track, destination: AudioNode, realtime: boolean) {
     this.ctx = ctx;
@@ -261,7 +264,28 @@ export class TrackChannel {
     return this.sources.size;
   }
 
+  /**
+   * Send levels (0..1 each) to the send channels' inputs. Taken after fader, pan and mute/solo,
+   * so a quieter or muted track sends less / nothing.
+   */
+  setSends(levels: readonly number[], inputs: readonly AudioNode[], immediate = false): void {
+    inputs.forEach((dest, k) => {
+      const g = sendGain(levels[k] ?? 0);
+      let tap = this.sendTaps[k] ?? null;
+      if (!tap) {
+        if (g <= 0) return;
+        tap = new GainNode(this.ctx, { gain: 0 });
+        this.gate.connect(tap);
+        tap.connect(dest);
+        this.sendTaps[k] = tap;
+      }
+      if (immediate) tap.gain.value = g;
+      else tap.gain.setTargetAtTime(g, this.ctx.currentTime, PARAM_SMOOTH);
+    });
+  }
+
   dispose(): void {
+    for (const t of this.sendTaps) t?.disconnect();
     this.stopSources(this.ctx.currentTime);
     this.instrument?.dispose();
     this.instrument = null;

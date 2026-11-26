@@ -19,6 +19,14 @@ export const MAX_TRACKS = 12;
 export const MAX_EFFECT_SLOTS = 4;
 /** Stands in for a track id where an API addresses "a chain": the master bus's effects. */
 export const MASTER_ID = '__master__';
+/** The two send (return) channels, A and B — also usable as chain ids like MASTER_ID. */
+export const SEND_IDS = ['__sendA__', '__sendB__'] as const;
+export type SendId = (typeof SEND_IDS)[number];
+export const SEND_COUNT = SEND_IDS.length;
+/** A chain that isn't a track's: the master or a send channel. */
+export function isBusId(id: string | null | undefined): boolean {
+  return id === MASTER_ID || (SEND_IDS as readonly string[]).includes(id ?? '');
+}
 
 export type TrackKind = 'audio' | 'instrument';
 
@@ -273,6 +281,21 @@ export interface Track {
   modulations: ModRoute[];
   /** Gucci Slipper-izer chord tool (instrument tracks); clips keep the single played notes */
   chords?: ChordToolConfig | null;
+  /** send levels 0..1 to the send channels A and B (post-fader) */
+  sends: number[];
+}
+
+/**
+ * A send (return) channel: tracks send part of their signal here (their Send
+ * knob); it runs through its own chain of up to 4 effects and joins the master.
+ * New projects start with A = Reverb and B = Delay (100 % wet); any effects can go there.
+ */
+export interface SendBus {
+  id: SendId;
+  name: string;
+  volumeDb: number;
+  mute: boolean;
+  effects: EffectSlot[];
 }
 
 export interface AssetRef {
@@ -300,10 +323,20 @@ export interface Project {
   clips: Record<string, Clip>;
   /** master bus: insert effects (before the fader) → volume → safety limiter */
   master: { volumeDb: number; limiter: boolean; effects: EffectSlot[] };
+  /** the send channels A and B, always both present */
+  sends: SendBus[];
   loop: LoopRegion;
   metronome: boolean;
   countInBars: number;
   assets: Record<string, AssetRef>;
   createdAt: number;
   updatedAt: number;
+}
+
+/** "A · Reverb", "B · Delay + Chorus", "A · empty": what a send channel is, from what's in it. */
+export function sendLabel(bus: Pick<SendBus, 'id' | 'effects'>, effectLabel: (type: EffectSlot['type']) => string, short = false): string {
+  const letter = bus.id === SEND_IDS[1] ? 'B' : 'A';
+  const names = bus.effects.map((e) => effectLabel(e.type));
+  if (short) return `${letter} · ${names[0] ?? 'empty'}${names.length > 1 ? ' +' : ''}`;
+  return `${letter} · ${names.join(' + ') || 'empty'}`;
 }

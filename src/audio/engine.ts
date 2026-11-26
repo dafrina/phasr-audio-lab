@@ -6,7 +6,8 @@
  */
 import { EffectChain } from './effectChain';
 import { nextNoteInstanceId } from '../core/ids';
-import { MASTER_ID, type Project, type Track } from '../project/types';
+import { MASTER_ID, SEND_IDS, type Project, type Track } from '../project/types';
+import { SendBusNode } from './sendBus';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
 import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
 import recorderWorkletUrl from './worklets/recorder.worklet.ts?worker&url';
@@ -49,6 +50,8 @@ export class AudioEngine {
   transport: Transport | null = null;
   modulation: ModulationRouter | null = null;
   private master: MasterBus | null = null;
+  /** send channels A and B (created with the master) */
+  private sendBuses: SendBusNode[] = [];
   private readonly channels = new Map<string, TrackChannel>();
   private project: Project | null = null;
   private initPromise: Promise<void> | null = null;
@@ -148,6 +151,10 @@ export class AudioEngine {
     }
     // (tempo-synced master delays follow the BPM)
     if (force || !prev || prev.master !== p.master || prev.bpm !== p.bpm) master.fx.sync(p.master.effects ?? [], p.bpm);
+    if (!this.sendBuses.length) this.sendBuses = SEND_IDS.map(() => new SendBusNode(ctx, master.input, true));
+    const busesNew = force || !prev || prev.sends !== p.sends || prev.bpm !== p.bpm;
+    if (busesNew) (p.sends ?? []).forEach((b, k) => this.sendBuses[k]?.update(b, p.bpm, !prev));
+    const sendInputs = this.sendBuses.map((b) => b.input);
 
     const anySolo = p.tracks.some((t) => t.solo);
     const seen = new Set<string>();
@@ -161,8 +168,10 @@ export class AudioEngine {
         ch = new TrackChannel(ctx, track, master.input, true);
         this.channels.set(track.id, ch);
         ch.update(track, audible, true);
+        ch.setSends(track.sends ?? [], sendInputs, true);
       } else if (force || prevTracks.get(track.id) !== track || prevAnySolo !== anySolo) {
         ch.update(track, audible);
+        ch.setSends(track.sends ?? [], sendInputs);
       }
       ch.ensureInstrument(track.kind === 'instrument' ? track.instrument : null, (id) => this.assets.get(id)?.buffer, p.bpm);
       ch.instrument?.setTempo?.(p.bpm);
@@ -282,6 +291,8 @@ export class AudioEngine {
   // --- metering ---
 
   readTrackMeter(trackId: string, out: MeterReading): MeterReading {
+    const k = (SEND_IDS as readonly string[]).indexOf(trackId);
+    if (k >= 0 && this.sendBuses[k]) return (this.sendBuses[k] as SendBusNode).meter.read(out);
     const ch = this.channels.get(trackId);
     if (!ch) {
       out.peakL = 0;
@@ -344,7 +355,10 @@ export class AudioEngine {
   /** Live Spectra EQ unit (for its curve and analyser), if present. */
   /** an effect unit on a track's chain, or on the master's (trackId = MASTER_ID) */
   private effectUnitOf(trackId: string, slotId: string) {
-    return trackId === MASTER_ID ? this.master?.fx.unit(slotId) : this.channels.get(trackId)?.effectUnit(slotId);
+    if (trackId === MASTER_ID) return this.master?.fx.unit(slotId);
+    const k = (SEND_IDS as readonly string[]).indexOf(trackId);
+    if (k >= 0) return this.sendBuses[k]?.fx.unit(slotId);
+    return this.channels.get(trackId)?.effectUnit(slotId);
   }
 
   peqUnit(trackId: string, slotId: string): PeqUnit | null {

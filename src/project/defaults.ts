@@ -1,8 +1,11 @@
 import { createId } from '../core/ids';
 import { PPQ, barsToTicks } from '../core/time';
 import { INSTRUMENTS } from '../instruments/definitions';
+import { createEffectSlot } from '../audio/effects/specs';
 import {
   PROJECT_SCHEMA_VERSION,
+  SEND_IDS,
+  type SendBus,
   type AudioClip,
   type MidiClip,
   type Project,
@@ -32,7 +35,20 @@ export function createTrack(kind: TrackKind, index: number, instrument?: Instrum
     automation: [],
     modulations: [],
     chords: null,
+    sends: [0, 0],
   };
+}
+
+/** Starting chains: A = a reverb, B = a delay, both fully wet (the dry sound stays on the tracks). Any effects can go there. */
+export function defaultSendBuses(): SendBus[] {
+  const reverb = createEffectSlot('reverb');
+  if (reverb.type === 'reverb') reverb.params = { ...reverb.params, mix: 1, decay: 2.4 };
+  const delay = createEffectSlot('delay');
+  if (delay.type === 'delay') delay.params = { ...delay.params, mix: 1 };
+  return [
+    { id: SEND_IDS[0], name: 'Send A', volumeDb: 0, mute: false, effects: [reverb] },
+    { id: SEND_IDS[1], name: 'Send B', volumeDb: 0, mute: false, effects: [delay] },
+  ];
 }
 
 export function createProject(name = 'Untitled Project'): Project {
@@ -47,6 +63,7 @@ export function createProject(name = 'Untitled Project'): Project {
     tracks,
     clips: {},
     master: { volumeDb: 0, limiter: true, effects: [] },
+    sends: defaultSendBuses(),
     loop: { enabled: false, start: 0, end: barsToTicks(4, { numerator: 4, denominator: 4 }) },
     metronome: false,
     countInBars: 1,

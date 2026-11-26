@@ -12,6 +12,7 @@
  */
 
 import { EffectChain } from './effectChain';
+import { SendBusNode } from './sendBus';
 import { nextNoteInstanceId } from '../core/ids';
 import { ticksPerBar, ticksPerBeatUnit } from '../core/time';
 import type { Project } from '../project/types';
@@ -97,11 +98,19 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
     range.seconds,
   );
 
+  // send channels: tracks' sends → their effects → master
+  const sendBuses = (project.sends ?? []).map((b) => {
+    const node = new SendBusNode(ctx, masterIn, false);
+    node.update(b, project.bpm, true);
+    return node;
+  });
+  const sendInputs = sendBuses.map((b) => b.input);
   const channels = new Map<string, TrackChannel>();
   const resolveAsset = (id: string) => assets.get(id)?.buffer;
   for (const track of project.tracks) {
     const ch = new TrackChannel(ctx, track, masterIn, false);
     ch.update(track, audible(track), true);
+    ch.setSends(track.sends ?? [], sendInputs, true);
     ch.syncEffects(track.effects, project.bpm, track);
     channels.set(track.id, ch);
     if (track.kind === 'instrument' && track.instrument) {
