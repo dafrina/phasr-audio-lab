@@ -50,26 +50,28 @@ export function MasterDevicePanel({ busId = MASTER_ID }: { busId?: string }) {
             <EffectDevice trackId={busId} slot={slot} index={i} count={effects.length} />
           </div>
         ))}
-        <div className="flex items-center gap-2">
-          <ArrowRight size={14} className="shrink-0 text-dim" />
-          <div className={`flex w-[130px] shrink-0 flex-col justify-center gap-1 rounded-md border border-dashed border-line-2 p-2 ${full ? 'opacity-40' : ''}`}>
-            <div className="mb-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted">
-              <Plus size={11} /> Add effect
+        {/* hidden once the chain is full ({MAX_EFFECT_SLOTS} effects) */}
+        {!full && (
+          <div className="flex items-center gap-2">
+            <ArrowRight size={14} className="shrink-0 text-dim" />
+            <div className="flex w-[130px] shrink-0 flex-col justify-center gap-1 rounded-md border border-dashed border-line-2 p-2">
+              <div className="mb-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted">
+                <Plus size={11} /> Add effect
+              </div>
+              {EFFECT_TYPES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  title={`Insert ${EFFECT_LABELS[t]} at the end of the chain`}
+                  onClick={() => addEffect(busId, t)}
+                  className="h-6 rounded bg-panel-3 text-left text-[11px] text-fg hover:bg-line-2"
+                >
+                  <span className="px-2">{EFFECT_LABELS[t]}</span>
+                </button>
+              ))}
             </div>
-            {EFFECT_TYPES.map((t) => (
-              <button
-                key={t}
-                type="button"
-                disabled={full}
-                title={full ? `Maximum ${MAX_EFFECT_SLOTS} effects here` : `Insert ${EFFECT_LABELS[t]} at the end of the chain`}
-                onClick={() => addEffect(busId, t)}
-                className="h-6 rounded bg-panel-3 text-left text-[11px] text-fg hover:bg-line-2 disabled:cursor-not-allowed"
-              >
-                <span className="px-2">{EFFECT_LABELS[t]}</span>
-              </button>
-            ))}
           </div>
-        </div>
+        )}
         <ArrowRight size={14} className="mt-[68px] shrink-0 text-dim" />
         <div className="flex h-[150px] w-[120px] shrink-0 flex-col items-center justify-center gap-2 rounded-md border border-line bg-panel-2 p-2 text-center">
           <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-fg">Fader</div>

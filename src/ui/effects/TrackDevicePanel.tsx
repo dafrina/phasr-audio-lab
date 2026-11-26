@@ -78,26 +78,28 @@ export function TrackDevicePanel({ trackId }: { trackId: string }) {
             <EffectDevice trackId={track.id} slot={slot} index={i} count={track.effects.length} />
           </div>
         ))}
-        <div className="flex items-center gap-2">
-          <ArrowRight size={14} className="shrink-0 text-dim" />
-          <div className={`flex w-[130px] shrink-0 flex-col justify-center gap-1 rounded-md border border-dashed border-line-2 p-2 ${full ? 'opacity-40' : ''}`}>
-            <div className="mb-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted">
-              <Plus size={11} /> Add effect
+        {/* hidden once the chain is full ({MAX_EFFECT_SLOTS} effects) */}
+        {!full && (
+          <div className="flex items-center gap-2">
+            <ArrowRight size={14} className="shrink-0 text-dim" />
+            <div className="flex w-[130px] shrink-0 flex-col justify-center gap-1 rounded-md border border-dashed border-line-2 p-2">
+              <div className="mb-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted">
+                <Plus size={11} /> Add effect
+              </div>
+              {EFFECT_TYPES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  title={`Insert ${EFFECT_LABELS[t]} at the end of the chain`}
+                  onClick={() => addEffect(track.id, t)}
+                  className="h-6 rounded bg-panel-3 text-left text-[11px] text-fg hover:bg-line-2"
+                >
+                  <span className="px-2">{EFFECT_LABELS[t]}</span>
+                </button>
+              ))}
             </div>
-            {EFFECT_TYPES.map((t) => (
-              <button
-                key={t}
-                type="button"
-                disabled={full}
-                title={full ? `Maximum ${MAX_EFFECT_SLOTS} effects per track` : `Insert ${EFFECT_LABELS[t]} at the end of the chain`}
-                onClick={() => addEffect(track.id, t)}
-                className="h-6 rounded bg-panel-3 text-left text-[11px] text-fg hover:bg-line-2 disabled:cursor-not-allowed"
-              >
-                <span className="px-2">{EFFECT_LABELS[t]}</span>
-              </button>
-            ))}
           </div>
-        </div>
+        )}
         <div className="flex items-center gap-2">
           <ArrowRight size={14} className="shrink-0 text-dim" />
           <div className="flex w-[120px] shrink-0 flex-col items-center gap-1 rounded-md border border-line bg-panel-2 p-2" title="Send part of this track (after its fader) to a shared send channel — e.g. one reverb for many tracks">
