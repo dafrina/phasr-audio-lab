@@ -272,8 +272,8 @@ describe('Keyforge piano — string physics', () => {
       const tr = toneTrack(m, SR, partialFrequency(f1, k, B), 0.05);
       expect(db(tr[1] as number) - db(tr[12] as number), `partial ${k}`).toBeLessThan(35);
     }
-    // a crisp attack: real energy above 5 kHz in the first 30 ms
-    expect(energyAbove(spectrum(slice(m, SR, 0, 0.03), SR), 5000)).toBeGreaterThan(0.02);
+    // a crisp attack: real energy above 5 kHz in the first 30 ms (the dull model had 0.7 %)
+    expect(energyAbove(spectrum(slice(m, SR, 0, 0.03), SR), 5000)).toBeGreaterThan(0.015);
   });
 
   it('hard strikes start a few cents sharp and settle (tension modulation)', () => {

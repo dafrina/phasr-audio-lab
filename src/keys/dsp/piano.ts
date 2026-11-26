@@ -213,7 +213,14 @@ export function hammerSpectrum(note: number, k: number, f: number, f1: number, v
 
 /** detune (cents) between the two strings of partial k */
 function stringDetune(note: number, k: number, unison: number): number {
-  return unison * (0.55 + 0.9 * hash01(note, k));
+  // treble trichords are never perfectly unison: their slow shimmer is what
+  // separates a piano's top octaves from a single, pure tine (music box)
+  return unison * (1 + 1.6 * trebleness(note)) * (0.55 + 0.9 * hash01(note, k));
+}
+
+/** level of the third string in the treble */
+function after2Share(note: number): number {
+  return AFTER2_SHARE + 0.12 * trebleness(note);
 }
 
 // ---------------------------------------------------------------------------
@@ -565,7 +572,9 @@ export class PianoEngine implements KeysEngine {
           f *= 2;
           sigma *= 2;
         } else {
-          f *= Math.pow(2, d * (0.2 + 0.6 * hash01(note + 101, k)));
+          // third string: on either side of the other two
+          const h = hash01(note + 101, k);
+          f *= Math.pow(2, d * (h < 0.5 ? -1 : 1) * (0.4 + 0.6 * h));
           sigma *= 1.15;
         }
       }
@@ -637,8 +646,9 @@ export class PianoEngine implements KeysEngine {
         v.re[n] = this.tmpHas[id] ? (this.tmpRe[id] as number) : 0;
         v.im[n] = this.tmpHas[id] ? (this.tmpIm[id] as number) : 0;
         const ps = promptShare(note);
-        const after = 1 - ps - (triple ? AFTER2_SHARE : 0);
-        v.gin[n] = !double ? a : s === S_PROMPT ? a * ps : s === S_AFTER ? a * after : a * AFTER2_SHARE;
+        const a2 = after2Share(note);
+        const after = 1 - ps - (triple ? a2 : 0);
+        v.gin[n] = !double ? a : s === S_PROMPT ? a * ps : s === S_AFTER ? a * after : a * a2;
         n++;
       }
       // phantom partials: strongest in the bass and middle, gone in the top octaves
