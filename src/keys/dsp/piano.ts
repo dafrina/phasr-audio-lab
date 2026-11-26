@@ -1013,48 +1013,102 @@ export class PianoEngine implements KeysEngine {
       v.pulsePos += n;
     }
     const pulse = this.pulse;
+    // resonators two at a time: one pass over the block per pair (half the loop and buffer traffic)
+    const vre = v.re;
+    const vim = v.im;
+    const va = v.a;
+    const vb = v.b;
+    const count = v.n;
     let r = 0;
-    while (r < v.n) {
-      let re = v.re[r] as number;
-      let im = v.im[r] as number;
-      const a = v.a[r] as number;
-      const b = v.b[r] as number;
-      const dst = v.side[r] ? Bf : A;
+    for (; r + 1 < count; r += 2) {
+      let re0 = vre[r] as number;
+      let im0 = vim[r] as number;
+      let re1 = vre[r + 1] as number;
+      let im1 = vim[r + 1] as number;
+      const a0 = va[r] as number;
+      const b0 = vb[r] as number;
+      const a1 = va[r + 1] as number;
+      const b1 = vb[r + 1] as number;
+      const d0 = v.side[r] ? Bf : A;
+      const d1 = v.side[r + 1] ? Bf : A;
       if (hasPulse) {
-        const g = v.gin[r] as number;
-        const gq = v.ginQ[r] as number;
+        const g0 = v.gin[r] as number;
+        const q0 = v.ginQ[r] as number;
+        const g1 = v.gin[r + 1] as number;
+        const q1 = v.ginQ[r + 1] as number;
         for (let i = 0; i < n; i++) {
           const x = pulse[i] as number;
-          const nr = a * re - b * im + g * x;
-          im = b * re + a * im + gq * x;
-          re = nr;
-          dst[i] = (dst[i] as number) + im;
+          const n0 = a0 * re0 - b0 * im0 + g0 * x;
+          im0 = b0 * re0 + a0 * im0 + q0 * x;
+          re0 = n0;
+          const n1 = a1 * re1 - b1 * im1 + g1 * x;
+          im1 = b1 * re1 + a1 * im1 + q1 * x;
+          re1 = n1;
+          d0[i] = (d0[i] as number) + im0;
+          d1[i] = (d1[i] as number) + im1;
+        }
+      } else if (d0 === d1) {
+        for (let i = 0; i < n; i++) {
+          const n0 = a0 * re0 - b0 * im0;
+          im0 = b0 * re0 + a0 * im0;
+          re0 = n0;
+          const n1 = a1 * re1 - b1 * im1;
+          im1 = b1 * re1 + a1 * im1;
+          re1 = n1;
+          d0[i] = (d0[i] as number) + (im0 + im1);
         }
       } else {
         for (let i = 0; i < n; i++) {
-          const nr = a * re - b * im;
-          im = b * re + a * im;
-          re = nr;
-          dst[i] = (dst[i] as number) + im;
+          const n0 = a0 * re0 - b0 * im0;
+          im0 = b0 * re0 + a0 * im0;
+          re0 = n0;
+          const n1 = a1 * re1 - b1 * im1;
+          im1 = b1 * re1 + a1 * im1;
+          re1 = n1;
+          d0[i] = (d0[i] as number) + im0;
+          d1[i] = (d1[i] as number) + im1;
         }
       }
-      if (!hasPulse && re * re + im * im < DEAD_ENERGY) {
-        // swap-remove the dead resonator
-        const last = v.n - 1;
-        v.pid[r] = v.pid[last] as number;
-        v.re[r] = v.re[last] as number;
-        v.im[r] = v.im[last] as number;
-        v.a[r] = v.a[last] as number;
-        v.b[r] = v.b[last] as number;
-        v.gin[r] = v.gin[last] as number;
-        v.ginQ[r] = v.ginQ[last] as number;
-        v.side[r] = v.side[last] as number;
-        v.n = last;
-        continue;
+      vre[r] = re0;
+      vim[r] = im0;
+      vre[r + 1] = re1;
+      vim[r + 1] = im1;
+    }
+    if (r < count) {
+      let re = vre[r] as number;
+      let im = vim[r] as number;
+      const a = va[r] as number;
+      const b = vb[r] as number;
+      const dst = v.side[r] ? Bf : A;
+      const g = v.gin[r] as number;
+      const gq = v.ginQ[r] as number;
+      for (let i = 0; i < n; i++) {
+        const x = hasPulse ? (pulse[i] as number) : 0;
+        const nr = a * re - b * im + g * x;
+        im = b * re + a * im + gq * x;
+        re = nr;
+        dst[i] = (dst[i] as number) + im;
       }
-      v.re[r] = re;
-      v.im[r] = im;
-      r++;
+      vre[r] = re;
+      vim[r] = im;
+    }
+    if (!hasPulse) {
+      // swap-remove the resonators that have died away
+      for (let k = v.n - 1; k >= 0; k--) {
+        const re = vre[k] as number;
+        const im = vim[k] as number;
+        if (re * re + im * im >= DEAD_ENERGY) continue;
+        const last = v.n - 1;
+        v.pid[k] = v.pid[last] as number;
+        vre[k] = vre[last] as number;
+        vim[k] = vim[last] as number;
+        va[k] = va[last] as number;
+        vb[k] = vb[last] as number;
+        v.gin[k] = v.gin[last] as number;
+        v.ginQ[k] = v.ginQ[last] as number;
+        v.side[k] = v.side[last] as number;
+        v.n = last;
+      }
     }
     const L = this.mixL;
     const R = this.mixR;
@@ -1100,6 +1154,10 @@ export class PianoEngine implements KeysEngine {
       v.active = false;
       v.held.clear();
     }
+  }
+
+  skip(n: number): void {
+    this.room.skip(n);
   }
 
   render(outL: Float32Array, outR: Float32Array, offset: number, count: number): void {

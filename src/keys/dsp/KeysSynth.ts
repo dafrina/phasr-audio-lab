@@ -25,6 +25,11 @@ export function createEngine(type: KeysEngineType, sampleRate: number, params: R
   }
 }
 
+/** −120 dBFS */
+const SILENT = 1e-6;
+/** how long the output must stay below SILENT before the engine sleeps */
+const SLEEP_AFTER_SEC = 0.2;
+
 export class KeysSynth {
   private readonly sr: number;
   private engineType: KeysEngineType;
@@ -39,6 +44,13 @@ export class KeysSynth {
   private pedal = false;
   private bend = 0;
   private bpm = 120;
+  /**
+   * Idle: no voice sounding and the output (room, body, delay tails) has stayed below −120 dB
+   * for a moment. Then the engine isn't run at all until the next note — a silent Keyforge
+   * track costs nothing (its remaining tail is far below hearing).
+   */
+  private asleep = false;
+  private quietFrames = 0;
 
   constructor(sampleRate: number, config?: KeysConfigData) {
     this.sr = sampleRate;
@@ -70,6 +82,8 @@ export class KeysSynth {
       this.engine.setBend(this.bend);
       this.engine.setTempo?.(this.bpm);
       this.dirty = false;
+      this.asleep = false;
+      this.quietFrames = 0;
       return;
     }
     this.params = params;
@@ -88,6 +102,8 @@ export class KeysSynth {
   }
 
   noteOn(id: number, note: number, velocity: number): void {
+    this.asleep = false;
+    this.quietFrames = 0;
     this.flush();
     this.engine.noteOn(id, note, velocity);
   }
@@ -140,7 +156,21 @@ export class KeysSynth {
     const end = offset + count;
     while (pos < end) {
       const n = Math.min(MAX_BLOCK, end - pos);
+      if (this.asleep) {
+        this.engine.skip?.(n);
+        pos += n;
+        continue;
+      }
       this.engine.render(outL, outR, pos, n);
+      if (!this.old && this.engine.activeVoices() === 0) {
+        let peak = 0;
+        for (let i = pos; i < pos + n; i++) peak = Math.max(peak, Math.abs(outL[i] as number), Math.abs(outR[i] as number));
+        if (peak < SILENT) {
+          this.quietFrames += n;
+          const hold = Math.max(SLEEP_AFTER_SEC, (this.engine.quietHoldSec?.() ?? 0) + 0.1);
+          if (this.quietFrames >= hold * this.sr) this.asleep = true;
+        } else this.quietFrames = 0;
+      } else this.quietFrames = 0;
       const old = this.old;
       if (old) {
         const tl = this.tmpL;

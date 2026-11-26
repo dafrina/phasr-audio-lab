@@ -585,3 +585,27 @@ describe('KeysCore', () => {
 function midiHz(n: number): number {
   return 440 * Math.pow(2, (n - 69) / 12);
 }
+
+describe('idle: a silent Keyforge costs nothing and wakes on the next note', () => {
+  it('stops rendering once every tail is below −120 dB, then plays the next note normally', () => {
+    for (const engine of KEYS_ENGINE_TYPES) {
+      const synth = new KeysSynth(SR, cfg(engine, { room: 0.67 }));
+      const [L] = renderKeys(cfg(engine), hit(60, 0.8, 0, 0.3), 12, SR, synth);
+      // the end of a long silence is exactly zero (the engine is asleep, not just quiet)
+      expect(peak(slice(L, SR, 11, 12)), engine).toBe(0);
+      // the note before still rang out fully
+      expect(peak(slice(L, SR, 0, 0.3)), engine).toBeGreaterThan(0.01);
+      const [L2] = renderKeys(cfg(engine), hit(64, 0.8, 0, 0.3), 0.5, SR, synth);
+      expect(peak(L2), `${engine} after waking`).toBeGreaterThan(0.01);
+    }
+  });
+
+  it('an echo after a long silent gap still arrives (no sleep while a delay is under way)', () => {
+    // analog engine, a one-beat echo at 40 BPM: ~1.4 s of silence between the note and its echo
+    const c = cfg('analog', { delayMix: 0.5, delayBeats: 1, space: 0, ensemble: 0, attack: 0.001, decay: 0.05, sustainLvl: 0, release: 0.02 });
+    const synth = new KeysSynth(SR, c);
+    synth.setTempo(40);
+    const [L] = renderKeys(c, hit(60, 0.9, 0, 0.1), 2.5, SR, synth);
+    expect(db(peak(slice(L, SR, 1.45, 1.7)))).toBeGreaterThan(db(peak(slice(L, SR, 0, 0.2))) - 30);
+  });
+});

@@ -3,7 +3,7 @@ import { engine } from '../../audio/engine';
 import { recorder } from '../../audio/recorder';
 import { PPQ, ticksPerBar } from '../../core/time';
 import { clipEnd, duplicateClip, moveClip, trimClipEnd, trimClipStart } from '../../project/clipOps';
-import type { AutomationLane, AutomationPoint, Clip, Project } from '../../project/types';
+import { MAX_TRACKS, type AutomationLane, type AutomationPoint, type Clip, type Project } from '../../project/types';
 import { targetInfo } from '../../project/automation';
 import { addLanePoint, deleteLanePoint, moveLanePoint } from '../../state/automationActions';
 import type { NumericParamSpec } from '../../synth/params';
@@ -442,8 +442,8 @@ export function Arrangement() {
       }
       items = [
         ...items,
-        { label: 'Add audio track', onClick: () => addNewTrack('audio'), disabled: project.tracks.length >= 8 },
-        ...INSTRUMENT_TYPES.map((type) => ({ label: `Add ${INSTRUMENTS[type].label} track`, onClick: () => addNewTrack(type), disabled: project.tracks.length >= 8 })),
+        { label: 'Add audio track', onClick: () => addNewTrack('audio'), disabled: project.tracks.length >= MAX_TRACKS },
+        ...INSTRUMENT_TYPES.map((type) => ({ label: `Add ${INSTRUMENTS[type].label} track`, onClick: () => addNewTrack(type), disabled: project.tracks.length >= MAX_TRACKS })),
       ];
       if (timeSel.current) {
         const sel = timeSel.current;
@@ -561,7 +561,7 @@ export function Arrangement() {
     <div className="flex min-h-0 flex-1 flex-col bg-base">
       <div className="flex shrink-0" style={{ height: RULER_H }}>
         <div style={{ width: HEADER_W }} className="flex shrink-0 items-center justify-between border-b border-r border-line bg-panel px-2 text-[10px] uppercase tracking-wider text-muted">
-          <span>Tracks {tracks.length}/8</span>
+          <span>Tracks {tracks.length}/{MAX_TRACKS}</span>
           <ZoomControls />
         </div>
         <canvas

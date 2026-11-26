@@ -194,6 +194,11 @@ export class AnalogEngine implements KeysEngine {
     this.bend = clamp(value, -1, 1) * BEND_SEMITONES;
   }
 
+  quietHoldSec(): number {
+    // a gap between echoes is silence, but the next echo is still on its way
+    return this.p.delayMix > 0 ? this.delay.seconds : 0;
+  }
+
   setTempo(bpm: number): void {
     this.bpm = clamp(bpm, 20, 400);
     this.delay.setTime((this.p.delayBeats * 60) / this.bpm);

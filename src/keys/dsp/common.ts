@@ -226,6 +226,10 @@ export interface KeysEngine {
   activeVoices(): number;
   /** song tempo, for tempo-synced effects */
   setTempo?(bpm: number): void;
+  /** longest silent gap that can still be followed by sound without a new note (e.g. echo spacing), seconds */
+  quietHoldSec?(): number;
+  /** advance free-running modulators by `n` frames while asleep (so waking up sounds as if it never slept) */
+  skip?(n: number): void;
 }
 
 export const BEND_SEMITONES = 2;
@@ -277,8 +281,12 @@ export class FdnReverb {
   private readonly sr: number;
   /** slow delay-length modulation: smears the tail so it fills the gaps between partials */
   private modDepth = 0;
-  private readonly modPhase = new Float64Array(8);
-  private readonly modInc = new Float64Array(8);
+  // each line's slow sine, as a rotating phasor (no Math.sin per sample)
+  private readonly modSin = new Float64Array(8);
+  private readonly modCos = new Float64Array(8);
+  private readonly incSin = new Float64Array(8);
+  private readonly incCos = new Float64Array(8);
+  private modCount = 0;
   outL = 0;
   outR = 0;
 
@@ -286,8 +294,11 @@ export class FdnReverb {
   setModulation(depthMs: number, rateHz: number): void {
     this.modDepth = (depthMs / 1000) * this.sr;
     for (let i = 0; i < 8; i++) {
-      this.modInc[i] = (rateHz * (0.7 + 0.09 * i)) / this.sr;
-      this.modPhase[i] = i / 8;
+      const inc = (TWO_PI * rateHz * (0.7 + 0.09 * i)) / this.sr;
+      this.incSin[i] = Math.sin(inc);
+      this.incCos[i] = Math.cos(inc);
+      this.modSin[i] = Math.sin((TWO_PI * i) / 8);
+      this.modCos[i] = Math.cos((TWO_PI * i) / 8);
     }
   }
 
@@ -313,13 +324,26 @@ export class FdnReverb {
     const x = this.pre.read(this.preSamples);
     const t = this.tmp;
     const md = this.modDepth;
+    // keep the phasors on the unit circle (rounding drift)
+    const renorm = md > 0 && ++this.modCount >= 4096;
+    if (renorm) this.modCount = 0;
     for (let i = 0; i < 8; i++) {
       let y: number;
       if (md > 0) {
-        let ph = (this.modPhase[i] as number) + (this.modInc[i] as number);
-        if (ph >= 1) ph -= 1;
-        this.modPhase[i] = ph;
-        y = (this.lines[i] as DelayLine).readCubic((this.len[i] as number) + md * (1 + Math.sin(TWO_PI * ph)));
+        const s0 = this.modSin[i] as number;
+        const c0 = this.modCos[i] as number;
+        const si = this.incSin[i] as number;
+        const ci = this.incCos[i] as number;
+        let s1 = s0 * ci + c0 * si;
+        let c1 = c0 * ci - s0 * si;
+        if (renorm) {
+          const k = 1 / Math.sqrt(s1 * s1 + c1 * c1);
+          s1 *= k;
+          c1 *= k;
+        }
+        this.modSin[i] = s1;
+        this.modCos[i] = c1;
+        y = (this.lines[i] as DelayLine).readCubic((this.len[i] as number) + md * (1 + s1));
       } else y = (this.lines[i] as DelayLine).read(this.len[i] as number);
       const l = y + ((this.lp[i] as number) - y) * this.damp;
       this.lp[i] = l;
@@ -346,6 +370,21 @@ export class FdnReverb {
     }
   }
 
+  /** Advance the free-running modulation by `n` samples without processing (engine asleep). */
+  skip(n: number): void {
+    if (this.modDepth <= 0) return;
+    for (let i = 0; i < 8; i++) {
+      // rotate by n steps at once: angle n·inc
+      const inc = Math.atan2(this.incSin[i] as number, this.incCos[i] as number) * n;
+      const si = Math.sin(inc);
+      const ci = Math.cos(inc);
+      const s0 = this.modSin[i] as number;
+      const c0 = this.modCos[i] as number;
+      this.modSin[i] = s0 * ci + c0 * si;
+      this.modCos[i] = c0 * ci - s0 * si;
+    }
+  }
+
   clear(): void {
     for (const l of this.lines) l.clear();
     this.pre.clear();
@@ -367,17 +406,25 @@ export class PingPongDelay {
   outL = 0;
   outR = 0;
 
-  constructor(sampleRate: number, maxSec = 1.3) {
+  /** 2.6 s: two beats down to 46 BPM, one beat down to 23 BPM */
+  constructor(sampleRate: number, maxSec = 2.6) {
     this.l = new DelayLine(Math.ceil(maxSec * sampleRate) + 4);
     this.r = new DelayLine(Math.ceil(maxSec * sampleRate) + 4);
     this.damp = Math.exp((-TWO_PI * 4500) / sampleRate);
     this.sr = sampleRate;
+    this.maxSamples = Math.floor(maxSec * sampleRate);
   }
 
   private readonly sr: number;
+  private readonly maxSamples: number;
 
+  /** longer times than the line holds are capped (they used to wrap around into garbage timing) */
   setTime(seconds: number): void {
-    this.samples = Math.max(1, Math.round(seconds * this.sr));
+    this.samples = Math.min(this.maxSamples, Math.max(1, Math.round(seconds * this.sr)));
+  }
+
+  get seconds(): number {
+    return this.samples / this.sr;
   }
 
   process(inL: number, inR: number): void {

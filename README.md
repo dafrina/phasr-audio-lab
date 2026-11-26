@@ -1,6 +1,6 @@
 # PHASR Audio Lab
 
-Browser DAW (8 tracks) with **TriOsc** (three-oscillator subtractive synth), **Keyforge** (modelled piano, electric
+Browser DAW (12 tracks) with **TriOsc** (three-oscillator subtractive synth), **Keyforge** (modelled piano, electric
 piano, tonewheel organ and analog pad/techno engines) and a **Drum Rack**.
 
 **Live:** https://dafrina.github.io/phasr-audio-lab/ — deployed by `.github/workflows/pages.yml` on every push to `main`
@@ -168,6 +168,20 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
 | 8 × TriOsc, 4-note chords every beat (offline, 10 s) | 4.0× | 9.2× |
 | …plus 4 effects on every track (32 effects) | 1.7× | 2.5× |
 | Timeline frame during playback (8 tracks × 24 clips) | 5–11 ms | 0.02–0.05 ms |
+
+Track and effect limits (offline render of a busy song in headless Chromium, all tracks playing 4-note chords or
+drums on every beat; half the tracks Keyforge, 4 effects each, × realtime on one thread):
+
+| Tracks × 4 effects | reverb on every track | reverb on 1 in 4 |
+| --- | --- | --- |
+| 8 | 1.75× | 2.69× |
+| 12 (the limit) | 1.09× | 1.74× |
+| 16 | 0.79× | 1.23× |
+
+Realtime playback does better than these numbers (Chrome runs long convolution partitions on a background thread).
+Spectra EQ only connects the filter stages its enabled bands use (it used to run all 32: 4 Spectra EQs on 8 tracks went
+from 1.25× to 8.2×), switched-off effects stop processing, and a Keyforge that has been silent for 0.2 s (below
+−120 dB, no echo pending) sleeps until its next note.
 
 Convolution reverb is now the dominant cost of the worst case; in a realtime context Chrome runs long convolution
 partitions on a background thread, and the live 8-track/32-effect test keeps pace with wall-clock time.

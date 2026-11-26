@@ -11,7 +11,7 @@ import {
   type TrackKind,
 } from './types';
 
-export const TRACK_COLORS = ['#f97316', '#22d3ee', '#a78bfa', '#4ade80', '#f472b6', '#facc15', '#60a5fa', '#f87171'];
+export const TRACK_COLORS = ['#f97316', '#22d3ee', '#a78bfa', '#4ade80', '#f472b6', '#facc15', '#60a5fa', '#f87171', '#2dd4bf', '#c084fc', '#a3e635', '#fb7185'];
 
 /** New track; instrument tracks default to TriOsc unless an instrument config is given. */
 export function createTrack(kind: TrackKind, index: number, instrument?: InstrumentConfig): Track {
