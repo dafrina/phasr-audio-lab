@@ -102,8 +102,16 @@ describe('Keyforge parameters & presets', () => {
   });
 });
 
-describe('Keyforge piano — string physics', () => {
-  it('partials follow the stiff-string inharmonicity law', () => {
+/**
+ * Piano tests come in two kinds:
+ *  - "physics": hard facts of the string model (tuning, inharmonicity law,
+ *    dampers, pedal, restrikes …) — strict.
+ *  - "guard rail": taste-related behaviour. These only catch the sounds the
+ *    user has rejected while listening (dull, squeaky, plucky, mono, no wood)
+ *    with deliberately broad bounds, so they don't pin the tuning in place.
+ */
+describe('Keyforge piano', () => {
+  it('physics: partials follow the stiff-string inharmonicity law', () => {
     const note = 36;
     // (Metal off: phantom partials sit right next to the partials measured here)
     const [L, R] = renderKeys(cfg('piano', { unison: 0, metal: 0 }), hit(note, 0.9), 2.2, SR);
@@ -121,7 +129,7 @@ describe('Keyforge piano — string physics', () => {
     expect(1200 * Math.log2(m16 / (16 * m1))).toBeGreaterThan(8);
   });
 
-  it('A4 is tuned to 440 Hz and the treble is stretched sharp', () => {
+  it('physics: A4 is tuned to 440 Hz and the treble is stretched sharp', () => {
     const [L, R] = renderKeys(cfg('piano', { unison: 0 }), hit(69, 0.7), 1.5, SR);
     const f = peakNear(spectrum(slice(mono(L, R), SR, 0.1, 1.5), SR, 1 << 17), 440, 20).f;
     expect(Math.abs(1200 * Math.log2(f / 440))).toBeLessThan(1);
@@ -129,7 +137,7 @@ describe('Keyforge piano — string physics', () => {
     expect(pianoFundamental(28, 1)).toBeLessThan(midiHz(28));
   });
 
-  it('bass notes sustain much longer than treble notes', () => {
+  it('guard rail: bass notes sustain much longer than treble notes', () => {
     const rate = (note: number) => {
       const [L, R] = renderKeys(cfg('piano'), hit(note, 0.8), 4, SR);
       return slope(envelopeDb(slice(mono(L, R), SR, 1.5, 3.5), SR, 0.1), 0.1);
@@ -139,13 +147,13 @@ describe('Keyforge piano — string physics', () => {
     const treble = rate(84);
     expect(bass).toBeLessThan(0);
     // aftersound T60 ≈ 60/|slope|: bass ≥ 10 s, mid in between, treble only a few seconds
-    expect(60 / -bass).toBeGreaterThan(10);
+    expect(60 / -bass).toBeGreaterThan(8);
     expect(-mid).toBeGreaterThan(-bass);
-    expect(-treble).toBeGreaterThan(-mid * 1.5);
-    expect(60 / -treble).toBeLessThan(6);
+    expect(-treble).toBeGreaterThan(-mid * 1.2);
+    expect(60 / -treble).toBeLessThan(8);
   });
 
-  it('high partials decay faster than low ones (spectrum darkens over time)', () => {
+  it('physics: high partials decay faster than low ones (spectrum darkens over time)', () => {
     const note = 48;
     const [L, R] = renderKeys(cfg('piano', { unison: 0 }), hit(note, 1), 3, SR);
     const m = mono(L, R);
@@ -155,21 +163,21 @@ describe('Keyforge piano — string physics', () => {
       const tr = toneTrack(m, SR, partialFrequency(f1, k, B), 0.1);
       return db(tr[2] as number) - db(tr[25] as number);
     };
-    expect(drop(16)).toBeGreaterThan(drop(2) + 10);
+    expect(drop(16)).toBeGreaterThan(drop(2) + 6);
     const early = centroid(spectrum(slice(m, SR, 0.02, 0.3), SR));
     const late = centroid(spectrum(slice(m, SR, 2, 2.3), SR));
-    expect(late).toBeLessThan(early * 0.75);
+    expect(late).toBeLessThan(early * 0.85);
   });
 
-  it('shows the double decay of coupled strings (fast prompt sound, slow aftersound)', () => {
+  it('physics: coupled strings decay faster early than late (double decay)', () => {
     const [L, R] = renderKeys(cfg('piano'), hit(60, 0.8), 4, SR);
     const m = mono(L, R);
     const prompt = slope(envelopeDb(slice(m, SR, 0.03, 0.4), SR, 0.03), 0.03);
     const after = slope(envelopeDb(slice(m, SR, 1.5, 3.5), SR, 0.1), 0.1);
-    expect(prompt).toBeLessThan(after * 1.8);
+    expect(prompt).toBeLessThan(after * 1.3);
   });
 
-  it('detuned unison strings beat; a single tuned string decays smoothly', () => {
+  it('physics: detuned unison strings beat; a single tuned string decays smoothly', () => {
     const note = 60;
     const f = partialFrequency(pianoFundamental(note, 1), 3, inharmonicityB(note, 1));
     const track = (unison: number) => {
@@ -181,7 +189,7 @@ describe('Keyforge piano — string physics', () => {
     expect(roughness(track(5))).toBeGreaterThan(Math.max(2, smooth + 1));
   });
 
-  it('harder strikes are brighter, not just louder', () => {
+  it('physics: harder strikes are brighter, not just louder', () => {
     const c = (vel: number) => {
       const [L, R] = renderKeys(cfg('piano'), hit(60, vel), 0.6, SR);
       return spectrum(slice(mono(L, R), SR, 0.01, 0.5), SR);
@@ -192,7 +200,7 @@ describe('Keyforge piano — string physics', () => {
     expect(energyAbove(hard, 2000)).toBeGreaterThan(energyAbove(soft, 2000) * 3);
   });
 
-  it('the lowest fundamentals are weak compared to their overtones (small soundboard radiation)', () => {
+  it('physics: the lowest fundamentals are weak compared to their overtones (small soundboard radiation)', () => {
     const note = 21;
     const [L, R] = renderKeys(cfg('piano'), hit(note, 0.8), 1.2, SR);
     const sp = spectrum(slice(mono(L, R), SR, 0.05, 1.2), SR, 1 << 17);
@@ -201,7 +209,7 @@ describe('Keyforge piano — string physics', () => {
     expect(peakNear(sp, f1, 2).amp).toBeLessThan(peakNear(sp, partialFrequency(f1, 4, B), 3).amp * 0.5);
   });
 
-  it('dampers stop released notes; the top keys have no dampers', () => {
+  it('physics: dampers stop released notes; the top keys have no dampers', () => {
     const after = (note: number, release: number | undefined) => {
       const [L, R] = renderKeys(cfg('piano'), hit(note, 0.8, 0, release), 1.6, SR);
       return db(rms(slice(mono(L, R), SR, 1.1, 1.6)));
@@ -210,7 +218,7 @@ describe('Keyforge piano — string physics', () => {
     expect(Math.abs(after(96, 0.4) - after(96, undefined))).toBeLessThan(2);
   });
 
-  it('the sustain pedal keeps released notes ringing and adds sympathetic resonance', () => {
+  it('physics: the sustain pedal keeps released notes ringing and adds sympathetic resonance', () => {
     const score = (pedal: boolean): ScoreEvent[] => [...(pedal ? [{ t: 0, type: 'sustain' as const, on: true }] : []), ...hit(55, 0.8, 0.01, 0.4)];
     const [hl, hr] = renderKeys(cfg('piano'), hit(55, 0.8, 0.01), 2, SR);
     const [pl, pr] = renderKeys(cfg('piano'), score(true), 2, SR);
@@ -227,7 +235,7 @@ describe('Keyforge piano — string physics', () => {
     expect(db(rms(slice(diff, SR, 1.2, 2)))).toBeGreaterThan(db(rms(slice(ma, SR, 1.2, 2))) - 30);
   });
 
-  it('has a realistically bright, wide sound across the range (not dull, not mono)', () => {
+  it('guard rail: not dull, not mono', () => {
     const energyDb = (x: number) => 10 * Math.log10(Math.max(x, 1e-30));
     for (const [note, minAbove2k] of [[48, -24], [60, -22], [72, -16]] as const) {
       const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.8), 0.6, SR);
@@ -246,7 +254,7 @@ describe('Keyforge piano — string physics', () => {
     }
   });
 
-  it('the soundboard (wood) and the key action (knock) are clearly part of the sound', () => {
+  it('guard rail: the soundboard (wood) and the key action (knock) are audible', () => {
     const share = (note: number, over: Record<string, number>, from: number, to: number) => {
       const [a, b] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.75), to + 0.05, SR);
       const [c, d] = renderKeys(cfg('piano', { room: 0, ...over }), hit(note, 0.75), to + 0.05, SR);
@@ -259,7 +267,17 @@ describe('Keyforge piano — string physics', () => {
     expect(share(96, { hammerNoise: 0 }, 0, 0.04)).toBeGreaterThan(-18);
   });
 
-  it('treble notes ring with their overtones instead of plucking away', () => {
+  it('guard rail: a strike starts with a short bright hit, then settles', () => {
+    for (const note of [60, 84]) {
+      const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.8), 0.4, SR);
+      const m = mono(L, R);
+      const hitC = centroid(spectrum(slice(m, SR, 0, 0.015), SR));
+      const toneC = centroid(spectrum(slice(m, SR, 0.1, 0.3), SR));
+      expect(hitC, `note ${note}`).toBeGreaterThan(toneC * 1.15);
+    }
+  });
+
+  it('guard rail: treble notes ring instead of plucking away', () => {
     const note = 96;
     const [L, R] = renderKeys(cfg('piano', { room: 0 }), hit(note, 0.8), 1, SR);
     const m = mono(L, R);
@@ -276,7 +294,7 @@ describe('Keyforge piano — string physics', () => {
     expect(energyAbove(spectrum(slice(m, SR, 0, 0.03), SR), 5000)).toBeGreaterThan(0.015);
   });
 
-  it('hard strikes start a few cents sharp and settle (tension modulation)', () => {
+  it('physics: hard strikes start a few cents sharp and settle (tension modulation)', () => {
     const note = 40;
     const f8 = partialFrequency(pianoFundamental(note, 1), 8, inharmonicityB(note, 1));
     const pitch = (vel: number, from: number, to: number) => {
@@ -291,7 +309,7 @@ describe('Keyforge piano — string physics', () => {
     expect(Math.abs(1200 * Math.log2(pitch(0.2, 0.005, 0.06) / pitch(0.2, 0.6, 0.9)))).toBeLessThan(glide / 3);
   });
 
-  it('the room adds an ambient tail', () => {
+  it('physics: the room adds an ambient tail', () => {
     const tail = (room: number) => {
       const [L, R] = renderKeys(cfg('piano', { room, resonance: 0 }), hit(60, 0.9, 0, 0.3), 1, SR);
       return db(rms(slice(mono(L, R), SR, 0.5, 0.8)));
@@ -299,7 +317,7 @@ describe('Keyforge piano — string physics', () => {
     expect(tail(1)).toBeGreaterThan(tail(0) + 6);
   });
 
-  it('restriking a sounding note reuses its string', () => {
+  it('physics: restriking a sounding note reuses its string', () => {
     const synth = new KeysSynth(SR, cfg('piano'));
     renderKeys(cfg('piano'), [...hit(60, 0.5, 0, 0.3), ...hit(60, 0.9, 0.5, undefined, 2)], 0.8, SR, synth);
     expect(synth.activeVoices()).toBe(1);

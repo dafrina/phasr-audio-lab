@@ -40,6 +40,7 @@ export const KEYS_ENGINES: Record<KeysEngineType, { label: string; description: 
     params: [
       p('brightness', 'Hammer', 'Bright', 0, 1, 0.62, pct),
       p('hardness', 'Hammer', 'Touch', 0, 1, 0.6, pct),
+      p('hit', 'Hammer', 'Hit', 0, 1, 0.6, pct),
       p('hammerNoise', 'Hammer', 'Thump', 0, 1, 0.35, pct),
       p('strike', 'Hammer', 'Strike Pos', 0.06, 0.2, 0.125, (v) => `1/${(1 / v).toFixed(1)}`),
       p('sustain', 'String', 'Sustain', 0.25, 2.5, 1, (v) => `×${v.toFixed(2)}`, 'exp'),

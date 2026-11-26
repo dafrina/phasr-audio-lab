@@ -58,7 +58,9 @@ const DOUBLE_PARTIALS = 24;
 const TRIPLE_PARTIALS = 12;
 /** partials 2..PHANTOM_MAX get a "phantom" partial at exactly 2·f_k (bass and middle) */
 const PHANTOM_MAX = 10;
-const MAX_RES = PIANO_MAX_PARTIALS + DOUBLE_PARTIALS + TRIPLE_PARTIALS + PHANTOM_MAX;
+/** partials 2..HIT_MAX get a short "hit" component (the bright flash of the hammer strike) */
+const HIT_MAX = 40;
+const MAX_RES = PIANO_MAX_PARTIALS + DOUBLE_PARTIALS + TRIPLE_PARTIALS + PHANTOM_MAX + HIT_MAX;
 /** share of the second aftersound string (beating in the tail) */
 const AFTER2_SHARE = 0.1;
 const POLYPHONY = 32;
@@ -70,7 +72,7 @@ const PROMPT_SHARE = 0.6;
 const PROMPT_RATE = 2.6;
 /** a resonator is dropped below this energy (≈ −94 dBFS amplitude) */
 const DEAD_ENERGY = 4e-10;
-const LEVEL = 0.2;
+const LEVEL = 0.17;
 /** soundboard (wood) resonator level at Body = 100 % */
 const WOOD_GAIN = 2.2;
 
@@ -96,6 +98,8 @@ export interface PianoParams {
   unison: number;
   inharm: number;
   stretch: number;
+  /** brightness flash of the hammer strike */
+  hit: number;
   /** phantom-partial (longitudinal) level: the metallic zing of steel strings */
   metal: number;
   damper: number;
@@ -179,21 +183,38 @@ export function partialT60(note: number, f: number, f1: number, p: Pick<PianoPar
 }
 
 /** relative strike amplitude of partial k (before energy normalisation) */
-export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'>): number {
+/** brightness index of a strike (0…1.4) */
+export function strikeBrightness(vel: number, p: Pick<PianoParams, 'brightness' | 'hardness'>): number {
   const velTone = 1 - p.hardness + p.hardness * Math.pow(vel, 1.5);
-  const b = clamp(p.brightness * (0.4 + 0.75 * velTone), 0, 1.4);
-  // treble character sets in from about A3 and is complete around C6
-  const treb = Math.pow(clamp((note - 57) / 30, 0, 1), 0.8);
+  return clamp(p.brightness * (0.4 + 0.75 * velTone), 0, 1.4);
+}
+
+/** treble position used by the hammer model: sets in from about A3, complete around C6 */
+export function hammerTreble(note: number): number {
+  return Math.pow(clamp((note - 57) / 30, 0, 1), 0.8);
+}
+
+/**
+ * Corner frequency and slope of the hammer's (sustained-tone) spectrum.
+ * Felt stiffens as it's compressed, so the corner rises with velocity; on
+ * short treble strings the hammer stays in contact for about one period,
+ * which caps the corner at a few harmonics (treble notes are dominated by
+ * their fundamental).
+ */
+export function hammerCorner(f1: number, b: number, treb: number): { fc: number; slope: number } {
+  const absCorner = (700 + 7000 * b * b) * Math.pow(f1 / 262, f1 < 262 ? 0.6 : 0.3);
+  const harmonicCap = f1 * (0.9 + 2.2 * b + 20 * (1 - treb) * (1 - treb));
+  return { fc: Math.min(f1 + absCorner, harmonicCap), slope: 1.6 + 0.6 * treb };
+}
+
+export function hammerSpectrum(note: number, k: number, f: number, f1: number, vel: number, p: Pick<PianoParams, 'brightness' | 'hardness' | 'strike'>): number {
+  const b = strikeBrightness(vel, p);
+  const treb = hammerTreble(note);
   const bassness = clamp((52 - note) / 31, 0, 1);
   // felt hammers stiffen as they're compressed, so the spectrum falls off
   // (≈ −10 dB/oct) above a velocity-dependent corner …
-  const absCorner = (700 + 7000 * b * b) * Math.pow(f1 / 262, f1 < 262 ? 0.6 : 0.3);
-  // … but on short treble strings the hammer stays in contact for about one
-  // period, which caps the corner at a few harmonics: treble notes are
-  // dominated by their fundamental
-  const harmonicCap = f1 * (0.9 + 2.2 * b + 20 * (1 - treb) * (1 - treb));
-  const fc = Math.min(f1 + absCorner, harmonicCap);
-  const hammer = 1 / (1 + Math.pow(f / fc, 1.6 + 0.6 * treb));
+  const { fc, slope } = hammerCorner(f1, b, treb);
+  const hammer = 1 / (1 + Math.pow(f / fc, slope));
   // strike point: 1/8 in the mid range, closer to the agraffe in the treble
   const x0 = p.strike * (1 - 0.3 * clamp((note - 60) / 48, 0, 1));
   // the hammer's finite width keeps the notch shallow; on short treble strings
@@ -272,7 +293,7 @@ class PianoVoice {
 
 /** resonator id: partial k (1-based), string s (0 = prompt, 1 = aftersound / single) */
 /** resonator id: partial k (1-based), string s (0 = prompt, 1 = aftersound / single, 2 = second aftersound) */
-const pidOf = (k: number, s: number) => k * 4 + s;
+const pidOf = (k: number, s: number) => k * 8 + s;
 const S_PROMPT = 0;
 const S_AFTER = 1;
 const S_AFTER2 = 2;
@@ -284,6 +305,18 @@ const S_AFTER2 = 2;
  * "zing" of steel piano strings.
  */
 const S_PHANTOM = 3;
+/**
+ * Hit: while the hammer is on the string it drives the upper partials far
+ * harder than the free string can sustain; that energy is gone within tens
+ * of milliseconds. This brief, bright flash is the clean "hit" of a hammer
+ * — a pluck instead loses its brightness gradually.
+ */
+const S_HIT = 4;
+
+/** how long the hit flash lasts at frequency f (T60, seconds) */
+function hitT60(f: number): number {
+  return clamp(0.11 * Math.pow(1000 / f, 0.35), 0.025, 0.14);
+}
 
 const BODY_MODES: readonly (readonly [number, number, number])[] = [
   // Hz, T60 s, gain
@@ -327,9 +360,9 @@ export class PianoEngine implements KeysEngine {
   private readonly mixL = new Float64Array(MAX_BLOCK);
   private readonly mixR = new Float64Array(MAX_BLOCK);
   private readonly pulse = new Float64Array(MAX_BLOCK);
-  private readonly tmpRe = new Float64Array(4 * PIANO_MAX_PARTIALS + 4);
-  private readonly tmpIm = new Float64Array(4 * PIANO_MAX_PARTIALS + 4);
-  private readonly tmpHas = new Uint8Array(4 * PIANO_MAX_PARTIALS + 4);
+  private readonly tmpRe = new Float64Array(8 * PIANO_MAX_PARTIALS + 8);
+  private readonly tmpIm = new Float64Array(8 * PIANO_MAX_PARTIALS + 8);
+  private readonly tmpHas = new Uint8Array(8 * PIANO_MAX_PARTIALS + 8);
   private readonly pan = { l: 0, r: 0 };
   // soundboard
   private readonly bodyRe = new Float64Array(BODY_MODES.length);
@@ -554,12 +587,13 @@ export class PianoEngine implements KeysEngine {
     const nyq = sr * 0.47;
     for (let r = 0; r < v.n; r++) {
       const id = v.pid[r] as number;
-      const k = id >> 2;
-      const s = id & 3;
+      const k = id >> 3;
+      const s = id & 7;
       let f = partialFrequency(f1, k, B);
       const t60 = partialT60(note, f, f1, p);
       let sigma = LN_1000 / t60;
-      if (k <= DOUBLE_PARTIALS) {
+      if (s === S_HIT) sigma = LN_1000 / hitT60(f);
+      else if (k <= DOUBLE_PARTIALS) {
         const sigma1 = LN_1000 / fundamentalT60(note, p.sustain);
         const d = stringDetune(note, k, p.unison) / 2400;
         if (s === S_PROMPT) {
@@ -632,6 +666,8 @@ export class PianoEngine implements KeysEngine {
     for (let k = 1; k <= count; k++) peakA = Math.max(peakA, (amps[k - 1] as number) * level);
     // nonlinear: harder strikes stretch the string more
     const phantomAmt = (p.metal ?? 0.5) * vel * clamp((86 - note) / 30, 0, 1);
+    const hitAmt = (p.hit ?? 0.6) * Math.pow(vel, 1.2) * 2.6;
+    const hc = hammerCorner(f1, strikeBrightness(Math.min(1, vel * varTone), p), hammerTreble(note));
     for (let k = 1; k <= count; k++) {
       const a = (amps[k - 1] as number) * level;
       // inaudible partial that isn't ringing already: skip
@@ -650,6 +686,23 @@ export class PianoEngine implements KeysEngine {
         const after = 1 - ps - (triple ? a2 : 0);
         v.gin[n] = !double ? a : s === S_PROMPT ? a * ps : s === S_AFTER ? a * after : a * a2;
         n++;
+      }
+      // hit: brief extra drive of the upper partials while the hammer is in contact
+      if (k >= 2 && k <= HIT_MAX && n < MAX_RES && hitAmt > 0) {
+        const f = partialFrequency(f1, k, B);
+        const hf = 1 / (1 + Math.pow(f / (hc.fc * 4), hc.slope));
+        const h0 = 1 / (1 + Math.pow(f / hc.fc, hc.slope));
+        // plus a little extra on the lower partials: the strike is also louder, not only brighter
+        const ratio = Math.min(8, Math.max(0, hf / h0 - 1) + 0.25);
+        if (ratio > 0.05) {
+          const id = pidOf(k, S_HIT);
+          v.pid[n] = id;
+          v.side[n] = hash01(note * 977 + k, 13) < 0.5 ? 0 : 1;
+          v.re[n] = 0;
+          v.im[n] = 0;
+          v.gin[n] = a * hitAmt * ratio;
+          n++;
+        }
       }
       // phantom partials: strongest in the bass and middle, gone in the top octaves
       if (k >= 2 && k <= PHANTOM_MAX && n < MAX_RES && phantomAmt > 0 && 2 * partialFrequency(f1, k, B) < fmax) {
