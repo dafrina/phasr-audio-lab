@@ -3,7 +3,7 @@
  * arrangement that touches every subsystem, built with the app's own
  * factories (real schema) and generated audio (no sample libraries).
  *
- *  1 Drums      Drum Rack: kick / snare / hats, a 1-bar looping clip, pad send
+ *  1 Drums      Drum Rack: kick / snare / closed hats, open hats the next closed hat chokes, a 1-bar looping clip, pad send
  *  2 808 Seq    Keyforge 808 through the Arp-Ape-ator (sequencer: ties, chance, slide, roll)
  *  3 TriOsc     automated cutoff, resonance and oscillator level
  *  4 Grand      Keyforge piano: chords, long notes and release tails
@@ -150,7 +150,9 @@ export function buildGoldenProject(): Project {
   for (let s = 0; s < 16; s++) {
     if (s % 4 === 0) dn.push({ pitch: 36, start: s * S16, length: 120, velocity: 118 });
     if (s === 4 || s === 12) dn.push({ pitch: 38, start: s * S16, length: 120, velocity: 110 });
-    if (s % 2 === 1) dn.push({ pitch: 42, start: s * S16, length: 60, velocity: s % 4 === 3 ? 96 : 70 });
+    if (s % 2 === 1) dn.push({ pitch: 42, start: s * S16, length: 60, velocity: s % 4 === 3 ? 96 : 70 }); // GM closed hat
+    // GM open hat (0.55 s long) a 16th before a closed hat of its choke group, which cuts it
+    if (s === 6 || s === 14) dn.push({ pitch: 46, start: s * S16, length: 60, velocity: 90 });
   }
   midi(drums, 'gold-c-drums', 0, GOLDEN_BARS * BAR, dn, BAR);
 

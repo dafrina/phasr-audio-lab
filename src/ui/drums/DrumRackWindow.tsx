@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Drum, FolderOpen, RotateCcw, Send, SlidersHorizontal, Sparkles, Split, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import { DRUM_CHOKE_GROUPS, DRUM_MODELS, DRUM_STYLES, DRUM_PADS, DRUM_SPECS, DRUM_VOICES, FACTORY_KITS, defaultKit, padNote } from '../../drums/kit';
+import { GM_DRUM_NAMES, kitGmNotes } from '../../drums/gm';
 import { midiNoteName } from '../../core/time';
 import type { DrumKit, DrumPad, DrumVoiceType, InstrumentConfig } from '../../project/types';
 import { getProject, setInstrumentConfig, useProjectStore } from '../../state/projectStore';
@@ -100,6 +101,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
   if (!track || track.instrument?.type !== 'drumrack') return null;
   const cfg = track.instrument;
   const pad = cfg.kit.pads[sel] as DrumPad;
+  const gm = kitGmNotes(cfg.kit); // 16 pads: cheap enough per render
 
   const commitKit = (kit: DrumKit, label: string, coalesce?: string, presetName?: string) => {
     const c = liveConfig(trackId);
@@ -241,6 +243,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
         <div className="grid grid-cols-4 gap-1.5">
           {rows.flat().map((i) => {
             const p = cfg.kit.pads[i] as DrumPad;
+            const gmKey = gm[i] ?? padNote(i);
             const isSample = p.source.kind === 'sample';
             const missing = isSample && p.source.kind === 'sample' && !assets[p.source.assetId];
             return (
@@ -250,7 +253,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
                   padEls.current[i] = el;
                 }}
                 type="button"
-                title={`${p.name} — ${midiNoteName(padNote(i))} · key ${KEY_LABEL[i]} · click to play, drop audio to replace`}
+                title={`${p.name} — ${midiNoteName(padNote(i))} · key ${KEY_LABEL[i]} · in MIDI files: ${GM_DRUM_NAMES[gmKey] ?? midiNoteName(gmKey)} (General MIDI ${gmKey}) · click to play, drop audio to replace`}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
                   const r = e.currentTarget.getBoundingClientRect();
@@ -431,7 +434,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
             </button>
           )}
           <div className="mt-auto text-[10px] leading-snug text-dim">
-            Each pad plays MIDI note {midiNoteName(padNote(0))}–{midiNoteName(padNote(DRUM_PADS - 1))} in the piano roll. Drop one audio file on a pad to replace it, or several to fill pads from there.
+            Each pad plays MIDI note {midiNoteName(padNote(0))}–{midiNoteName(padNote(DRUM_PADS - 1))} in the piano roll, laid out like General MIDI (kick {midiNoteName(36)}, snare {midiNoteName(38)}, closed hat {midiNoteName(42)}, open hat {midiNoteName(46)}, crash {midiNoteName(49)}). MIDI files use the General MIDI drum keys. Drop one audio file on a pad to replace it, or several to fill pads from there.
           </div>
         </div>
       </div>

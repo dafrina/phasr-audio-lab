@@ -1,0 +1,21 @@
+{
+  "//": "The default Drum Rack kit (Electro) as schema-1 projects saved it: pad i on note 36 + i, before the General MIDI layout. Frozen test data for the v1 → v2 migration.",
+  "pads": [
+    {"name":"Kick","source":{"kind":"synth","voice":"kick","tone":0.42500000000000004,"snap":0.6,"length":0.7,"model":0},"gain":0,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Rim","source":{"kind":"synth","voice":"rim","tone":0.5,"snap":0.6,"length":0.06,"model":0},"gain":-4,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Snare","source":{"kind":"synth","voice":"snare","tone":0.5,"snap":0.65,"length":0.28,"model":0},"gain":0,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Clap","source":{"kind":"synth","voice":"clap","tone":0.5,"snap":0.6,"length":0.35,"model":0},"gain":-2,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Tom Low","source":{"kind":"synth","voice":"tom","tone":0.2,"snap":0.4,"length":0.45,"model":0},"gain":0,"pan":-0.25,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Closed Hat","source":{"kind":"synth","voice":"hatClosed","tone":0.6,"snap":0.6,"length":0.06,"model":0},"gain":-5,"pan":0,"tune":0,"decay":4,"choke":1,"eq":null,"sends":[0,0]},
+    {"name":"Tom Mid","source":{"kind":"synth","voice":"tom","tone":0.45,"snap":0.4,"length":0.4,"model":0},"gain":0,"pan":0.05,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Open Hat","source":{"kind":"synth","voice":"hatOpen","tone":0.6,"snap":0.5,"length":0.55,"model":0},"gain":-6,"pan":0,"tune":0,"decay":4,"choke":1,"eq":null,"sends":[0,0]},
+    {"name":"Tom High","source":{"kind":"synth","voice":"tom","tone":0.7,"snap":0.4,"length":0.35,"model":0},"gain":0,"pan":0.3,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Crash","source":{"kind":"synth","voice":"crash","tone":0.5,"snap":0.5,"length":1.8,"model":0},"gain":-8,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Shaker","source":{"kind":"synth","voice":"shaker","tone":0.6,"snap":0.4,"length":0.12,"model":0},"gain":-8,"pan":0.35,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Cowbell","source":{"kind":"synth","voice":"cowbell","tone":0.5,"snap":0.5,"length":0.3,"model":0},"gain":-7,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Kick Short","source":{"kind":"synth","voice":"kick","tone":0.6,"snap":0.8,"length":0.22,"model":0},"gain":0,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Snare Tight","source":{"kind":"synth","voice":"snare","tone":0.7,"snap":0.8,"length":0.14,"model":0},"gain":-2,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Perc","source":{"kind":"synth","voice":"perc","tone":0.5,"snap":0.5,"length":0.18,"model":0},"gain":-5,"pan":-0.3,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]},
+    {"name":"Zap","source":{"kind":"synth","voice":"zap","tone":0.5,"snap":0.5,"length":0.25,"model":0},"gain":-6,"pan":0,"tune":0,"decay":4,"choke":0,"eq":null,"sends":[0,0]}
+  ]
+}

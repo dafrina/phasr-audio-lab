@@ -13,9 +13,10 @@ import { uiToast, useUiStore } from '../state/uiStore';
 import { MidiFileError, midiToClipNotes, parseMidiFile, type SmfFile, type SmfNote } from '../midi/smf';
 import { fitClipToNotes } from '../project/noteOps';
 import { padNote } from '../drums/kit';
+import { kitGmNotes, padNoteForGm } from '../drums/gm';
 import { clipToMidi, projectToMidi } from '../midi/export';
 import { downloadBlob, safeFileName } from '../persistence/download';
-import type { AutomationLane, MidiClip, Track } from '../project/types';
+import type { AutomationLane, InstrumentConfig, MidiClip, Track } from '../project/types';
 
 export function currentTick(): number {
   return engine.transport?.getTick() ?? 0;
@@ -288,8 +289,15 @@ function notesForTrack(m: SmfFile, track: Track | undefined): SmfNote[] {
   const all = allNotes(m);
   const drums = all.filter((n) => n.channel === 9);
   const rest = all.filter((n) => n.channel !== 9);
-  if (track?.instrument?.type === 'drumrack') return drums.length ? drums : all;
+  if (track?.instrument?.type === 'drumrack') return gmToPads(drums.length ? drums : all, track.instrument);
   return rest.length ? rest : all;
+}
+
+/** A file's drum notes are General MIDI keys: each goes to the pad with that sound (drums/gm.ts). */
+function gmToPads(notes: SmfNote[], inst: InstrumentConfig | null | undefined): SmfNote[] {
+  if (inst?.type !== 'drumrack') return notes;
+  const gm = kitGmNotes(inst.kit);
+  return notes.map((n) => ({ ...n, pitch: padNoteForGm(inst.kit, n.pitch, gm) }));
 }
 
 /** An empty project takes the file's tempo and metre (a song file should play at its speed). */
@@ -371,7 +379,7 @@ export async function importMidiFiles(files: File[], opts: { trackId?: string; t
         track.color = TRACK_COLORS.find((c) => !used.has(c)) ?? track.color;
         used.add(track.color);
         newTracks.push(track);
-        clips.push(midiClipFor(track.id, track.name, tick, shifted(g.notes), bar));
+        clips.push(midiClipFor(track.id, track.name, tick, shifted(gmToPads(g.notes, track.instrument)), bar));
       });
       if (m.tracks.length > free) uiToast('info', `${file.name}: ${m.tracks.length} MIDI tracks, ${free} free — the rest is on "${newTracks[newTracks.length - 1]?.name}"`);
     }

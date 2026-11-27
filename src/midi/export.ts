@@ -2,13 +2,15 @@
  * Project / clip → Standard MIDI File. Exports what plays: looping clip
  * content is written out, Slipper-izer tracks as the chords you hear.
  * One MIDI track per instrument track (its name, its own channel; drum
- * racks on the General MIDI drum channel 10), plus the tempo and metre.
+ * racks on the General MIDI drum channel 10, each pad on the GM key of its
+ * sound — see drums/gm.ts), plus the tempo and metre.
  */
 import { PPQ } from '../core/time';
 import { withToolsExpanded } from '../arp/expand';
 import { expandMidiClipNotes } from '../project/clipOps';
 import type { MidiClip, Project, Track } from '../project/types';
 import { writeMidiFile } from './smf';
+import { gmNoteForPad, kitGmNotes } from '../drums/gm';
 
 type OutNote = { pitch: number; start: number; length: number; velocity: number };
 
@@ -21,9 +23,11 @@ function channelFor(track: Track, melodicIndex: number): number {
   return ch >= DRUM_CHANNEL ? ch + 1 : ch;
 }
 
-function clipNotes(clip: MidiClip, offset: number): OutNote[] {
+function clipNotes(clip: MidiClip, offset: number, track: Track | undefined): OutNote[] {
+  const inst = track?.instrument;
+  const gm = inst?.type === 'drumrack' ? kitGmNotes(inst.kit) : null;
   return expandMidiClipNotes(clip).map((n) => ({
-    pitch: n.pitch,
+    pitch: gm ? gmNoteForPad(gm, n.pitch) : n.pitch,
     start: Math.max(0, Math.round(offset + n.start)),
     length: Math.max(1, Math.round(Math.min(n.length, clip.length - n.start))),
     velocity: Math.min(127, Math.max(1, Math.round(n.velocity))),
@@ -39,7 +43,7 @@ export function projectToMidi(project: Project): Uint8Array | null {
     if (t.kind !== 'instrument') continue;
     const notes = Object.values(p.clips)
       .filter((c): c is MidiClip => c.kind === 'midi' && c.trackId === t.id)
-      .flatMap((c) => clipNotes(c, c.start));
+      .flatMap((c) => clipNotes(c, c.start, t));
     const channel = channelFor(t, melodic);
     if (t.instrument?.type !== 'drumrack') melodic++;
     if (notes.length) tracks.push({ name: t.name, channel, notes });
@@ -53,9 +57,9 @@ export function clipToMidi(project: Project, clipId: string): Uint8Array | null 
   const p = withToolsExpanded(project);
   const clip = p.clips[clipId];
   if (!clip || clip.kind !== 'midi') return null;
-  const notes = clipNotes(clip, 0);
-  if (!notes.length) return null;
   const track = p.tracks.find((t) => t.id === clip.trackId);
+  const notes = clipNotes(clip, 0, track);
+  if (!notes.length) return null;
   return writeMidiFile({
     ppq: PPQ,
     bpm: p.bpm,

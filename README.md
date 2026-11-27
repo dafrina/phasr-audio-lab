@@ -114,7 +114,9 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
   devices panel's Sidechain card.
 - **Instruments are a registry** (`src/instruments/definitions.ts` + `src/audio/instruments.ts` + `src/ui/instruments.tsx`):
   adding one (e.g. a piano) is three typed entries; track creation, headers, migrations and the piano roll pick it up.
-- **Drum Rack:** 16 pads (MIDI 36–51; Z–V / A–F / Q–R / 1–4 keys), procedurally synthesized kits (Electro / Punchy /
+- **Drum Rack:** 16 pads (MIDI 36–51, the range 16-pad controllers send; Z–V / A–F / Q–R / 1–4 keys) laid out like
+  General MIDI (kick 36, side stick 37, snare 38, clap 39, closed hat 42, open hat 46, crash 49, toms on GM tom keys —
+  every factory kit), procedurally synthesized kits (Electro / Punchy /
   Lo-Fi / House / Techno / Hip-Hop / Trap; voice, tone, snap, length per pad), a style per pad (Classic, House, Techno,
   Hip-Hop, Trap, Lo-Fi), per-pad gain, pan, tune, decay and choke groups, a Spectra EQ and send A/B per pad, and
   *Split to track* (moves a pad's notes onto a track of its own). Replace any pad with your own sample (drop a file on it,
@@ -155,6 +157,10 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
 - **MIDI files:** drop a `.mid` file into the piano roll (its notes land where you drop it), onto an instrument track
   (a new clip there) or onto empty timeline space (one new track per MIDI track; drums become a Drum Rack). Export the
   song (project menu), a clip (its context menu) or the open clip (piano roll's .mid button) as a Standard MIDI File (Slipper-izer and Arp-Ape-ator tracks export what you hear).
+  Drum tracks are written on the General MIDI drum channel 10 with every pad on the GM key of its sound — a pad
+  whose sound GM keeps outside 36–51 (cowbell, maracas, bongo, the second kick …) on that key — and GM drum files
+  are read back onto the pads with those sounds (a key the kit has no exact pad for goes to the closest kind: a
+  pedal hat to the closed hat, a ride to the crash, a high tom to the highest tom). Sample pads keep their key.
 - **Computer keyboard:** Z–M / Q–P play the instrument window in front (click a window to bring it forward) or, with none
   open, the selected instrument track. Song commands are always Shift+letter, editing is Ctrl/Cmd+letter.
 - **MIDI recording:** arm an instrument track (R) and record: Web MIDI, the computer keys and the on-screen keyboard
@@ -332,9 +338,10 @@ change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium i
 
 ## Known limitations
 
-- Drum Rack pads sit on consecutive notes from 36: kick / rim / snare / clap (36–39) match General MIDI, the rest
-  don't (hats are 41 / 43, GM has 42 / 46). A drum MIDI file exported to (or imported from) other software plays
-  those pads as other drums.
+- Projects saved before the General MIDI drum layout (schema 1) are moved to it on open — pads, their notes, pad
+  automation and kick-note sidechains together, so they sound as before. Only notes an Arp-Ape-ator on a drum
+  track transposes (octaves, step transpose) land on different pads than they used to. Live MIDI input is not
+  translated: a GM e-drum kit's pedal hat (44) plays whatever sits on pad 44.
 - Audio is not time-stretched: after a BPM change audio clips keep their position and length in beats, while
   their audio plays at its own speed — a faster tempo cuts a clip's audio shorter, a slower one leaves silence
   after the audio ends (trim or extend the clip, or loop it, to match).

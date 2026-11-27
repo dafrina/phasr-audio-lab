@@ -102,6 +102,7 @@ exports[`golden project: what the tools play > chord and arp expansion is stable
     "960:36:120:118",
     "960:38:120:110",
     "1200:42:60:70",
+    "1440:46:60:90",
     "1680:42:60:96",
     "1920:36:120:118",
     "2160:42:60:70",
@@ -109,6 +110,7 @@ exports[`golden project: what the tools play > chord and arp expansion is stable
     "2880:36:120:118",
     "2880:38:120:110",
     "3120:42:60:70",
+    "3360:46:60:90",
     "3600:42:60:96",
   ],
   "Grand": [

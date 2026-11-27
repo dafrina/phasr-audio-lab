@@ -17,7 +17,55 @@ type RawProject = Record<string, unknown>;
 type Migration = (p: RawProject) => RawProject;
 
 /** migrations[n] upgrades version n → n+1. Version 1 is the first release. */
-const migrations: Record<number, Migration> = {};
+const migrations: Record<number, Migration> = {
+  1: drumPadsToGeneralMidi,
+};
+
+/**
+ * v1 → v2: the Drum Rack's pads moved to the General MIDI layout (closed hat
+ * 41 → 42, open hat 43 → 46, crash 45 → 49 …; drums/kit.ts). V1_PAD_SLOT[i] is
+ * where v1 pad i is now. Every drum track's pads move there, and so does
+ * everything that names a pad — its notes, its automation lanes
+ * (p<i>.<field>) and the note of sidechain routes that listen to the track —
+ * so a project sounds exactly as before. (A v1 kit
+ * saved with pads missing got the v1 default pads; the default kit holds the
+ * same pads at their new places, so holes move along too.) Notes an
+ * arpeggiator on a drum track transposes onto other pads can't be kept.
+ */
+const V1_PAD_SLOT = [0, 1, 2, 3, 5, 6, 9, 10, 12, 13, 8, 15, 7, 4, 11, 14];
+
+function drumPadsToGeneralMidi(raw: RawProject): RawProject {
+  const tracks = Array.isArray(raw.tracks) ? raw.tracks.map((t) => (isRec(t) ? { ...t } : t)) : raw.tracks;
+  if (!Array.isArray(tracks)) return raw;
+  const note = (v: unknown) => (typeof v === 'number' && Math.round(v) >= 36 && Math.round(v) <= 51 ? 36 + (V1_PAD_SLOT[Math.round(v) - 36] as number) : v);
+  const key = (v: unknown) => (typeof v === 'string' ? v.replace(/^p(\d+)\./, (m, i: string) => (+i < 16 ? `p${V1_PAD_SLOT[+i]}.` : m)) : v);
+  const padLane = (o: unknown) => (isRec(o) && isRec(o.target) && o.target.kind === 'inst' ? { ...o, target: { ...o.target, param: key(o.target.param) } } : o);
+  const drums = new Set<unknown>();
+  for (const t of tracks) {
+    if (!isRec(t) || !isRec(t.instrument) || t.instrument.type !== 'drumrack') continue;
+    drums.add(t.id);
+    const kit = t.instrument.kit;
+    if (isRec(kit) && Array.isArray(kit.pads)) {
+      const pads: unknown[] = new Array(16).fill(undefined);
+      kit.pads.slice(0, 16).forEach((p, i) => (pads[V1_PAD_SLOT[i] as number] = p));
+      t.instrument = { ...t.instrument, kit: { ...kit, pads } };
+    }
+    if (Array.isArray(t.automation)) t.automation = t.automation.map(padLane);
+  }
+  // sidechains listening to one pad of a drum track
+  for (const t of tracks) {
+    if (isRec(t) && Array.isArray(t.modulations))
+      t.modulations = t.modulations.map((r) => (isRec(r) && drums.has(r.sourceTrackId) && r.note !== null ? { ...r, note: note(r.note) } : r));
+  }
+  const clips = isRec(raw.clips) ? { ...raw.clips } : raw.clips;
+  if (isRec(clips)) {
+    for (const [id, c] of Object.entries(clips)) {
+      if (isRec(c) && drums.has(c.trackId) && Array.isArray(c.notes))
+        clips[id] = { ...c, notes: c.notes.map((n) => (isRec(n) ? { ...n, pitch: note(n.pitch) } : n)) };
+    }
+  }
+  return { ...raw, tracks, clips };
+}
 
 export class ProjectFormatError extends Error {}
 

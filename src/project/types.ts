@@ -14,7 +14,7 @@ import type { SamplerParams, SamplerZone } from '../sampler/zones';
 import type { TimeSignature } from '../core/time';
 import type { TriOscPatch } from '../synth/params';
 
-export const PROJECT_SCHEMA_VERSION = 1;
+export const PROJECT_SCHEMA_VERSION = 2;
 /** 12: measured headroom with busy Keyforge tracks and 4 effects each (see README → Performance) */
 export const MAX_TRACKS = 12;
 export const MAX_EFFECT_SLOTS = 4;
