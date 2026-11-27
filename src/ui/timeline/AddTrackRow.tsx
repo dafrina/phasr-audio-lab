@@ -55,7 +55,8 @@ export function AddTrackRow({ count }: { count: number }) {
       // below the +, kept on screen (opens upwards near the bottom)
       const h = 5 * 50 + 40;
       const y = r.bottom + 6 + h > window.innerHeight - 8 ? Math.max(8, r.top - 6 - h) : r.bottom + 6;
-      setAt({ x: Math.min(window.innerWidth - W - 8, r.left), y });
+      // centred under the +, kept on screen
+      setAt({ x: Math.max(8, Math.min(window.innerWidth - W - 8, r.left + r.width / 2 - W / 2)), y });
     }
     setOpen((o) => !o);
   };
@@ -93,7 +94,7 @@ export function AddTrackRow({ count }: { count: number }) {
   };
 
   return (
-    <div className="m-1.5">
+    <div className="flex justify-center pb-4 pt-8">
       <button
         ref={btn}
         type="button"
@@ -103,9 +104,9 @@ export function AddTrackRow({ count }: { count: number }) {
         disabled={full}
         title={full ? `All ${MAX_TRACKS} tracks are in use — delete one to add another` : 'Add a track'}
         onClick={toggle}
-        className={`flex h-8 w-full items-center justify-center rounded-md border border-dashed text-muted transition-colors ${open ? 'border-accent bg-panel-3 text-fg' : 'border-line-2 hover:border-accent hover:bg-panel-2 hover:text-fg'} disabled:cursor-not-allowed disabled:opacity-40`}
+        className={`flex h-10 w-10 items-center justify-center rounded-lg border border-dashed text-muted transition-colors ${open ? 'border-accent bg-panel-3 text-fg' : 'border-line-2 hover:border-accent hover:bg-panel-2 hover:text-fg'} disabled:cursor-not-allowed disabled:opacity-40`}
       >
-        <Plus size={18} />
+        <Plus size={20} />
       </button>
       {open &&
         createPortal(
