@@ -256,7 +256,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
       onPointerUp={() => (velDrag.current = null)}
     >
       <div
-        className="flex h-[43px] shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-[#0f2a30] to-panel px-3"
+        className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-[#0f2a30] to-panel px-3"
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('button,select,input')) return;
           (e.target as Element).setPointerCapture(e.pointerId);
@@ -268,7 +268,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
         }}
         onPointerUp={() => (dragWin.current = null)}
       >
-        <Repeat2 size={18} style={{ color: CYAN }} />
+        <Repeat2 size={16} style={{ color: CYAN }} />
         <span className="text-[14px] font-bold tracking-[0.16em]" style={{ color: CYAN }}>
           ARP-APE-ATOR
         </span>
@@ -280,7 +280,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
           className={`ml-3 flex h-6 items-center gap-1 rounded px-2 text-[11px] font-semibold ${on ? 'text-black' : 'bg-panel-3 text-muted'}`}
           style={on ? { background: CYAN } : undefined}
         >
-          <Power size={14} /> {on ? 'On' : 'Off'}
+          <Power size={12} /> {on ? 'On' : 'Off'}
         </button>
         <button
           type="button"
@@ -298,7 +298,7 @@ export function ArpWindow({ trackId }: { trackId: string }) {
           className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-semibold ${recActive ? 'text-white' : 'bg-panel-3 text-muted hover:text-fg'} ${recActive && !seq && recStatus === 'countIn' ? 'animate-pulse' : ''}`}
           style={recActive ? { background: REC } : undefined}
         >
-          <Circle size={12} fill="currentColor" style={recActive ? undefined : { color: REC }} /> {seq ? 'Step rec' : 'Rec'}
+          <Circle size={10} fill="currentColor" style={recActive ? undefined : { color: REC }} /> {seq ? 'Step rec' : 'Rec'}
         </button>
         <select value={ARP_PRESETS.some((p) => p.presetName === cfg.presetName) ? cfg.presetName : ''} onChange={(e) => loadPreset(e.target.value)} className="h-6 max-w-[200px]" title="Pattern presets">
           <option value="">{cfg.presetName === 'Custom' ? 'Custom' : 'Presets…'}</option>
@@ -319,10 +319,10 @@ export function ArpWindow({ trackId }: { trackId: string }) {
         </select>
         <div className="ml-auto flex items-center gap-2">
           <button type="button" title="Write the pattern into this track's clips as real notes" onClick={bake} disabled={!on} className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 text-[11px] hover:bg-line-2 disabled:opacity-40">
-            <Wand2 size={14} /> Bake to notes
+            <Wand2 size={12} /> Bake to notes
           </button>
           <button type="button" title="Close (Esc)" onClick={close} className="flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-panel-3 hover:text-fg">
-            <X size={16} />
+            <X size={14} />
           </button>
         </div>
       </div>

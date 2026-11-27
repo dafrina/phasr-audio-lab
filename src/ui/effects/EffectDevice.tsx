@@ -82,15 +82,15 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
 
   return (
     <div className={`flex ${DEVICE_W[slot.type] ?? 'w-[244px]'} shrink-0 flex-col rounded-md border bg-panel-2 ${slot.enabled ? 'border-line-2' : 'border-line opacity-60'}`}>
-      <div className="flex h-7 items-center gap-1 border-b border-line px-1.5" style={{ boxShadow: `inset 0 2px 0 ${color}` }}>
+      <div className="flex h-[31px] items-center gap-1 border-b border-line px-1.5 pt-[2px]" style={{ boxShadow: `inset 0 2px 0 ${color}` }}>
         <button
           type="button"
           title={slot.enabled ? 'Bypass effect' : 'Enable effect'}
           onClick={() => setEffectEnabled(trackId, slot.id, !slot.enabled)}
-          className={`flex h-4 w-4 items-center justify-center rounded ${slot.enabled ? 'text-black' : 'bg-panel-3 text-dim'}`}
+          className={`flex h-[18px] w-[18px] items-center justify-center rounded ${slot.enabled ? 'text-black' : 'bg-panel-3 text-dim'}`}
           style={slot.enabled ? { background: color } : undefined}
         >
-          <Power size={10} />
+          <Power size={12} />
         </button>
         <span className="text-[11px] font-semibold tracking-wide text-fg" title={EFFECT_BLURBS[slot.type]}>
           {EFFECT_LABELS[slot.type]}
@@ -113,16 +113,16 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
           ))}
         </select>
         <button type="button" title="Save as user preset" onClick={savePreset} className="flex h-5 w-5 items-center justify-center rounded text-muted hover:bg-panel-3 hover:text-fg">
-          <Save size={11} />
+          <Save size={13} />
         </button>
         <button type="button" title="Move earlier in the chain" disabled={index === 0} onClick={() => moveEffect(trackId, slot.id, -1)} className="flex h-5 w-4 items-center justify-center rounded text-muted hover:text-fg disabled:opacity-25">
-          <ChevronLeft size={12} />
+          <ChevronLeft size={14} />
         </button>
         <button type="button" title="Move later in the chain" disabled={index === count - 1} onClick={() => moveEffect(trackId, slot.id, 1)} className="flex h-5 w-4 items-center justify-center rounded text-muted hover:text-fg disabled:opacity-25">
-          <ChevronRight size={12} />
+          <ChevronRight size={14} />
         </button>
         <button type="button" title="Remove effect" onClick={() => removeEffect(trackId, slot.id)} className="flex h-5 w-5 items-center justify-center rounded text-muted hover:bg-panel-3 hover:text-bad">
-          <X size={12} />
+          <X size={14} />
         </button>
       </div>
       <div className="flex flex-1 flex-col justify-center gap-2 p-2">

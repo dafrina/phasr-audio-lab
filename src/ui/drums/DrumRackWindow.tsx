@@ -159,7 +159,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
     >
       <div
-        className="flex h-[43px] shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
+        className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('button,select,input')) return;
           (e.target as Element).setPointerCapture(e.pointerId);
@@ -171,7 +171,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
         }}
         onPointerUp={() => (dragWin.current = null)}
       >
-        <Drum size={17} style={{ color: ACCENT }} />
+        <Drum size={15} style={{ color: ACCENT }} />
         <span className="text-[14px] font-bold tracking-[0.18em] text-fg">DRUM RACK</span>
         <span className="text-[10px] uppercase tracking-wider text-muted">· {track.name}</span>
         <select
@@ -191,7 +191,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
           ))}
         </select>
         <button type="button" title="Reset to the default kit" onClick={() => commitKit(defaultKit(), 'Reset kit', undefined, FACTORY_KITS[0]?.name)} className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 text-[11px] hover:bg-line-2">
-          <RotateCcw size={14} /> Init
+          <RotateCcw size={12} /> Init
         </button>
         <button
           type="button"
@@ -199,7 +199,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
           onClick={() => fileMany.current?.click()}
           className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 text-[11px] hover:bg-line-2"
         >
-          <FolderOpen size={14} /> Load samples…
+          <FolderOpen size={12} /> Load samples…
         </button>
         <input
           ref={fileMany}
@@ -228,7 +228,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
         </div>
         <span className="ml-auto text-[9px] text-dim">Keys Z–V / A–F / Q–R / 1–4 · drop audio on a pad</span>
         <button type="button" title="Close (Esc)" onClick={close} className="flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-panel-3 hover:text-fg">
-          <X size={16} />
+          <X size={14} />
         </button>
       </div>
 

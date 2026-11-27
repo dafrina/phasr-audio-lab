@@ -133,7 +133,7 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
     >
       {/* header */}
       <div
-        className="flex h-[43px] shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-[#2a2414] to-panel px-3"
+        className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-[#2a2414] to-panel px-3"
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('button,select,input')) return;
           (e.target as Element).setPointerCapture(e.pointerId);
@@ -145,7 +145,7 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
         }}
         onPointerUp={() => (dragWin.current = null)}
       >
-        <Footprints size={18} style={{ color: GOLD }} />
+        <Footprints size={16} style={{ color: GOLD }} />
         <span className="text-[14px] font-bold tracking-[0.16em]" style={{ color: GOLD }}>
           GUCCI SLIPPER-IZER
         </span>
@@ -157,14 +157,14 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
           className={`ml-3 flex h-6 items-center gap-1 rounded px-2 text-[11px] font-semibold ${on ? 'text-black' : 'bg-panel-3 text-muted'}`}
           style={on ? { background: GOLD } : undefined}
         >
-          <Power size={14} /> {on ? 'On' : 'Off'}
+          <Power size={12} /> {on ? 'On' : 'Off'}
         </button>
         <div className="ml-auto flex items-center gap-2">
           <button type="button" title="Write the chords into this track's clips as real notes (then edit them freely)" onClick={bake} disabled={!on} className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 text-[11px] hover:bg-line-2 disabled:opacity-40">
-            <Wand2 size={14} /> Bake to notes
+            <Wand2 size={12} /> Bake to notes
           </button>
           <button type="button" title="Close (Esc)" onClick={close} className="flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-panel-3 hover:text-fg">
-            <X size={16} />
+            <X size={14} />
           </button>
         </div>
       </div>
