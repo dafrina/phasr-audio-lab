@@ -151,7 +151,7 @@ export type InstrumentConfig =
   | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string }
   | { type: 'sampler'; zones: SamplerZone[]; params: SamplerParams; autoMap: boolean; presetName: string };
 
-export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'room' | 'chorus' | 'autofilter' | 'phaser';
+export type EffectType = 'eq' | 'peq' | 'compressor' | 'saturator' | 'delay' | 'reverb' | 'room' | 'chorus' | 'autofilter' | 'phaser';
 
 /** Phaser: swept all-pass stages with feedback, mixed with the dry signal for moving notches. */
 export interface PhaserParams {
@@ -259,6 +259,23 @@ export interface ReverbParams {
   mix: number;
 }
 
+export type SaturatorMode = 'tape' | 'tube' | 'overdrive' | 'hard' | 'fold';
+
+/** Saturator: a waveshaper (4× oversampled) with drive, tone, auto gain and a parallel mix. */
+export interface SaturatorParams {
+  mode: SaturatorMode;
+  /** dB into the shaper, 0 … 36 */
+  drive: number;
+  /** low-pass after the shaper, Hz (20 kHz = open) */
+  tone: number;
+  /** dB after everything */
+  output: number;
+  /** 0 … 1 (linear blend: dry and saturated are in phase) */
+  mix: number;
+  /** keep the level steady while the drive changes */
+  autoGain: boolean;
+}
+
 /** Reverb Lite: an algorithmic room (feedback delay network) — a fraction of the convolution reverb's CPU. */
 export interface RoomParams {
   /** seconds to −60 dB */
@@ -278,6 +295,7 @@ export type EffectSlot =
   | { id: string; enabled: boolean; type: 'delay'; params: DelayParams }
   | { id: string; enabled: boolean; type: 'reverb'; params: ReverbParams }
   | { id: string; enabled: boolean; type: 'room'; params: RoomParams }
+  | { id: string; enabled: boolean; type: 'saturator'; params: SaturatorParams }
   | { id: string; enabled: boolean; type: 'peq'; params: PeqParams }
   | { id: string; enabled: boolean; type: 'chorus'; params: ChorusParams }
   | { id: string; enabled: boolean; type: 'autofilter'; params: AutoFilterParams }

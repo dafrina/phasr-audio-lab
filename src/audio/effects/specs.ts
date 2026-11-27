@@ -17,6 +17,8 @@ import type {
   PeqSlope,
   ReverbParams,
   RoomParams,
+  SaturatorMode,
+  SaturatorParams,
   AutoFilterParams,
   AutoFilterMode,
   PhaserParams,
@@ -24,7 +26,7 @@ import type {
 } from '../../project/types';
 import type { NumericParamSpec } from '../../synth/params';
 
-export const EFFECT_TYPES: EffectType[] = ['eq', 'peq', 'compressor', 'autofilter', 'delay', 'chorus', 'phaser', 'room', 'reverb'];
+export const EFFECT_TYPES: EffectType[] = ['eq', 'peq', 'compressor', 'saturator', 'autofilter', 'delay', 'chorus', 'phaser', 'room', 'reverb'];
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
   eq: 'EQ-3',
@@ -33,6 +35,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   autofilter: 'Auto-Filter',
   phaser: 'Phaser',
   compressor: 'Compressor',
+  saturator: 'Saturator',
   delay: 'Delay',
   reverb: 'Reverb Pro',
   room: 'Reverb Lite',
@@ -42,6 +45,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
 export const EFFECT_BLURBS: Partial<Record<EffectType, string>> = {
   reverb: 'Convolution reverb: a dense, natural room rendered from a generated impulse response — the rich one, heavier on CPU (grows with decay)',
   room: 'Algorithmic room (feedback delay network): light on CPU at any decay, decay and tone can be automated and sidechained',
+  saturator: 'Drive into a waveshaper (tape, tube, overdrive, hard clip, wave folder) for warmth, grit or fuzz; auto gain keeps the level',
 };
 
 const db = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
@@ -75,6 +79,21 @@ export const REVERB_SPECS = {
   preDelay: { label: 'Pre-Dly', min: 0, max: 0.25, default: 0.02, curve: 'linear', format: ms },
   mix: { label: 'Mix', min: 0, max: 1, default: 0.25, curve: 'linear', format: pct },
 } satisfies Record<keyof ReverbParams, NumericParamSpec>;
+
+export const SATURATOR_SPECS = {
+  drive: { label: 'Drive', min: 0, max: 36, default: 6, curve: 'linear', format: (v) => `+${v.toFixed(1)} dB` },
+  tone: { label: 'Tone', min: 1000, max: 20000, default: 20000, curve: 'exp', format: (v) => (v >= 19900 ? 'open' : hz(v)) },
+  output: { label: 'Output', min: -24, max: 12, default: 0, curve: 'linear', bipolar: true, format: db },
+  mix: { label: 'Mix', min: 0, max: 1, default: 1, curve: 'linear', format: pct },
+} satisfies Record<'drive' | 'tone' | 'output' | 'mix', NumericParamSpec>;
+
+export const SATURATOR_MODES: { value: SaturatorMode; label: string; title: string }[] = [
+  { value: 'tape', label: 'Tape', title: 'Soft and smooth (odd harmonics): glue, warmth on buses and drums' },
+  { value: 'tube', label: 'Tube', title: 'Asymmetric (even harmonics): thick, warm mids — bass, vocals, keys' },
+  { value: 'overdrive', label: 'Drive', title: 'Harder knee with bite: guitars, leads, aggressive bass' },
+  { value: 'hard', label: 'Clip', title: 'Hard digital clip: loud, bright, buzzy — 808s and drums' },
+  { value: 'fold', label: 'Fold', title: 'Wave folder: folds the wave back past full scale — metallic synth tones' },
+];
 
 export const ROOM_SPECS = {
   decay: { label: 'Decay', min: 0.2, max: 12, default: 1.6, curve: 'exp', format: (v) => (v < 10 ? `${v.toFixed(2)} s` : `${v.toFixed(1)} s`) },
@@ -225,6 +244,7 @@ export function defaultParams(type: 'compressor'): CompressorParams;
 export function defaultParams(type: 'delay'): DelayParams;
 export function defaultParams(type: 'reverb'): ReverbParams;
 export function defaultParams(type: 'room'): RoomParams;
+export function defaultParams(type: 'saturator'): SaturatorParams;
 export function defaultParams(type: 'chorus'): ChorusParams;
 export function defaultParams(type: 'autofilter'): AutoFilterParams;
 export function defaultParams(type: 'phaser'): PhaserParams;
@@ -243,6 +263,8 @@ export function defaultParams(type: EffectType): EffectSlot['params'] {
       return { decay: 2.2, preDelay: 0.02, mix: 0.25 };
     case 'room':
       return { decay: 1.6, size: 1, tone: 6000, preDelay: 0.012, mix: 0.25 };
+    case 'saturator':
+      return { mode: 'tape', drive: 6, tone: 20000, output: 0, mix: 1, autoGain: true };
     case 'chorus':
       return { rate: 0.8, depth: 0.003, delay: 0.012, feedback: 0, mix: 0.5, width: 0.5 };
     case 'autofilter':
@@ -267,6 +289,8 @@ export function createEffectSlot(type: EffectType): EffectSlot {
       return { id, type, enabled: true, params: defaultParams('reverb') };
     case 'room':
       return { id, type, enabled: true, params: defaultParams('room') };
+    case 'saturator':
+      return { id, type, enabled: true, params: defaultParams('saturator') };
     case 'chorus':
       return { id, type, enabled: true, params: defaultParams('chorus') };
     case 'autofilter':
@@ -412,6 +436,20 @@ export function sanitizeEffect(input: unknown): EffectSlot | null {
           mix: clampSpec(REVERB_SPECS.mix, p.mix),
         },
       };
+    case 'saturator':
+      return {
+        id,
+        enabled,
+        type: 'saturator',
+        params: {
+          mode: SATURATOR_MODES.some((m) => m.value === p.mode) ? (p.mode as SaturatorMode) : 'tape',
+          drive: clampSpec(SATURATOR_SPECS.drive, p.drive),
+          tone: clampSpec(SATURATOR_SPECS.tone, p.tone),
+          output: clampSpec(SATURATOR_SPECS.output, p.output),
+          mix: clampSpec(SATURATOR_SPECS.mix, p.mix),
+          autoGain: p.autoGain !== false,
+        },
+      };
     case 'room':
       return {
         id,
@@ -534,6 +572,13 @@ export const FACTORY_EFFECT_PRESETS: EffectPreset[] = [
   { name: 'Small Room', type: 'reverb', factory: true, params: { decay: 0.7, preDelay: 0.008, mix: 0.2 } },
   { name: 'Hall', type: 'reverb', factory: true, params: { decay: 3.2, preDelay: 0.03, mix: 0.3 } },
   { name: 'Ambient Wash', type: 'reverb', factory: true, params: { decay: 8, preDelay: 0.06, mix: 0.5 } },
+  { name: 'Warm Tape', type: 'saturator', factory: true, params: defaultParams('saturator') },
+  { name: 'Tube Bass', type: 'saturator', factory: true, params: { mode: 'tube', drive: 12, tone: 12000, output: 0, mix: 1, autoGain: true } },
+  { name: 'Drum Bus Glue', type: 'saturator', factory: true, params: { mode: 'tape', drive: 9, tone: 16000, output: 0, mix: 0.6, autoGain: true } },
+  { name: 'Crunchy Drive', type: 'saturator', factory: true, params: { mode: 'overdrive', drive: 20, tone: 7000, output: 0, mix: 1, autoGain: true } },
+  { name: 'Loud 808', type: 'saturator', factory: true, params: { mode: 'hard', drive: 14, tone: 9000, output: -1, mix: 1, autoGain: true } },
+  { name: 'Metal Fold', type: 'saturator', factory: true, params: { mode: 'fold', drive: 16, tone: 10000, output: 0, mix: 0.8, autoGain: true } },
+  { name: 'Parallel Fuzz', type: 'saturator', factory: true, params: { mode: 'overdrive', drive: 30, tone: 5000, output: 0, mix: 0.3, autoGain: true } },
   { name: 'Room', type: 'room', factory: true, params: defaultParams('room') },
   { name: 'Small Booth', type: 'room', factory: true, params: { decay: 0.55, size: 0.5, tone: 7500, preDelay: 0.004, mix: 0.2 } },
   { name: 'Plate', type: 'room', factory: true, params: { decay: 1.9, size: 0.8, tone: 10000, preDelay: 0.008, mix: 0.25 } },

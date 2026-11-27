@@ -17,13 +17,15 @@ import {
   FACTORY_EFFECT_PRESETS,
   REVERB_SPECS,
   ROOM_SPECS,
+  SATURATOR_MODES,
+  SATURATOR_SPECS,
   EFFECT_BLURBS,
   delayTimeSeconds,
   loadUserEffectPresets,
   saveUserEffectPresets,
   type EffectPreset,
 } from '../../audio/effects/specs';
-import type { AutoFilterMode, AutoFilterParams, EffectSlot, EqParams, LfoShape, PhaserParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, EffectSlot, EqParams, LfoShape, PhaserParams, SaturatorParams } from '../../project/types';
 import { moveEffect, removeEffect, replaceEffectParams, setEffectEnabled, setEffectParams } from '../../state/effectActions';
 import { useProjectStore } from '../../state/projectStore';
 import { uiToast } from '../../state/uiStore';
@@ -31,6 +33,7 @@ import { Knob } from '../common/Knob';
 import { AutoKnob } from '../common/AutoKnob';
 import { PeqDevice } from './PeqDevice';
 import { ReverbRoomView } from './ReverbRoomView';
+import { saturate, saturatorGain, saturatorHarmonics } from '../../audio/saturator/shapes';
 
 const TYPE_COLOR: Record<EffectSlot['type'], string> = {
   eq: '#22d3ee',
@@ -39,6 +42,7 @@ const TYPE_COLOR: Record<EffectSlot['type'], string> = {
   autofilter: '#e879f9',
   phaser: '#34d399',
   compressor: '#facc15',
+  saturator: '#fb7185',
   delay: '#4ade80',
   reverb: '#9b8aff',
   room: '#a78bfa',
@@ -144,6 +148,7 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
             </div>
           </>
         )}
+        {slot.type === 'saturator' && <SaturatorBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'delay' && <DelayBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'autofilter' && <AutoFilterBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'phaser' && <PhaserBody trackId={trackId} slot={slot} color={color} set={set} />}
@@ -199,6 +204,92 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
         )}
       </div>
     </div>
+  );
+}
+
+function SaturatorBody({ trackId, slot, color, set }: { trackId: string; slot: Extract<EffectSlot, { type: 'saturator' }>; color: string; set: (p: Partial<EffectSlot['params']>, k: string) => void }) {
+  const p = slot.params;
+  const knob = (key: 'drive' | 'tone' | 'output' | 'mix', k: string) => (
+    <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: key }} spec={SATURATOR_SPECS[key]} value={p[key]} color={color} onChange={(v) => set({ [key]: v } as Partial<SaturatorParams>, k)} />
+  );
+  return (
+    <>
+      <div className="flex gap-[2px]">
+        {SATURATOR_MODES.map((m) => (
+          <button
+            key={m.value}
+            type="button"
+            title={m.title}
+            onClick={() => set({ mode: m.value }, 'mode')}
+            className={`h-5 flex-1 rounded text-[10px] font-semibold ${p.mode === m.value ? 'text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
+            style={p.mode === m.value ? { background: color } : undefined}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <SaturatorDisplay params={p} color={color} />
+      <div className="flex justify-between">
+        {knob('drive', 'drive')}
+        {knob('tone', 'tone')}
+        {knob('output', 'out')}
+        {knob('mix', 'mix')}
+      </div>
+      <button
+        type="button"
+        title="Auto gain: the level stays the same while you turn the drive, so you hear the character, not just louder"
+        onClick={() => set({ autoGain: !p.autoGain }, 'ag')}
+        className={`mx-auto h-5 rounded px-2 text-[10px] font-semibold uppercase tracking-wide ${p.autoGain ? 'text-black' : 'bg-panel-3 text-muted'}`}
+        style={p.autoGain ? { background: color } : undefined}
+      >
+        Auto gain
+      </button>
+    </>
+  );
+}
+
+/** Transfer curve (input → output at this drive) and the harmonics it adds to a sine. */
+function SaturatorDisplay({ params, color }: { params: SaturatorParams; color: string }) {
+  const W = 228;
+  const H = 64;
+  const CW = 64;
+  const { path, bars } = useMemo(() => {
+    const g = Math.pow(10, params.drive / 20);
+    const comp = params.autoGain ? 1 / saturatorGain(params.mode, params.drive) : 1;
+    let d = '';
+    for (let i = 0; i <= 64; i++) {
+      const x = (i / 64) * 2 - 1;
+      const y = Math.max(-1.1, Math.min(1.1, saturate(params.mode, x * g) * Math.min(comp, 4)));
+      d += `${i ? 'L' : 'M'}${(2 + ((x + 1) / 2) * (CW - 4)).toFixed(1)},${(H / 2 - y * (H / 2 - 4)).toFixed(1)}`;
+    }
+    const h = saturatorHarmonics(params.mode, params.drive, 10);
+    return { path: d, bars: h };
+  }, [params.mode, params.drive, params.autoGain]);
+  const bx = CW + 10;
+  const bw = (W - bx - 4) / bars.length;
+  return (
+    <svg width={W} height={H} className="rounded bg-base" aria-label="Saturation curve and harmonics">
+      <line x1={2} y1={H / 2} x2={CW - 2} y2={H / 2} stroke="#2a2a3d" />
+      <line x1={CW / 2} y1={4} x2={CW / 2} y2={H - 4} stroke="#2a2a3d" />
+      <line x1={2} y1={H - 4} x2={CW - 2} y2={4} stroke="#3a3a52" strokeDasharray="2 2" />
+      <path d={path} fill="none" stroke={color} strokeWidth={1.6} />
+      {bars.map((db, k) => {
+        // 0 dB (fundamental) … −80 dB
+        const v = Math.max(0, Math.min(1, (db + 80) / 80));
+        const even = (k + 1) % 2 === 0;
+        return (
+          <g key={k}>
+            <rect x={bx + k * bw + 1} y={H - 12 - v * (H - 26)} width={bw - 2} height={Math.max(1, v * (H - 26))} rx={1} fill={k === 0 ? '#e8e8f2' : even ? '#fbbf24' : color} opacity={k === 0 ? 0.55 : 0.9} />
+            <text x={bx + k * bw + bw / 2} y={H - 2} textAnchor="middle" fontSize={7} fill="#6a6a86">
+              {k + 1}
+            </text>
+          </g>
+        );
+      })}
+      <text x={W - 4} y={9} textAnchor="end" fontSize={7} fill="#8b8ba6">
+        harmonics · <tspan fill={color}>odd</tspan> <tspan fill="#fbbf24">even</tspan>
+      </text>
+    </svg>
   );
 }
 

@@ -7,9 +7,10 @@
  * All parameter changes use setTargetAtTime smoothing to avoid zipper noise.
  */
 import { dbToGain } from '../../core/ids';
-import type { AutoFilterMode, AutoFilterParams, PhaserParams, RoomParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, PhaserParams, RoomParams, SaturatorMode, SaturatorParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
 import { parseBandKey } from '../../project/automation';
 import { generateImpulse } from './impulse';
+import { SAT_RANGE, saturatorCurve, saturatorGain } from '../saturator/shapes';
 import { MAX_DELAY_SECONDS, PEQ_BANDS, autoFilterLfoHz, delayTimeSeconds, mixGains, phaserLfoHz } from './specs';
 
 const SMOOTH = 0.02;
@@ -213,6 +214,144 @@ class EqUnit extends BaseUnit {
 export function autoMakeupCompensationDb(threshold: number, ratio: number): number {
   const fullRangeGainDb = threshold * (1 - 1 / ratio); // ≤ 0
   return 0.6 * fullRangeGainDb;
+}
+
+/** a 4× oversampled WaveShaperNode delays its output by this many samples (measured in Chromium) */
+const SAT_OS_LATENCY = 192;
+const satCurves = new Map<SaturatorMode, Float32Array<ArrayBuffer>>();
+const satCurve = (m: SaturatorMode) => {
+  let c = satCurves.get(m);
+  if (!c) satCurves.set(m, (c = saturatorCurve(m)));
+  return c;
+};
+
+/**
+ * Saturator: drive gain → WaveShaperNode (4× oversampled, so the added
+ * harmonics don't alias) → DC blocker → tone low-pass → auto-gain, blended
+ * with the dry signal (delayed by the oversampler's latency, so a parallel
+ * mix doesn't comb-filter) → output gain. Drive is a plain gain in front of
+ * a curve that covers ±64 (see shapes.ts), so it ramps smoothly under
+ * automation. Auto gain measures the dry and saturated levels and matches
+ * them (AutoGainCore), so it works for quiet and loud sources alike.
+ */
+class SaturatorUnit extends BaseUnit {
+  readonly type = 'saturator' as const;
+  private readonly pre: GainNode;
+  private readonly shaper: WaveShaperNode;
+  private readonly dcBlock: BiquadFilterNode;
+  private readonly tone: BiquadFilterNode;
+  /** auto gain: matches the saturated signal's level to the dry one (phasr-satgain worklet) */
+  private readonly comp: AudioWorkletNode;
+  private readonly dryDelay: DelayNode;
+  private readonly dGain: GainNode;
+  private readonly wGain: GainNode;
+  private readonly wetDuck: GainNode;
+  private readonly out: GainNode;
+  private readonly outDuck: GainNode;
+  private mode: SaturatorMode | null = null;
+
+  constructor(ctx: BaseAudioContext, id: string) {
+    super(ctx, id);
+    this.pre = new GainNode(ctx);
+    this.shaper = new WaveShaperNode(ctx, { oversample: '4x' });
+    this.dcBlock = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 8, Q: -3.01 });
+    this.tone = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000, Q: -3.01 });
+    this.comp = new AudioWorkletNode(ctx, 'phasr-satgain', {
+      numberOfInputs: 2,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: 'explicit',
+      channelInterpretation: 'speakers',
+    });
+    this.dryDelay = new DelayNode(ctx, { maxDelayTime: 0.05, delayTime: SAT_OS_LATENCY / ctx.sampleRate });
+    this.dGain = new GainNode(ctx, { gain: 0 });
+    this.wGain = new GainNode(ctx);
+    this.wetDuck = new GainNode(ctx, { gain: 1 });
+    this.out = new GainNode(ctx);
+    this.outDuck = new GainNode(ctx, { gain: 1 });
+    this.src.connect(this.pre);
+    this.pre.connect(this.shaper);
+    this.shaper.connect(this.dcBlock);
+    this.dcBlock.connect(this.tone);
+    this.tone.connect(this.comp);
+    this.comp.connect(this.wGain);
+    this.wGain.connect(this.wetDuck);
+    this.wetDuck.connect(this.out);
+    this.src.connect(this.dryDelay);
+    this.dryDelay.connect(this.dGain);
+    // the auto gain's reference: the dry signal, aligned with the oversampler
+    this.dryDelay.connect(this.comp, 0, 1);
+    this.dGain.connect(this.out);
+    this.out.connect(this.outDuck);
+    this.outDuck.connect(this.wet);
+  }
+
+  /** the auto gain's starting point (a static estimate) before it has measured the levels */
+  private compGain(driveDb: number): number {
+    return this.mode ? 1 / saturatorGain(this.mode, driveDb) : 1;
+  }
+
+  private compParam(name: 'auto' | 'guess'): AudioParam {
+    return this.comp.parameters.get(name) as AudioParam;
+  }
+
+  update(slot: EffectSlot, _bpm: number, auto: ReadonlySet<string> = NONE): void {
+    if (slot.type !== 'saturator') return;
+    const p: SaturatorParams = slot.params;
+    const im = !this.initialized;
+    if (p.mode !== this.mode) {
+      this.mode = p.mode;
+      this.shaper.curve = satCurve(p.mode);
+    }
+
+    this.compParam('auto').value = p.autoGain ? 1 : 0;
+    if (!auto.has('drive')) {
+      setParam(this.pre.gain, dbToGain(p.drive) / SAT_RANGE, this.ctx, im);
+      this.compParam('guess').value = this.compGain(p.drive);
+    }
+    if (!auto.has('tone')) setParam(this.tone.frequency, Math.min(this.ctx.sampleRate * 0.45, p.tone), this.ctx, im);
+    if (!auto.has('output')) setParam(this.out.gain, dbToGain(p.output), this.ctx, im);
+    if (!auto.has('mix')) {
+      setParam(this.dGain.gain, 1 - p.mix, this.ctx, im);
+      setParam(this.wGain.gain, p.mix, this.ctx, im);
+    }
+    this.setEnabled(slot.enabled);
+    this.initialized = true;
+  }
+
+  automationParams(key: string): ParamTarget[] {
+    switch (key) {
+      case 'drive':
+        return [
+          { param: this.pre.gain, map: (v) => dbToGain(Math.max(0, v)) / SAT_RANGE },
+        ];
+      case 'tone':
+        return [{ param: this.tone.frequency, map: (v) => Math.min(this.ctx.sampleRate * 0.45, Math.max(20, v)), exp: true }];
+      case 'output':
+        return [{ param: this.out.gain, map: (v) => dbToGain(v) }];
+      case 'mix':
+        return [
+          { param: this.dGain.gain, map: (v) => 1 - v },
+          { param: this.wGain.gain, map: (v) => v },
+        ];
+      default:
+        return [];
+    }
+  }
+
+  override modulationInputs(key: string): ModInput[] {
+    if (key === 'mix') return [{ param: this.wetDuck.gain, scale: wetDuckScale }];
+    // output in dB: a kick can pump the saturated signal
+    if (key === 'output') return [{ param: this.outDuck.gain, scale: wetDuckScale }];
+    return [];
+  }
+
+  override dispose(): void {
+    super.dispose();
+    this.comp.port.postMessage({ type: 'dispose' });
+    for (const n of [this.pre, this.shaper, this.dcBlock, this.tone, this.comp, this.dryDelay, this.dGain, this.wGain, this.wetDuck, this.out, this.outDuck]) n.disconnect();
+  }
 }
 
 class CompressorUnit extends BaseUnit {
@@ -1211,6 +1350,9 @@ export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: n
       break;
     case 'room':
       unit = new RoomUnit(ctx, slot.id);
+      break;
+    case 'saturator':
+      unit = new SaturatorUnit(ctx, slot.id);
       break;
   }
   unit.update(slot, bpm, automated);

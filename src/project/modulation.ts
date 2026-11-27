@@ -133,6 +133,9 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
     case 'phaser':
       // the sweep's centre in octaves (a kick can push the notches up), and the wet level
       return [{ key: 'center', label: 'Center', depth: { ...octDepth, min: -4, max: 4, default: 1 } }, wetParam()];
+    case 'saturator':
+      // the saturated signal's level in dB (pumping) and the wet blend
+      return [{ key: 'output', label: 'Output', depth: dbDepth(24, -6) }, wetParam()];
     case 'room':
       // decay in seconds: a negative depth chokes the tail on every hit (gated reverb)
       return [
