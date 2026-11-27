@@ -14,8 +14,13 @@ export default defineConfig({
   timeout: 180_000,
   fullyParallel: false,
   workers: 1,
-  reporter: [['list']],
+  // no retries: a flaky test should show up, not be hidden
+  retries: 0,
+  forbidOnly: !!process.env.CI,
+  // CI also writes an HTML report (uploaded when a run fails) and keeps traces of failures
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   use: {
+    trace: process.env.CI ? 'retain-on-failure' : 'off',
     baseURL: `http://127.0.0.1:${PORT}`,
     ...devices['Desktop Chrome'],
     launchOptions: {

@@ -6,7 +6,8 @@ Slipper-izer** (one key → a chord) and the **Arp-Ape-ator** (arpeggiator / ste
 track, on two send channels and on the master.
 
 **Live:** https://dafrina.github.io/phasr-audio-lab/ — deployed by `.github/workflows/pages.yml` on every push to `main`
-(typecheck → tests → build with `BASE_PATH=/<repo>/` → GitHub Pages).
+(typecheck, unit + perf tests and the Playwright browser tests in parallel → build with `BASE_PATH=/<repo>/` → GitHub
+Pages; pull requests run the same checks without deploying).
 React + TypeScript (strict) + Vite + Zustand + Tailwind; audio via Web Audio API and AudioWorklet.
 
 ```bash
@@ -14,6 +15,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm test           # unit tests (Vitest, Node)
 npm run test:e2e   # browser tests (Playwright + Chromium, e2e/): renders, effects, recording, cleanup
+npm run test:perf  # audio-thread allocation budgets
 npm run typecheck
 npm run build
 ```
@@ -47,7 +49,10 @@ events, release sounding notes, and reschedule from the current position.
 **TriOsc DSP:** PolyBLEP saw/square/pulse and integrated band-limited triangle in HQ mode (naive shapes in
 Classic), xorshift noise, true L/R phase for stereo detune/phase offset, osc 3 → AM mode, TPT state-variable
 filter (LP/HP/BP) with its own ADSR + key tracking, global LFO (pitch/cutoff/amp), 16-voice deterministic
-allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch bend. `process()` allocates nothing.
+allocation with click-free stealing (a stolen voice fades out first; measured in `tests/clicks.test.ts`),
+mono/legato/glide, sustain pedal, pitch bend. `process()` creates no buffers or objects of its own, but V8 still
+boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-lived garbage per 128-frame block
+(see *Allocation on the audio thread* under Performance).
 
 ## Status
 
@@ -80,7 +85,7 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   tone, output, and a parallel mix whose dry path is delayed to match the oversampler; adaptive auto gain that
   measures the dry and saturated levels and matches them — within 2 dB from 0 to 36 dB of drive on synths, piano and
   drums; the display shows the transfer curve and the odd / even harmonics it adds; stages that are off aren't wired
-  in) and **Utility** (gain, balance, width from mono to 150 %, polarity per channel — for gain staging anywhere). Enable/bypass (click-free crossfade; a switched-off effect does no work), parameter smoothing, reorder,
+  in) and **Utility** (gain, balance, width from mono to 150 %, polarity per channel — for gain staging anywhere). Enable/bypass (click-free crossfade, measured for every effect in `e2e/clicks.e2e.ts`; a switched-off effect does no work), parameter smoothing, reorder,
   remove, factory + user effect presets, all saved in the project.
   Mixer (F9 or toolbar): a channel strip per track (up to 12) with fader, pan, mute/solo, send A/B knobs, real meters
   with peak hold/clip LED and effect slots; strips for the two send channels; the master with its own 4 effect slots and
@@ -208,7 +213,17 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   clip rename, `?` shortcut overlay, and a leak test (90 tracks with full chains created/deleted + project switches →
   channels/modulators/params back to baseline, +1.2 MB heap).
 
-### Performance (measured: headless Chromium / Node on the dev machine — run `npm run bench`)
+### Performance
+
+**How these numbers are measured.** Machine: Intel Core Ultra 7 265H laptop (16 threads, 32 GB), Linux under
+WSL2. Node 24 (V8 13.6) for the DSP benchmarks (`npm run bench`: the DSP cores alone, 48 kHz, 128-frame blocks, after a
+JIT warm-up, median of 5 runs with the range printed); headless Chromium (Chrome for Testing 156) for offline renders,
+effect costs and main-thread time. "× realtime" is audio seconds rendered per wall-clock second on one thread
+(above 1× keeps up). **Compare numbers only within one session:** on this laptop the same code measures up to ~25 %
+apart between sessions (power and thermal state). Before/after columns were measured back to back; e.g. re-running
+the Keyforge bench on 27 Nov 2026 gave Concert Grand 22.7× (table: 28.2×) — and the commit the table was made from
+(1ae92b6) measured 22.5× in the same session, so that gap is the machine, not a regression.
+
 
 | Scenario | Before M7 | After M7 |
 | --- | --- | --- |
@@ -253,6 +268,16 @@ decay), Reverb Pro 3.9 % at 2.2 s and 9.4 % at 6 s of decay. Idle (8 silent inst
 The piano's strike glide and pitch bend only re-rotate the resonators instead of recomputing every partial's decay,
 and the 8-line room reverb's Hadamard mix is unrolled.
 
+**Allocation on the audio thread** (`npm run test:perf`, V8's sampling heap profiler over 4000 blocks with chords past
+the polyphony limit, sustain and bends; budgets = measured + 50 %, so an added allocation fails the test). The phaser,
+Lo-Fi, saturator auto gain and modulation-source cores allocate nothing. The others create no buffers or objects of
+their own, but V8 boxes floating-point values passed to or returned from functions it doesn't inline (Reverb Lite:
+exactly the two samples per frame handed to the feedback-delay network, 32 B per sample) and `for…of` over voices
+allocates iterators. Per 128-frame block: TriOsc ≈ 3.1 kB, Reverb Lite 4.2 kB, Keyforge 808 2.1 kB, Tine EP 4.7 kB,
+analog 12.7 kB, organ 38 kB, piano 93 kB (≈ 35 MB/s while the piano plays). The young-generation GC reclaims this
+cheaply; whether it ever causes a dropout hasn't been measured, but it is garbage on the audio thread; passing samples through
+fields or whole blocks instead of per-sample calls would remove most of it.
+
 **App** (headless Chromium, 8 instrument tracks playing; main-thread busy time):
 
 | Scenario | Before | After |
@@ -267,6 +292,42 @@ and the 8-line room reverb's Hadamard mix is unrolled.
 Step playheads move a single overlay instead of re-rendering their window, meters skip frames that would look the
 same, the ruler is cached like the lanes, the instrument / tool windows load on demand (prefetched when idle), and
 the MP3 encoder is no longer part of the startup bundle.
+
+## Browser support
+
+- **Tested:** Chromium only (the Playwright suite runs Chrome for Testing on Linux; the app is developed in Chrome).
+- **Required:** Web Audio with AudioWorklet, IndexedDB, ES2022. Recording needs `getUserMedia` in a secure context
+  (https or localhost). MIDI input needs Web MIDI (Chrome, Edge, Firefox; not Safari) — without it the computer
+  keyboard and on-screen keys still work.
+- **Optional, with fallbacks:** Web Locks (one writer per project across tabs; without it every tab is a writer),
+  `AudioContext.getOutputTimestamp` (MIDI recording timing; falls back to the reported output latency).
+- **Not tested:** Firefox and Safari. Everything required exists there, but timing, latency reporting and
+  `DynamicsCompressorNode` / convolution behaviour differ between engines and haven't been checked.
+
+## Storage
+
+Projects and audio live in the browser's IndexedDB for this site (and a few preferences in `localStorage`); nothing
+is uploaded. Things that can lose work:
+
+- **Eviction.** The app doesn't request persistent storage (`navigator.storage.persist()`), so the browser may
+  clear the data under disk pressure; Safari can also delete a site's storage after 7 days of use without visiting it. Clearing
+  site data, private windows and some privacy extensions remove it too.
+- **Quota.** Recordings are stored as float WAV (≈ 23 MB per stereo minute at 48 kHz). When storage is full, saving
+  fails with an error toast and the project stays open; the project browser shows usage against the quota.
+- **Protection:** export a `.phasr` archive (project + every audio file) for anything you want to keep, and to move
+  projects between browsers or machines.
+
+## Testing
+
+| Command | What | Where |
+| --- | --- | --- |
+| `npm test` | unit + integration tests (Vitest, Node): DSP, scheduling, persistence, golden project | CI |
+| `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks | CI |
+| `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
+
+`npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound
+change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium instead of Playwright's download.
 
 ## Known limitations
 

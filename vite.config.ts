@@ -12,6 +12,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    // `npm run test:perf` (PERF=1) runs only the slower allocation-budget tests; `npm test` everything else
+    include: process.env.PERF ? ['tests/**/*.perf.test.ts'] : ['tests/**/*.test.ts'],
+    exclude: process.env.PERF ? [] : ['tests/**/*.perf.test.ts'],
   },
 });

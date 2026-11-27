@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:perf": "PERF=1 vitest run",
     "preview": "vite preview",
     "bench": "vitest run --config bench/vitest.config.ts --disableConsoleIntercept",
     "test:e2e": "playwright test",

@@ -1,7 +1,8 @@
-/** Not part of the test suite: run with `npx vitest run --config bench/vitest.config.ts`. */
+/** Not part of the test suite: run with `npm run bench`. */
 import { it } from 'vitest';
 import { TriOscSynth } from '../src/synth/dsp/TriOscSynth';
 import { FACTORY_PRESETS } from '../src/synth/presets';
+import { environment, fmtX, repeat } from './stats';
 
 it('TriOsc render throughput', () => {
   const SR = 48000;
@@ -15,15 +16,17 @@ it('TriOsc render throughput', () => {
     const l = new Float32Array(128);
     const r = new Float32Array(128);
     for (let i = 0; i < 20; i++) s.render(l, r, 0, 128); // warm up JIT
-    const t0 = performance.now();
     const blocks = (SR * SECONDS) / 128;
-    for (let b = 0; b < blocks; b++) {
-      l.fill(0);
-      r.fill(0);
-      s.render(l, r, 0, 128);
-    }
-    const ms = performance.now() - t0;
-    results.push(`${name.padEnd(12)} 16 voices: ${(SECONDS * 1000 / ms).toFixed(1)}× realtime (${(ms / SECONDS).toFixed(1)} ms per audio second)`);
+    const x = repeat(() => {
+      const t0 = performance.now();
+      for (let b = 0; b < blocks; b++) {
+        l.fill(0);
+        r.fill(0);
+        s.render(l, r, 0, 128);
+      }
+      return (SECONDS * 1000) / (performance.now() - t0);
+    });
+    results.push(`${name.padEnd(12)} 16 voices: ${fmtX(x)}`);
   }
-  console.log('\n' + results.join('\n'));
+  console.log(`\n${environment()}\n` + results.join('\n'));
 }, 120000);

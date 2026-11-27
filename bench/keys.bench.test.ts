@@ -5,6 +5,7 @@ import { KEYS_PRESETS } from '../src/keys/presets';
 import { FACTORY_KITS } from '../src/drums/kit';
 import { renderDrumVoice } from '../src/drums/synth';
 import { PhaserCore } from '../src/audio/phaser/PhaserCore';
+import { environment, fmtX, repeat } from './stats';
 
 const SR = 48000;
 const BLOCK = 128;
@@ -50,10 +51,10 @@ it('Keyforge render throughput', () => {
   ];
   const out: string[] = [];
   for (const [name, notes, every] of rows) {
-    const x = keysSpeed(name, notes, every, 6);
-    out.push(`${name.padEnd(16)} ${String(notes.length).padStart(2)} notes every ${every}s: ${x.toFixed(1)}× realtime (${(1000 / x).toFixed(1)} ms per audio second)`);
+    const x = repeat(() => keysSpeed(name, notes, every, 6));
+    out.push(`${name.padEnd(16)} ${String(notes.length).padStart(2)} notes every ${every}s: ${fmtX(x)}`);
   }
-  console.log('\n' + out.join('\n'));
+  console.log(`\n${environment()}\n` + out.join('\n'));
 }, 300000);
 
 it('Drum kit synthesis (all pads of every kit)', () => {
@@ -75,8 +76,10 @@ it('Phaser throughput', () => {
   const params = { center: 700, depth: 2, feedback: 0.5, rate: 0.3, stereo: 0.5, shift: 0 };
   const seconds = 20;
   const blocks = (SR * seconds) / BLOCK;
-  const t0 = performance.now();
-  for (let b = 0; b < blocks; b++) ph.process(inL, inR, oL, oR, params);
-  const ms = performance.now() - t0;
-  console.log(`\nPhaser 6 stages stereo: ${((seconds * 1000) / ms).toFixed(0)}× realtime`);
+  const x = repeat(() => {
+    const t0 = performance.now();
+    for (let b = 0; b < blocks; b++) ph.process(inL, inR, oL, oR, params);
+    return (seconds * 1000) / (performance.now() - t0);
+  });
+  console.log(`\nPhaser 6 stages stereo: ${fmtX(x, 0)}`);
 }, 120000);

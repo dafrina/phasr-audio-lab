@@ -110,10 +110,21 @@ abstract class BaseUnit implements EffectUnit {
     if (!on) {
       // a switched-off effect does no work: its processing gets no input (silent nodes are skipped).
       // Realtime: after the crossfade and a moment for the wet tail to fade.
+      const offAt = this.ctx.currentTime;
       const cut = () => {
         if (this.enabled || !this.srcConnected) return;
+        // the crossfade runs on the audio clock: wait until it has really played (a suspended
+        // context — not started yet, or interrupted by the system — doesn't advance meanwhile)
+        if (!immediate && this.ctx.currentTime < offAt + 0.1) {
+          this.offTimer = setTimeout(cut, 60);
+          return;
+        }
         this.input.disconnect(this.src);
         this.srcConnected = false;
+        // Chromium doesn't advance a gain's automation while its branch is silent, so pin the
+        // wet gain at its target; otherwise switching back on could fade in from a stale value
+        this.wet.gain.cancelScheduledValues(0);
+        this.wet.gain.value = 0;
       };
       if (immediate) cut();
       else this.offTimer = setTimeout(cut, 120);
