@@ -11,6 +11,8 @@
  * cancelled, sounding notes are released, and scheduling restarts from the
  * current musical position a few milliseconds in the future.
  */
+import { warpedPlayback } from './warpPlayback';
+import { stretchCache } from './stretch/cache';
 import { nextNoteInstanceId } from '../core/ids';
 import { PPQ, ticksPerBar, ticksPerBeatUnit } from '../core/time';
 import type { Project } from '../project/types';
@@ -345,16 +347,19 @@ export class Transport {
     }
     for (const a of plan.audio) {
       const ch = this.host.channel(a.trackId);
-      const buffer = this.host.audioBuffer(a.clip.assetId);
-      if (!ch || !buffer) continue;
+      const original = this.host.audioBuffer(a.clip.assetId);
+      if (!ch || !original) continue;
       const clip = a.clip;
+      // a warped clip plays its stretched copy (the same function the export uses)
+      const wp = warpedPlayback(a, original, stretchCache);
       ch.playAudio({
-        buffer,
+        buffer: wp.buffer,
         when: a.when,
         stopAt: a.stopAt,
-        sourcePos: a.sourcePos,
+        sourcePos: wp.sourcePos,
+        rate: wp.rate,
         gain: clip.gain,
-        loop: clip.loop && clip.loopSeconds > 0 ? { start: clip.sourceOffset, end: clip.sourceOffset + clip.loopSeconds } : null,
+        loop: wp.loop,
         fadeIn: clip.fadeIn,
         fadeOut: clip.fadeOut,
         clipOffset: a.clipOffset,

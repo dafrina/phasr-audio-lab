@@ -14,7 +14,7 @@ import type { SamplerParams, SamplerZone } from '../sampler/zones';
 import type { TimeSignature } from '../core/time';
 import type { TriOscPatch } from '../synth/params';
 
-export const PROJECT_SCHEMA_VERSION = 2;
+export const PROJECT_SCHEMA_VERSION = 3;
 /** 12: measured headroom with busy Keyforge tracks and 4 effects each (see README → Performance) */
 export const MAX_TRACKS = 12;
 export const MAX_EFFECT_SLOTS = 4;
@@ -93,6 +93,10 @@ export interface AudioClip extends ClipBase {
   /** Fade lengths in seconds */
   fadeIn: number;
   fadeOut: number;
+  /** follow the project tempo: time-stretched by project BPM ÷ `bpm` (pitch kept; see audio/warp.ts) */
+  warp: boolean;
+  /** the tempo the audio was played at (BPM); with warp on it sets the stretch */
+  bpm: number;
 }
 
 export type Clip = MidiClip | AudioClip;

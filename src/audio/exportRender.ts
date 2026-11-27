@@ -12,6 +12,8 @@
  * Progress is real: the render is suspended at regular points in time.
  */
 
+import { stretchNeeds, warpedPlayback } from './warpPlayback';
+import { stretchCache } from './stretch/cache';
 import { EffectChain } from './effectChain';
 import { SendBusNode } from './sendBus';
 import { nextNoteInstanceId } from '../core/ids';
@@ -94,6 +96,12 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
     masterGain.connect(ctx.destination);
   }
 
+  // warped audio clips: their stretched copies first (the cache playback uses: the same samples)
+  for (const n of stretchNeeds(Object.values(project.clips), project.bpm)) {
+    const src = assets.get(n.assetId)?.buffer;
+    if (src) await stretchCache.ensure(n.assetId, src, n.factor);
+  }
+
   // one plan for the whole range; the "loop" end makes clips and notes stop exactly at the range end
   const ts = project.timeSignature;
   const plan = planWindow(
@@ -149,16 +157,19 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
 
   for (const a of plan.audio) {
     const ch = channels.get(a.trackId);
-    const buffer = assets.get(a.clip.assetId)?.buffer;
-    if (!ch || !buffer) continue;
+    const original = assets.get(a.clip.assetId)?.buffer;
+    if (!ch || !original) continue;
     const c = a.clip;
+    // warped clips: the stretched copies were rendered above, so this is what playback plays
+    const wp = warpedPlayback(a, original, stretchCache);
     ch.playAudio({
-      buffer,
+      buffer: wp.buffer,
       when: a.when,
       stopAt: a.stopAt,
-      sourcePos: a.sourcePos,
+      sourcePos: wp.sourcePos,
+      rate: wp.rate,
       gain: c.gain,
-      loop: c.loop && c.loopSeconds > 0 ? { start: c.sourceOffset, end: c.sourceOffset + c.loopSeconds } : null,
+      loop: wp.loop,
       fadeIn: c.fadeIn,
       fadeOut: c.fadeOut,
       clipOffset: a.clipOffset,

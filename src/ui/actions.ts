@@ -66,7 +66,8 @@ export async function importAudioFiles(files: File[], opts: { trackId?: string; 
       track = newTrack;
     }
     const length = Math.max(1, Math.round(secondsToTicks(asset.ref.durationSec, p.bpm)));
-    const clip = createAudioClip(track.id, asset.ref.id, asset.ref.name, Math.round(tick), length);
+    // warp on, at the project's tempo (set the file's own tempo in the clip editor if it differs)
+    const clip = createAudioClip(track.id, asset.ref.id, asset.ref.name, Math.round(tick), length, p.bpm);
     const trackToAdd = newTrack;
     useProjectStore.getState().commit('Import audio', (prev) => ({
       ...prev,

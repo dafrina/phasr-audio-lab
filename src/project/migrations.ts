@@ -19,7 +19,22 @@ type Migration = (p: RawProject) => RawProject;
 /** migrations[n] upgrades version n → n+1. Version 1 is the first release. */
 const migrations: Record<number, Migration> = {
   1: drumPadsToGeneralMidi,
+  2: audioClipsWarpOff,
 };
+
+/**
+ * v2 → v3: audio clips can follow the tempo (warp). Clips made before keep
+ * today's behaviour — warp off, the audio at its own speed — with the
+ * project's tempo as their tempo (switching warp on later changes nothing
+ * until the tempo does).
+ */
+function audioClipsWarpOff(raw: RawProject): RawProject {
+  if (!isRec(raw.clips)) return raw;
+  const bpm = typeof raw.bpm === 'number' && Number.isFinite(raw.bpm) ? raw.bpm : 120;
+  const clips: Record<string, unknown> = {};
+  for (const [id, c] of Object.entries(raw.clips)) clips[id] = isRec(c) && c.kind === 'audio' ? { ...c, warp: false, bpm } : c;
+  return { ...raw, clips };
+}
 
 /**
  * v1 → v2: the Drum Rack's pads moved to the General MIDI layout (closed hat
@@ -106,7 +121,7 @@ const int = (v: unknown, fallback: number, min = -Infinity, max = Infinity) => M
  * well-formed, MIDI only on instrument tracks and audio only on audio tracks. Unusable clips
  * (no track, wrong kind, no asset id) are dropped.
  */
-function sanitizeClip(c: Record<string, unknown>, id: string, kindOf: Map<string, Track['kind']>): Clip | null {
+function sanitizeClip(c: Record<string, unknown>, id: string, kindOf: Map<string, Track['kind']>, projectBpm: number): Clip | null {
   const trackKind = typeof c.trackId === 'string' ? kindOf.get(c.trackId) : undefined;
   if (!trackKind) return null;
   const base = {
@@ -137,6 +152,8 @@ function sanitizeClip(c: Record<string, unknown>, id: string, kindOf: Map<string
       loopStartPhase: loopSeconds > 0 ? n(c.loopStartPhase, 0, 0) % loopSeconds : 0,
       fadeIn: n(c.fadeIn, 0, 0),
       fadeOut: n(c.fadeOut, 0, 0),
+      warp: c.warp === true,
+      bpm: n(c.bpm, projectBpm, 5, 1200),
     };
   }
   return null;
@@ -220,7 +237,7 @@ function validateProject(raw: RawProject): Project {
   const clips: Record<string, Clip> = {};
   if (isRec(raw.clips)) {
     for (const [id, c] of Object.entries(raw.clips)) {
-      const clip = isRec(c) ? sanitizeClip(c, id, kindOf) : null;
+      const clip = isRec(c) ? sanitizeClip(c, id, kindOf, n(raw.bpm, 120, 20, 400)) : null;
       if (clip) clips[id] = clip;
     }
   }

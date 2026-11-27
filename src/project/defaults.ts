@@ -88,7 +88,11 @@ export function createMidiClip(trackId: string, start: number, length = PPQ * 4 
   };
 }
 
-export function createAudioClip(trackId: string, assetId: string, name: string, start: number, length: number): AudioClip {
+/**
+ * A new audio clip. `warpBpm`: the tempo the audio was played at — the clip then follows the project tempo
+ * (warp on; recordings and imports pass the project's tempo). Without it the audio plays at its own speed.
+ */
+export function createAudioClip(trackId: string, assetId: string, name: string, start: number, length: number, warpBpm?: number): AudioClip {
   return {
     id: createId('clp'),
     kind: 'audio',
@@ -104,5 +108,7 @@ export function createAudioClip(trackId: string, assetId: string, name: string, 
     loopStartPhase: 0,
     fadeIn: 0.005,
     fadeOut: 0.005,
+    warp: warpBpm !== undefined,
+    bpm: warpBpm ?? 120,
   };
 }

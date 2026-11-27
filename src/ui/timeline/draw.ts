@@ -5,6 +5,7 @@
 import { PPQ, ticksPerBar, ticksPerBeatUnit, ticksToSeconds } from '../../core/time';
 import { audioSourcePosition } from '../../audio/scheduling';
 import { peakRange, pickLevel } from '../../audio/peaks';
+import { warpRate } from '../../audio/warp';
 import type { AssetRegistry } from '../../audio/assets';
 import type { AudioClip, AutomationPoint, Clip, MidiClip, Project } from '../../project/types';
 import { fromNormalized, toNormalized, type NumericParamSpec } from '../../synth/params';
@@ -185,7 +186,7 @@ function drawAudioContent(g: CanvasRenderingContext2D, clip: AudioClip, x0: numb
   const to = Math.min(Math.ceil(x1), width);
   for (let x = from; x < to; x++) {
     const relSec = (x - x0) * secPerPx;
-    const pos = audioSourcePosition(clip, relSec);
+    const pos = audioSourcePosition(clip, relSec, bpm);
     const f0 = pos * sr;
     const f1 = f0 + secPerPx * sr;
     if (f0 >= asset.peaks.frames) continue;
@@ -253,12 +254,14 @@ export function drawClip(g: CanvasRenderingContext2D, clip: Clip, trackIndex: nu
   else drawMidiContent(g, clip, x0, bodyTop + 2, bodyH - 4, s, content, x1);
   // loop boundaries
   if (clip.loop) {
+    // (audio: the loop is in source seconds; a warped clip goes through them at its rate)
+    const rate = clip.kind === 'audio' ? warpRate(clip, s.project.bpm) : 1;
     const cycleTicks =
       clip.kind === 'midi'
         ? clip.loopLength
-        : (clip.loopSeconds * s.project.bpm * PPQ) / 60;
+        : (clip.loopSeconds * s.project.bpm * PPQ) / 60 / rate;
     if (cycleTicks > 0) {
-      const phaseTicks = clip.kind === 'audio' ? (clip.loopStartPhase * s.project.bpm * PPQ) / 60 : 0;
+      const phaseTicks = clip.kind === 'audio' ? (clip.loopStartPhase * s.project.bpm * PPQ) / 60 / rate : 0;
       g.strokeStyle = hexA('#ffffff', 0.35);
       g.setLineDash([3, 3]);
       for (let t = cycleTicks - phaseTicks; t < clip.length; t += cycleTicks) {

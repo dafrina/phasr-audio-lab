@@ -543,7 +543,8 @@ class AudioRecorder {
     const bytes = encodeWav([l, r], take.sampleRate, { format: 'float32' });
     const asset = engine.assets.addBuffer(buffer, name, bytes, 'audio/wav');
     const place = placeRecordedClip(take.startTick, buffer.duration, take.latencySec, p.bpm);
-    const clip = { ...createAudioClip(track.id, asset.ref.id, name, place.start, place.length), sourceOffset: place.sourceOffset };
+    // played at the project's tempo: warp on, so it follows later tempo changes
+    const clip = { ...createAudioClip(track.id, asset.ref.id, name, place.start, place.length, p.bpm), sourceOffset: place.sourceOffset };
     useProjectStore.getState().commit('Record audio', (prev) => ({
       ...prev,
       assets: { ...prev.assets, [asset.ref.id]: asset.ref },

@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AudioLines, Repeat, Sparkles } from 'lucide-react';
+import { AudioLines, Gauge, Repeat, Sparkles } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import { audioSourcePosition } from '../../audio/scheduling';
+import { WARP_GOOD_MAX, WARP_GOOD_MIN, WARP_MAX, WARP_MIN, warpRate } from '../../audio/warp';
 import { peakRange, pickLevel } from '../../audio/peaks';
 import { dbToGain, gainToDb } from '../../core/ids';
 import { PPQ, ticksToSeconds } from '../../core/time';
@@ -27,6 +28,7 @@ export function AudioClipEditor({ clipId }: { clipId: string }) {
   const cv = useRef<HTMLCanvasElement>(null);
   const [w, setW] = useState(800);
   const [h, setH] = useState(200);
+  const taps = useRef<number[]>([]);
 
   useLayoutEffect(() => {
     const el = wrap.current;
@@ -56,7 +58,9 @@ export function AudioClipEditor({ clipId }: { clipId: string }) {
       const secToX = (s: number) => (s / dur) * w;
       g.fillStyle = '#0b0b11';
       g.fillRect(0, 0, w, h);
-      const clipSec = ticksToSeconds(c.length, getProject().bpm);
+      // (source seconds: a warped clip runs through its source at its rate)
+      const rate = warpRate(c, getProject().bpm);
+      const clipSec = ticksToSeconds(c.length, getProject().bpm) * rate;
       const regionStart = c.sourceOffset;
       const regionEnd = c.loop && c.loopSeconds > 0 ? c.sourceOffset + c.loopSeconds : Math.min(dur, c.sourceOffset + clipSec);
       // used region
@@ -82,8 +86,8 @@ export function AudioClipEditor({ clipId }: { clipId: string }) {
         g.strokeStyle = '#facc15';
         g.beginPath();
         g.moveTo(secToX(regionStart), h);
-        g.lineTo(secToX(regionStart + c.fadeIn), 4);
-        g.lineTo(secToX(regionEnd - c.fadeOut), 4);
+        g.lineTo(secToX(regionStart + c.fadeIn * rate), 4);
+        g.lineTo(secToX(regionEnd - c.fadeOut * rate), 4);
         g.lineTo(secToX(regionEnd), h);
         g.stroke();
       }
@@ -94,7 +98,7 @@ export function AudioClipEditor({ clipId }: { clipId: string }) {
       // playback position inside the source
       const rel = (engine.transport?.getTick() ?? 0) - c.start;
       if (rel >= 0 && rel < c.length) {
-        const pos = audioSourcePosition(c, ticksToSeconds(rel, getProject().bpm));
+        const pos = audioSourcePosition(c, ticksToSeconds(rel, getProject().bpm), getProject().bpm);
         const px = Math.round(secToX(pos)) + 0.5;
         g.strokeStyle = '#f5f5ff';
         g.beginPath();
@@ -129,14 +133,28 @@ export function AudioClipEditor({ clipId }: { clipId: string }) {
     const lvl = asset.peaks.levels[0];
     if (!lvl) return;
     const sr = asset.ref.sampleRate;
-    const end = c.loop ? c.sourceOffset + c.loopSeconds : c.sourceOffset + ticksToSeconds(c.length, bpm);
+    const end = c.loop ? c.sourceOffset + c.loopSeconds : c.sourceOffset + ticksToSeconds(c.length, bpm) * warpRate(c, bpm);
     const out: [number, number] = [0, 0];
     peakRange(lvl, c.sourceOffset * sr, end * sr, out);
     const pk = Math.max(Math.abs(out[0]), Math.abs(out[1]));
     if (pk > 1e-4) update({ gain: Math.min(dbToGain(12), 0.98 / pk) }, 'Normalize clip');
   };
-  const loopBeats = clip.loop ? (clip.loopSeconds * bpm) / 60 : 0;
-  const clipSec = ticksToSeconds(clip.length, bpm);
+  const rate = warpRate(clip, bpm);
+  const loopBeats = clip.loop ? (clip.loopSeconds * bpm) / 60 / rate : 0;
+  const clipSec = ticksToSeconds(clip.length, bpm) * rate;
+  const rough = clip.warp && (rate < WARP_GOOD_MIN || rate > WARP_GOOD_MAX);
+  const limited = clip.warp && (bpm / clip.bpm < WARP_MIN || bpm / clip.bpm > WARP_MAX);
+  const setTempo = (v: number) => update({ bpm: Math.round(Math.min(999, Math.max(10, v)) * 100) / 100, warp: true }, 'Clip tempo', 'clipbpm');
+  const tap = () => {
+    const now = performance.now();
+    const t = taps.current.filter((x) => now - x < 2500);
+    t.push(now);
+    taps.current = t.slice(-8);
+    if (taps.current.length >= 3) {
+      const iv = (taps.current[taps.current.length - 1]! - taps.current[0]!) / (taps.current.length - 1);
+      setTempo(60000 / iv);
+    }
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -170,7 +188,7 @@ export function AudioClipEditor({ clipId }: { clipId: string }) {
               value={Number(loopBeats.toFixed(3))}
               onChange={(e) => {
                 const beats = Math.max(0.0625, Number(e.target.value) || 1);
-                const secs = Math.min((beats * 60) / bpm, asset.ref.durationSec - clip.sourceOffset);
+                const secs = Math.min(((beats * 60) / bpm) * rate, asset.ref.durationSec - clip.sourceOffset);
                 update({ loopSeconds: secs, loopStartPhase: 0 }, 'Loop length');
               }}
               className="h-6 w-14 rounded border border-line bg-base px-1 text-center font-mono text-fg outline-none"
@@ -182,11 +200,53 @@ export function AudioClipEditor({ clipId }: { clipId: string }) {
           type="button"
           title="Fit clip length to the remaining source audio"
           disabled={clip.loop}
-          onClick={() => update({ length: Math.max(60, Math.floor(((asset.ref.durationSec - clip.sourceOffset) * bpm * PPQ) / 60)) }, 'Fit clip')}
+          onClick={() => update({ length: Math.max(60, Math.floor((((asset.ref.durationSec - clip.sourceOffset) / rate) * bpm * PPQ) / 60)) }, 'Fit clip')}
           className="flex h-6 items-center rounded bg-panel-3 px-2 hover:bg-line-2 disabled:opacity-35"
         >
           Fit
         </button>
+      </div>
+      <div data-testid="clip-tempo" className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-panel px-2 text-[11px]">
+        <button
+          type="button"
+          aria-pressed={clip.warp}
+          title={clip.warp ? 'Warp on: the audio follows the project tempo (time-stretched, the pitch stays). Click to play it at its own speed.' : 'Warp off: the audio plays at its own speed whatever the tempo. Click to make it follow the project tempo.'}
+          onClick={() => update({ warp: !clip.warp }, clip.warp ? 'Warp off' : 'Warp on')}
+          className={`flex h-6 items-center gap-1 rounded px-2 ${clip.warp ? 'bg-accent text-white' : 'bg-panel-3 hover:bg-line-2'}`}
+        >
+          <Gauge size={12} /> Warp
+        </button>
+        <label className="flex items-center gap-1 text-muted" title="The tempo the audio was played at. With Warp on it plays at project tempo ÷ this.">
+          Clip tempo
+          <input
+            data-testid="clip-bpm"
+            type="number"
+            min={10}
+            max={999}
+            step={0.01}
+            value={clip.bpm}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (v >= 10) setTempo(v);
+            }}
+            className="h-6 w-20 rounded border border-line bg-base px-1 text-center font-mono text-fg outline-none"
+          />
+          BPM
+        </label>
+        <button type="button" title="Tap along to the audio (3+ taps) to set its tempo" onClick={tap} className="h-6 rounded bg-panel-3 px-2 hover:bg-line-2">
+          Tap
+        </button>
+        <button type="button" title="Half the tempo" onClick={() => setTempo(clip.bpm / 2)} className="h-6 rounded bg-panel-3 px-1.5 hover:bg-line-2">
+          ÷2
+        </button>
+        <button type="button" title="Double the tempo" onClick={() => setTempo(clip.bpm * 2)} className="h-6 rounded bg-panel-3 px-1.5 hover:bg-line-2">
+          ×2
+        </button>
+        <span data-testid="clip-rate" className={`font-mono ${rough ? 'text-warn' : 'text-dim'}`}>
+          {clip.warp
+            ? `plays at ${rate.toFixed(2)}× (${bpm} ÷ ${clip.bpm} BPM)${limited ? ` · limited to ${WARP_MIN}×–${WARP_MAX}×` : ''}${rough ? ' · far from 1×: the stretch is audibly rougher' : ''}`
+            : 'at its own speed (no stretch)'}
+        </span>
       </div>
       <div className="flex min-h-0 flex-1">
         <div className="flex shrink-0 items-center gap-3 border-r border-line bg-panel px-3">

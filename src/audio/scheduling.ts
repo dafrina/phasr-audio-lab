@@ -9,6 +9,7 @@
  * start. Events are collected per segment and timed with `segmentTime()`.
  */
 import { secondsToTicks, ticksToSeconds } from '../core/time';
+import { warpRate } from './warp';
 import type { AudioClip, AutomationLane, AutomationPoint, AutomationTarget, LoopRegion, MidiClip, MidiNote } from '../project/types';
 import { valueAt } from '../project/automation';
 
@@ -150,12 +151,16 @@ export function collectAudioClipStart(clip: AudioClip, seg: Segment, bpm: number
   return null;
 }
 
-/** Source-buffer position (seconds) for a time offset into an audio clip. */
-export function audioSourcePosition(clip: AudioClip, clipOffsetSec: number): number {
+/**
+ * Source-audio position (seconds) for a time offset (timeline seconds) into an audio clip; a warped
+ * clip moves through its source at warpRate (pass the project tempo).
+ */
+export function audioSourcePosition(clip: AudioClip, clipOffsetSec: number, projectBpm?: number): number {
+  const src = projectBpm === undefined ? clipOffsetSec : clipOffsetSec * warpRate(clip, projectBpm);
   if (clip.loop && clip.loopSeconds > 0) {
-    return clip.sourceOffset + ((clip.loopStartPhase + clipOffsetSec) % clip.loopSeconds);
+    return clip.sourceOffset + ((clip.loopStartPhase + src) % clip.loopSeconds);
   }
-  return clip.sourceOffset + clipOffsetSec;
+  return clip.sourceOffset + src;
 }
 
 /** Beat ticks in [start, end) for the metronome. */
@@ -212,8 +217,12 @@ export interface PlannedAudio {
   clip: AudioClip;
   when: number;
   stopAt: number;
+  /** source seconds where playback starts */
   sourcePos: number;
+  /** timeline seconds into the clip */
   clipOffset: number;
+  /** source seconds per timeline second (warp; 1 = the audio's own speed) */
+  rate: number;
 }
 
 export interface PlannedClick {
@@ -320,8 +329,9 @@ export function planWindow(ctx: PlanContext, cursor: Cursor, windowEndTime: numb
           clip,
           when: segmentTime(seg, s.startTick, ctx.bpm),
           stopAt: segmentTime(seg, s.stopTick, ctx.bpm),
-          sourcePos: audioSourcePosition(clip, s.clipOffsetSec),
+          sourcePos: audioSourcePosition(clip, s.clipOffsetSec, ctx.bpm),
           clipOffset: s.clipOffsetSec,
+          rate: warpRate(clip, ctx.bpm),
         });
       }
     }

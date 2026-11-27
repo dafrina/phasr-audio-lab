@@ -59,6 +59,22 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
 - **Milestone 1 (core app): done.** Transport (play/pause/stop/seek/loop/metronome, count-in API), BPM and time
   signature, snap, undo/redo, audio import (button or drag & drop), clip move/move between tracks/trim/split/
   duplicate/delete/loop/copy/paste, zoom, scrolling, loop-region and time selection, track volume/pan/mute/solo with real meters.
+- **Warp (time-stretch):** an audio clip with Warp on follows the project tempo — its audio is time-stretched by
+  project BPM ÷ the clip's tempo, the pitch stays. Recordings and imports start with Warp on at the project's tempo;
+  clips from older projects keep Warp off (their audio at its own speed). The audio clip editor shows the clip's
+  tempo: type it, **Tap** along (3+ taps), ÷2 / ×2, switch Warp; it shows the speed (e.g. "plays at 1.25×"),
+  limited to 0.25×–4×, and marks below 0.5× / above 2× as rougher. **Stretch by hand:** press and hold a clip's
+  start or end edge for ~0.4 s without moving (the edge lights up, the readout shows speed and tempo), then drag —
+  the audio stretches to the new length instead of being trimmed (the other edge stays; snaps like a trim, Shift for
+  no snap; one undo step). A quicker press-and-drag trims as before.
+  The stretcher is a phase vocoder with identity phase locking (Laroche–Dolson), one phase rotation for both stereo
+  channels (the image stays) and transient handling: onsets are pinned to their stretched place, their first 21 ms
+  play 1:1 with a phase reset, and frames don't reach across an onset — attacks stay as sharp as the original's
+  (no pre-echo; a plain phase vocoder smears them to 20–30 ms). It runs off the main thread: a Web Worker renders
+  a stretched copy of the asset per tempo, cached (≈ 256 MB budget, unused copies evicted), and playback and
+  export both play that copy through a normal buffer source — no audio-thread cost, and the export is what you
+  hear. A new tempo takes a moment to render (≈ 50× faster than real time: about a second per stereo minute);
+  meanwhile the clip plays the nearest copy at a corrected rate (right timing, briefly off in pitch).
 - **Milestone 2 (TriOsc): done.** All synth sections, 12 factory presets plus user presets (localStorage),
   mouse and computer-keyboard playing, sustain and pitch-bend wheel.
 - **Milestone 3 (MIDI integration): done.** Double-click an instrument lane to create a MIDI clip (or use the context menu);
@@ -278,6 +294,10 @@ from 1.25× to 8.2×), switched-off effects stop processing, and a Keyforge that
 Convolution reverb is now the dominant cost of the worst case; in a realtime context Chrome runs long convolution
 partitions on a background thread, and the live 8-track/32-effect test keeps pace with wall-clock time.
 
+**Time-stretch** (Warp; the vocoder in its Web Worker, headless Chromium): a minute of stereo 48 kHz audio in 0.94 s at
+0.8× and 1.41 s at 1.25× (≈ 50× real time; Node: 44–66×). Playback of a warped clip costs what any audio clip does.
+Memory: one stretched copy per asset and tempo (a stereo minute at 0.8× ≈ 18 MB).
+
 **Effects** (offline render in headless Chromium, CPU per instance per audio second, 48 kHz): Spectra EQ 0.07 %,
 Utility 0.16 %, EQ-3 / Delay 0.22 %, Compressor 0.25 %, Limiter 0.31 % (allocates nothing on the audio thread), Auto-Filter 0.29 %, Chorus 0.32 %, Phaser 0.35 %, Saturator
 1.1–1.5 % (4× oversampling; 2.5 % with split, emphasis, bias and Lo-Fi all on), Reverb Lite 0.80 % (any
@@ -364,7 +384,7 @@ is uploaded. Things that can lose work:
 | --- | --- | --- |
 | `npm test` | unit + integration tests (Vitest, Node): DSP, scheduling, persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
-| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), and Capture (keys played with the transport stopped and over a loop, the popover, one undo) | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), Capture (keys played with the transport stopped and over a loop, the popover, one undo), and Warp (a clip filling its bar at three tempos with its pitch, live vs. export, the long-press stretch and a short-press trim with the real mouse, the clip editor's tempo) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound
@@ -376,9 +396,10 @@ change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium i
   automation and kick-note sidechains together, so they sound as before. Only notes an Arp-Ape-ator on a drum
   track transposes (octaves, step transpose) land on different pads than they used to. Live MIDI input is not
   translated: a GM e-drum kit's pedal hat (44) plays whatever sits on pad 44.
-- Audio is not time-stretched: after a BPM change audio clips keep their position and length in beats, while
-  their audio plays at its own speed — a faster tempo cuts a clip's audio shorter, a slower one leaves silence
-  after the audio ends (trim or extend the clip, or loop it, to match).
+- Audio clips with Warp off (every clip from before Warp) still play at their own speed after a tempo change — a
+  faster tempo cuts the audio shorter, a slower one leaves silence (switch Warp on in the clip editor). Warp
+  stretches by 0.25×–4× at most; beyond that a clip no longer fills its bars exactly. Starting playback inside a
+  warped clip near a drum hit can be up to ~20 ms off within that hit's stretch (the hits themselves are exact).
 - Notes that began before the play position are not "chased" (they don't sound mid-note on start/seek).
 - Rescheduling after an edit during playback restarts in-progress audio clips at the correct offset, with a 4 ms de-click fade.
   Synth notes that are sounding at the moment of an edit are released (not re-triggered), so a held note may cut short once.
@@ -418,6 +439,8 @@ Ctrl/Cmd + letter edits.**
   Shift+M metronome · Shift+A automation mode · Shift+Q quantize (piano roll).
 - Editing: Ctrl+S save · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+K capture what you just played · Ctrl+A select all · Ctrl+C / V copy/paste · Ctrl+D duplicate ·
   Ctrl+L loop clip content.
+- Mouse on clips: drag to move (Alt: copy, Shift: no snap) · drag an edge to trim · **press and hold an audio clip's
+  edge ~0.4 s, then drag** to time-stretch it (pitch kept) · double-click to open in the editor.
 - Everywhere: Space play/stop · Enter stop · Delete remove · ←→ nudge · ↑↓ move to track (piano roll: transpose, Shift =
   octave) · F9 mixer · ? help · Esc closes a window / deselects.
 - Notes: Z–M / Q–P play the instrument window in front (or the selected instrument track), [ ] octave. Shortcuts are

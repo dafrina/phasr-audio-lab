@@ -33,6 +33,8 @@ import { LiveArp, type ArpNoteListener } from './arpLive';
 import { arpActive } from '../arp/expand';
 import { expandNote } from '../chords/theory';
 import { heardContextTime } from './midiTake';
+import { stretchCache } from './stretch/cache';
+import { stretchNeeds } from './warpPlayback';
 
 export type LiveInputEvent =
   /** audition: an editor previewing a note (placing it, a step on), not someone playing — Capture skips it */
@@ -162,6 +164,8 @@ export class AudioEngine {
     const ctx = this.ctx;
     const master = this.master;
     if (!ctx || !master) return;
+    // warped audio clips: ask for the stretched copies this tempo needs
+    if (force || !prev || prev.clips !== p.clips || prev.bpm !== p.bpm) this.wantStretches();
 
     if (force || !prev || prev.master !== p.master) {
       master.gain.gain.setTargetAtTime(dbToGainFader(p.master.volumeDb), ctx.currentTime, 0.015);
@@ -368,6 +372,31 @@ export class AudioEngine {
     this.liveChords.releaseAll(trackId);
     this.liveArp.stop(trackId);
     for (const [id, ch] of this.channels) if (!trackId || id === trackId) ch.instrument?.allNotesOff();
+  }
+
+  // --- warp: stretched copies of audio for warped clips ---
+
+  private stretchHooked = false;
+
+  /** Ask the stretch cache for what the project's warped clips need now; reschedule when a copy arrives. */
+  private wantStretches(): void {
+    const p = this.project;
+    if (!p) return;
+    if (!this.stretchHooked) {
+      this.stretchHooked = true;
+      // a copy that arrives while playing replaces the stand-in at once
+      stretchCache.listeners.add(() => {
+        if (this.transport?.isPlaying()) this.transport.reschedule();
+      });
+      // assets decoded later (a project opening) may be what a warped clip waits for
+      this.assets.subscribe(() => this.wantStretches());
+    }
+    const needs: { assetId: string; factor: number; source: AudioBuffer }[] = [];
+    for (const n of stretchNeeds(Object.values(p.clips), p.bpm)) {
+      const source = this.assets.get(n.assetId)?.buffer;
+      if (source) needs.push({ ...n, source });
+    }
+    stretchCache.want(needs);
   }
 
   // --- analysers (spectrum, spectrogram, scope) ---

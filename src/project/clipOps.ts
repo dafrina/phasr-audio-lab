@@ -7,6 +7,12 @@
 import { createId } from '../core/ids';
 import { secondsToTicks, ticksToSeconds } from '../core/time';
 import type { AudioClip, Clip, MidiClip, MidiNote } from './types';
+import { WARP_MAX, WARP_MIN, warpRate } from '../audio/warp';
+
+/** source seconds of an audio clip under `ticks` of timeline (a warped clip runs through its source at its rate) */
+function sourceSec(clip: AudioClip, ticks: number, bpm: number): number {
+  return ticksToSeconds(ticks, bpm) * warpRate(clip, bpm);
+}
 
 export const MIN_CLIP_TICKS = 60;
 
@@ -18,10 +24,10 @@ export function moveClip<C extends Clip>(clip: C, newStart: number, trackId?: st
   return { ...clip, start: Math.max(0, Math.round(newStart)), trackId: trackId ?? clip.trackId };
 }
 
-/** Length in ticks of the source material available after `sourceOffset`. */
+/** Length in ticks of the source material available after `sourceOffset` (at a warped clip's rate). */
 export function audioAvailableTicks(clip: AudioClip, assetDurationSec: number, bpm: number): number {
   if (clip.loop) return Number.POSITIVE_INFINITY;
-  return secondsToTicks(Math.max(0, assetDurationSec - clip.sourceOffset), bpm);
+  return secondsToTicks(Math.max(0, assetDurationSec - clip.sourceOffset) / warpRate(clip, bpm), bpm);
 }
 
 /**
@@ -38,7 +44,7 @@ export function trimClipStart(clip: Clip, newStart: number, bpm: number): Clip {
   if (clip.kind === 'audio' && clip.loop && clip.loopSeconds > 0) {
     // the loop region in the source stays; only the phase within it moves (as in splitClip)
     const L = clip.loopSeconds;
-    const phase = (((clip.loopStartPhase + ticksToSeconds(start - clip.start, bpm)) % L) + L) % L;
+    const phase = (((clip.loopStartPhase + sourceSec(clip, start - clip.start, bpm)) % L) + L) % L;
     return { ...clip, start, length: end - start, loopStartPhase: phase };
   }
   if (clip.kind === 'midi' && clip.loop && clip.loopLength > 0) {
@@ -55,10 +61,10 @@ export function trimClipStart(clip: Clip, newStart: number, bpm: number): Clip {
   }
   if (clip.kind === 'audio') {
     let delta = start - clip.start;
-    let offset = clip.sourceOffset + ticksToSeconds(delta, bpm);
+    let offset = clip.sourceOffset + sourceSec(clip, delta, bpm);
     if (offset < 0) {
       // can't extend before the beginning of the source audio
-      delta -= secondsToTicks(offset, bpm);
+      delta -= secondsToTicks(offset / warpRate(clip, bpm), bpm);
       offset = 0;
       start = Math.round(clip.start + delta);
     }
@@ -69,6 +75,25 @@ export function trimClipStart(clip: Clip, newStart: number, bpm: number): Clip {
   const notes = shiftNotes(clip.notes, -delta).filter((n) => n.start + n.length > 0 && n.start < end - start);
   const clipped = notes.map((n) => (n.start < 0 ? { ...n, length: n.length + n.start, start: 0 } : n));
   return { ...clip, start, length: end - start, notes: clipped, loopLength: clip.loop ? clip.loopLength : end - start };
+}
+
+/**
+ * Stretch an audio clip by dragging one edge to `tick` (long-press on the edge): the other edge stays,
+ * and the same audio fills the new length — faster or slower, pitch kept (warp goes on, its tempo
+ * changes). The rate stays within WARP_MIN–WARP_MAX (`limited`: the drag went past that).
+ */
+export function stretchAudioClip(orig: AudioClip, edge: 'start' | 'end', tick: number, bpm: number): { clip: AudioClip; rate: number; limited: boolean } {
+  const r0 = warpRate(orig, bpm);
+  const end = clipEnd(orig);
+  const want = edge === 'end' ? Math.round(tick) - orig.start : end - Math.round(tick);
+  // rate = r0 · length₀ / length, within the limits
+  const lo = Math.max(MIN_CLIP_TICKS, Math.ceil((orig.length * r0) / WARP_MAX));
+  let hi = Math.floor((orig.length * r0) / WARP_MIN);
+  if (edge === 'start') hi = Math.min(hi, end);
+  const length = Math.min(hi, Math.max(lo, want));
+  const rate = (r0 * orig.length) / length;
+  const clip: AudioClip = { ...orig, start: edge === 'end' ? orig.start : end - length, length, warp: true, bpm: bpm / rate };
+  return { clip, rate, limited: length !== want };
 }
 
 /** Move the right edge of a clip. Audio clips are limited by available source audio. */
@@ -98,8 +123,10 @@ export function splitClip(clip: Clip, at: number, bpm: number): [Clip, Clip] | n
   const leftLen = t - clip.start;
   const rightLen = clipEnd(clip) - t;
   if (clip.kind === 'audio') {
+    // fades are timeline time; the source moves by its own (warped) time
     const leftSec = ticksToSeconds(leftLen, bpm);
     const rightSec = ticksToSeconds(rightLen, bpm);
+    const leftSrc = sourceSec(clip, leftLen, bpm);
     // the fade-in stays at the clip's start, the fade-out at its end; the cut itself gets only a
     // de-click. (Cut inside a fade: the half holding only its rest fades over that rest.)
     const fades = {
@@ -116,9 +143,9 @@ export function splitClip(clip: Clip, at: number, bpm: number): [Clip, Clip] | n
             start: t,
             length: rightLen,
             // the loop region stays the same; only the phase within it moves
-            loopStartPhase: (clip.loopStartPhase + leftSec) % clip.loopSeconds,
+            loopStartPhase: (clip.loopStartPhase + leftSrc) % clip.loopSeconds,
           }
-        : { ...clip, ...fades.right, id: createId('clp'), start: t, length: rightLen, sourceOffset: clip.sourceOffset + leftSec };
+        : { ...clip, ...fades.right, id: createId('clp'), start: t, length: rightLen, sourceOffset: clip.sourceOffset + leftSrc };
     return [left, right];
   }
   const expanded = expandMidiClipNotes(clip);
@@ -171,5 +198,5 @@ export function setClipLoop(clip: Clip, loop: boolean, bpm: number): Clip {
   if (clip.kind === 'midi') {
     return { ...clip, loop, loopLength: loop ? clip.loopLength || clip.length : clip.length };
   }
-  return { ...clip, loop, loopSeconds: loop ? clip.loopSeconds || ticksToSeconds(clip.length, bpm) : 0, loopStartPhase: 0 };
+  return { ...clip, loop, loopSeconds: loop ? clip.loopSeconds || sourceSec(clip, clip.length, bpm) : 0, loopStartPhase: 0 };
 }

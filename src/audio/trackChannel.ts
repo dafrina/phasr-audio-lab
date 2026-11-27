@@ -42,6 +42,8 @@ export interface AudioPlayback {
   clipOffset: number;
   /** total clip duration in seconds, to know where the clip's fade-out lies */
   clipDuration: number;
+  /** the source's playbackRate (a warped clip whose stretched copy isn't ready yet); default 1 */
+  rate?: number;
 }
 
 export class TrackChannel {
@@ -255,7 +257,7 @@ export class TrackChannel {
 
   playAudio(p: AudioPlayback): void {
     const ctx = this.ctx;
-    const src = new AudioBufferSourceNode(ctx, { buffer: p.buffer });
+    const src = new AudioBufferSourceNode(ctx, { buffer: p.buffer, playbackRate: p.rate ?? 1 });
     const g = new GainNode(ctx, { gain: 0 });
     src.connect(g);
     g.connect(this.input);

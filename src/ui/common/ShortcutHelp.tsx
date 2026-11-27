@@ -24,6 +24,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     items: [
       ['Click / drag clip', 'Select / move (Shift: no snap, Alt: duplicate)'],
       ['Drag clip edge', 'Trim'],
+      ['Hold an audio clip edge ~0.4 s, then drag', 'Stretch the audio to the new length (pitch kept, Warp on)'],
       ['Ctrl/Shift-drag empty', 'Box-select clips'],
       ['Drag empty', 'Time selection (Shift+L or right-click → set loop)'],
       ['Double-click', 'Open clip / create MIDI clip on instrument tracks'],

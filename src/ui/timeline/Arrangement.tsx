@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { engine } from '../../audio/engine';
 import { recorder } from '../../audio/recorder';
 import { PPQ, ticksPerBar } from '../../core/time';
-import { clipEnd, duplicateClip, moveClip, trimClipEnd, trimClipStart } from '../../project/clipOps';
+import { clipEnd, duplicateClip, moveClip, stretchAudioClip, trimClipEnd, trimClipStart } from '../../project/clipOps';
+import { WARP_GOOD_MAX, WARP_GOOD_MIN, warpRate } from '../../audio/warp';
 import { MAX_TRACKS, type AutomationLane, type AutomationPoint, type Clip, type Project } from '../../project/types';
 import { targetInfo } from '../../project/automation';
 import { addLanePoint, deleteLanePoint, moveLanePoint } from '../../state/automationActions';
@@ -40,16 +41,30 @@ type Zone = 'body' | 'start' | 'end';
 
 /** a press on a clip only becomes a drag after the pointer moves this far (a click changes nothing) */
 const DRAG_PX = 3;
+/** holding an audio clip's edge this long without moving turns the drag into a time-stretch */
+export const STRETCH_HOLD_MS = 400;
 
 type Drag =
   // `started`: past DRAG_PX; `copy`: Alt — the copies are made when the drag starts
   | { mode: 'move'; key: string; startX: number; startY: number; startTrack: number; origs: Clip[]; primary: Clip; last: string; started: boolean; copy: boolean }
-  | { mode: 'trim-start' | 'trim-end'; key: string; startX: number; orig: Clip; last: string; started: boolean }
+  // `stretch`: held still on an audio clip's edge for STRETCH_HOLD_MS — the drag stretches instead of trimming
+  | { mode: 'trim-start' | 'trim-end'; key: string; startX: number; orig: Clip; last: string; started: boolean; stretch: boolean; hold: ReturnType<typeof setTimeout> | null }
   | { mode: 'select'; startTick: number; startX: number; moved: boolean }
   | { mode: 'ruler'; startTick: number; startX: number; moved: boolean; key: string }
   | { mode: 'loop-edge'; edge: 'start' | 'end'; key: string }
   | { mode: 'autopoint'; key: string; trackId: string; laneId: string; pointId: string; trackIndex: number }
   | { mode: 'marquee'; x0: number; y0: number; base: string[] };
+
+/** the readout while stretching: speed, the tempo the audio now has, and the warnings */
+function stretchLabel(rate: number, bpm: number, limited: boolean): string {
+  const rough = rate < WARP_GOOD_MIN || rate > WARP_GOOD_MAX;
+  return `Stretch ×${rate.toFixed(2)} · ${(bpm / rate).toFixed(1)} BPM${limited ? ' · limit 0.25×–4×' : rough ? ' · rough' : ''}`;
+}
+
+/** a clip's current playback rate (1 for MIDI / unwarped) */
+function warpRateOf(c: Clip, bpm: number): number {
+  return c.kind === 'audio' ? warpRate(c, bpm) : 1;
+}
 
 /** The automation lane being edited on the track under y (automation mode only). */
 function editableLaneAt(project: Project, y: number) {
@@ -136,6 +151,8 @@ export function Arrangement() {
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [dropHint, setDropHint] = useState(false);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  /** stretch mode on a clip edge: the highlighted edge and the live rate / tempo readout */
+  const [stretchUi, setStretchUi] = useState<{ x: number; y: number; label: string } | null>(null);
   const { w: viewW } = useSize(laneArea);
   const { h: viewH } = useSize(scroller);
   const laneH = Math.max(viewH, tracks.length * TRACK_H + 48);
@@ -293,7 +310,19 @@ export function Arrangement() {
         // (Alt-drag duplicates: the copies are made once the drag really starts — see onLaneMove)
         drag.current = { mode: 'move', key, startX: x, startY: y, startTrack: Math.floor(y / TRACK_H), origs, primary, last: '0:0', started: false, copy: e.altKey };
       } else {
-        drag.current = { mode: hit.zone === 'start' ? 'trim-start' : 'trim-end', key, startX: x, orig: hit.clip, last: `${hit.clip.start}:${hit.clip.length}`, started: false };
+        const d: Drag = { mode: hit.zone === 'start' ? 'trim-start' : 'trim-end', key, startX: x, orig: hit.clip, last: `${hit.clip.start}:${hit.clip.length}`, started: false, stretch: false, hold: null };
+        drag.current = d;
+        if (hit.clip.kind === 'audio') {
+          // press and hold the edge (without moving) → stretch mode
+          const canvas = e.currentTarget;
+          const edgeTick = hit.zone === 'start' ? hit.clip.start : clipEnd(hit.clip);
+          d.hold = setTimeout(() => {
+            if (drag.current !== d || d.started) return;
+            d.stretch = true;
+            canvas.style.cursor = 'col-resize';
+            setStretchUi({ x: tickToX(edgeTick, ui.pxPerBeat, ui.scrollX), y: Math.floor(y / TRACK_H) * TRACK_H, label: stretchLabel(warpRateOf(hit.clip, project.bpm), project.bpm, false) });
+          }, STRETCH_HOLD_MS);
+        }
       }
     } else if (additive) {
       // Ctrl/Shift-drag on empty space: box-select clips
@@ -350,6 +379,8 @@ export function Arrangement() {
       // a click (or a hand wobbling a pixel) is not a drag: nothing moves, snaps or gets copied
       if (Math.abs(x - d.startX) <= DRAG_PX && (d.mode !== 'move' || Math.abs(y - d.startY) <= DRAG_PX)) return;
       d.started = true;
+      // moved before the hold time: a trim
+      if (d.mode !== 'move' && d.hold) clearTimeout(d.hold);
       if (d.mode === 'move' && d.copy) {
         // Alt-drag duplicates the selection and drags the copies
         const copies = d.origs.map((c) => duplicateClip(c, c.start));
@@ -383,6 +414,15 @@ export function Arrangement() {
         return moveClip(c, c.start + delta, project.tracks[ti]?.id ?? c.trackId);
       });
       upsertClips(moved, 'Move clip', { coalesce: d.key });
+    } else if ((d.mode === 'trim-start' || d.mode === 'trim-end') && d.stretch && d.orig.kind === 'audio') {
+      // stretch: the other edge stays, the audio fills the new length (snaps like a trim; Shift: no snap)
+      const r = stretchAudioClip(d.orig, d.mode === 'trim-start' ? 'start' : 'end', snapTick(tick, bypass), project.bpm);
+      const edgeTick = d.mode === 'trim-start' ? r.clip.start : clipEnd(r.clip);
+      setStretchUi((s) => s && { ...s, x: tickToX(edgeTick, ui.pxPerBeat, ui.scrollX), label: stretchLabel(r.rate, project.bpm, r.limited) });
+      const sig = `${r.clip.start}:${r.clip.length}`;
+      if (sig === d.last) return;
+      d.last = sig;
+      upsertClips([r.clip], 'Stretch clip', { coalesce: d.key });
     } else if (d.mode === 'trim-start' || d.mode === 'trim-end') {
       const t = snapTick(tick, bypass);
       const asset = d.orig.kind === 'audio' ? project.assets[d.orig.assetId] : undefined;
@@ -407,6 +447,8 @@ export function Arrangement() {
   const onLaneUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const d = drag.current;
     drag.current = null;
+    if (d && (d.mode === 'trim-start' || d.mode === 'trim-end') && d.hold) clearTimeout(d.hold);
+    setStretchUi(null);
     e.currentTarget.style.cursor = 'default';
     if (d?.mode === 'marquee') setMarquee(null);
     if (d?.mode === 'select' && !d.moved) {
@@ -633,6 +675,14 @@ export function Arrangement() {
               onContextMenu={onContextMenu}
             />
             {dropHint && <div className="pointer-events-none absolute inset-0 border-2 border-dashed border-accent/70 bg-accent/5" />}
+            {stretchUi && (
+              <>
+                <div data-testid="stretch-edge" className="pointer-events-none absolute w-[3px] bg-warn shadow-[0_0_8px_#facc15]" style={{ left: stretchUi.x - 1, top: stretchUi.y + 2, height: TRACK_H - 5 }} />
+                <div data-testid="stretch-readout" className="pointer-events-none absolute whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 font-mono text-[10px] text-warn" style={{ left: stretchUi.x + 6, top: stretchUi.y + 4 }}>
+                  {stretchUi.label}
+                </div>
+              </>
+            )}
             {marquee && (
               <div
                 className="pointer-events-none absolute border border-accent-hi bg-accent/10"
