@@ -98,6 +98,19 @@ describe('clip positioning and trimming', () => {
     expect(splitClip(c, 0, BPM)).toBeNull();
   });
 
+  it("splitting an audio clip keeps the fade-in on the left half and the fade-out on the right (no dip at the cut)", () => {
+    // 10 s clip with 2 s fades, split at 5 s
+    const c: AudioClip = { ...createAudioClip('t1', 'a', 'x', 0, 19200), fadeIn: 2, fadeOut: 2 };
+    const [l, r] = splitClip(c, 9600, BPM) as [AudioClip, AudioClip];
+    expect([l.fadeIn, l.fadeOut]).toEqual([2, 0]);
+    expect([r.fadeIn, r.fadeOut]).toEqual([0, 2]);
+    // split inside a fade: the half that holds only the rest of it fades over that rest (no jump to full level)
+    const [l2, r2] = splitClip(c, 1920, BPM) as [AudioClip, AudioClip]; // at 1 s, inside the fade-in
+    expect([l2.fadeIn, l2.fadeOut, r2.fadeIn, r2.fadeOut]).toEqual([2, 0, 1, 2]);
+    const [l3, r3] = splitClip(c, 17280, BPM) as [AudioClip, AudioClip]; // at 9 s, inside the fade-out
+    expect([l3.fadeIn, l3.fadeOut, r3.fadeIn, r3.fadeOut]).toEqual([2, 1, 0, 2]);
+  });
+
   it('splits MIDI clips distributing notes', () => {
     const c: MidiClip = {
       ...createMidiClip('t1', 0, 3840),

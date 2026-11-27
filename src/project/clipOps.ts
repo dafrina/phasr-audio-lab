@@ -98,19 +98,27 @@ export function splitClip(clip: Clip, at: number, bpm: number): [Clip, Clip] | n
   const leftLen = t - clip.start;
   const rightLen = clipEnd(clip) - t;
   if (clip.kind === 'audio') {
-    const left: AudioClip = { ...clip, length: leftLen };
     const leftSec = ticksToSeconds(leftLen, bpm);
+    const rightSec = ticksToSeconds(rightLen, bpm);
+    // the fade-in stays at the clip's start, the fade-out at its end; the cut itself gets only a
+    // de-click. (Cut inside a fade: the half holding only its rest fades over that rest.)
+    const fades = {
+      left: { fadeIn: clip.fadeIn, fadeOut: Math.max(0, clip.fadeOut - rightSec) },
+      right: { fadeIn: Math.max(0, clip.fadeIn - leftSec), fadeOut: clip.fadeOut },
+    };
+    const left: AudioClip = { ...clip, length: leftLen, ...fades.left };
     const right: AudioClip =
       clip.loop && clip.loopSeconds > 0
         ? {
             ...clip,
+            ...fades.right,
             id: createId('clp'),
             start: t,
             length: rightLen,
             // the loop region stays the same; only the phase within it moves
             loopStartPhase: (clip.loopStartPhase + leftSec) % clip.loopSeconds,
           }
-        : { ...clip, id: createId('clp'), start: t, length: rightLen, sourceOffset: clip.sourceOffset + leftSec };
+        : { ...clip, ...fades.right, id: createId('clp'), start: t, length: rightLen, sourceOffset: clip.sourceOffset + leftSec };
     return [left, right];
   }
   const expanded = expandMidiClipNotes(clip);
