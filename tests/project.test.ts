@@ -238,3 +238,42 @@ describe('preset/init consistency', () => {
     expect(p?.oscs[2].enabled).toBe(true);
   });
 });
+
+describe('loading damaged or hand-edited projects', () => {
+  it('repairs or drops invalid clips, notes, assets, loop region and time signature (nothing that would crash playback)', () => {
+    const base = createProject();
+    const [audio, inst] = base.tracks;
+    if (!audio || !inst) throw new Error();
+    const good = { id: 'ok', kind: 'midi', trackId: inst.id, name: 'ok', start: 0, length: 3840, loopLength: 3840, loop: false, notes: [{ id: 'n', pitch: 60, start: 0, length: 240, velocity: 100 }] };
+    const raw = JSON.parse(JSON.stringify({
+      ...base,
+      timeSignature: { numerator: 3.5, denominator: 4 },
+      loop: { enabled: true, start: 20000, end: 100 },
+      assets: { a1: null, a2: { id: 'a2', name: 'kick.wav', sampleRate: 48000, channels: 1, durationSec: 1, frames: 48000 }, a3: 'x' },
+      clips: {
+        ok: good,
+        noNotes: { id: 'noNotes', kind: 'midi', trackId: inst.id, name: 'x', start: 0, length: 3840, loopLength: 3840, loop: false },
+        junk: { id: 'junk', kind: 'midi', trackId: inst.id, name: 7, start: 'abc', length: -500, loopLength: 'x', loop: 'yes', notes: [null, { pitch: 999, start: -5, length: 0, velocity: 0 }, { pitch: 'C4' }] },
+        midiOnAudio: { ...good, id: 'midiOnAudio', trackId: audio.id },
+        audioOnInst: { id: 'audioOnInst', kind: 'audio', trackId: inst.id, name: 'a', start: 0, length: 3840, assetId: 'a2', sourceOffset: 0, gain: 1, loop: false, loopSeconds: 0, loopStartPhase: 0, fadeIn: 0, fadeOut: 0 },
+        loud: { id: 'loud', kind: 'audio', trackId: audio.id, name: 'a', start: 0, length: 3840, assetId: 'a2', sourceOffset: -3, gain: 1e9, loop: true, loopSeconds: -1, loopStartPhase: 99, fadeIn: -1, fadeOut: 'z' },
+        noAsset: { id: 'noAsset', kind: 'audio', trackId: audio.id, name: 'a', start: 0, length: 3840, assetId: 42, sourceOffset: 0, gain: 1, loop: false, loopSeconds: 0, loopStartPhase: 0, fadeIn: 0, fadeOut: 0 },
+      },
+    }));
+    const p = migrateProject(raw);
+    expect(p.timeSignature.numerator).toBe(4);
+    expect([p.loop.start, p.loop.end]).toEqual([100, 20000]);
+    expect(Object.keys(p.assets)).toEqual(['a2']);
+    expect(Object.keys(p.clips).sort()).toEqual(['junk', 'loud', 'noNotes', 'ok']);
+    expect(p.clips.ok).toEqual(good);
+    const nn = p.clips.noNotes as MidiClip;
+    expect(nn.notes).toEqual([]);
+    const j = p.clips.junk as MidiClip;
+    expect([j.name, j.start, j.length, j.loopLength, j.loop]).toEqual(['Clip', 0, 60, 60, false]);
+    expect(j.notes.map((x) => [x.pitch, x.start, x.length, x.velocity])).toEqual([[127, 0, 1, 1]]);
+    const a = p.clips.loud as AudioClip;
+    expect([a.sourceOffset, a.gain, a.loop, a.loopSeconds, a.loopStartPhase, a.fadeIn, a.fadeOut]).toEqual([0, 2, false, 0, 0, 0, 0]);
+    // and the scheduler takes every clip without throwing
+    for (const c of Object.values(p.clips)) if (c.kind === 'midi') expect(() => collectClipNotes(c, 0, 1e6, Infinity)).not.toThrow();
+  });
+});

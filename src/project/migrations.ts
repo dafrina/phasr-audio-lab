@@ -49,6 +49,70 @@ function n(v: unknown, fallback: number, min = -Infinity, max = Infinity): numbe
   return Math.min(max, Math.max(min, x));
 }
 
+const MIN_CLIP = 60;
+const int = (v: unknown, fallback: number, min = -Infinity, max = Infinity) => Math.round(n(v, fallback, min, max));
+
+/**
+ * A clip as stored, checked: numbers finite and in range (positions are kept as they are — they
+ * may be fractional ticks, e.g. audio lengths from seconds), notes
+ * well-formed, MIDI only on instrument tracks and audio only on audio tracks. Unusable clips
+ * (no track, wrong kind, no asset id) are dropped.
+ */
+function sanitizeClip(c: Record<string, unknown>, id: string, kindOf: Map<string, Track['kind']>): Clip | null {
+  const trackKind = typeof c.trackId === 'string' ? kindOf.get(c.trackId) : undefined;
+  if (!trackKind) return null;
+  const base = {
+    id,
+    trackId: c.trackId as string,
+    name: typeof c.name === 'string' ? c.name.slice(0, 64) : 'Clip',
+    start: n(c.start, 0, 0),
+    length: n(c.length, MIN_CLIP, MIN_CLIP),
+  };
+  if (c.kind === 'midi' && trackKind === 'instrument') {
+    const notes = (Array.isArray(c.notes) ? c.notes : []).filter(isRec).flatMap((x) => {
+      if (typeof x.pitch !== 'number' || typeof x.start !== 'number' || typeof x.length !== 'number') return [];
+      if (![x.pitch, x.start, x.length].every(Number.isFinite)) return [];
+      return [{ id: typeof x.id === 'string' ? x.id : createId('n'), pitch: int(x.pitch, 60, 0, 127), start: n(x.start, 0, 0), length: n(x.length, 1, 1), velocity: int(x.velocity, 100, 1, 127) }];
+    });
+    return { ...base, kind: 'midi', notes, loop: c.loop === true, loopLength: n(c.loopLength, base.length, 1) };
+  }
+  if (c.kind === 'audio' && trackKind === 'audio' && typeof c.assetId === 'string') {
+    const loopSeconds = n(c.loopSeconds, 0, 0);
+    return {
+      ...base,
+      kind: 'audio',
+      assetId: c.assetId,
+      sourceOffset: n(c.sourceOffset, 0, 0),
+      gain: n(c.gain, 1, 0, 2),
+      loop: c.loop === true && loopSeconds > 0,
+      loopSeconds,
+      loopStartPhase: loopSeconds > 0 ? n(c.loopStartPhase, 0, 0) % loopSeconds : 0,
+      fadeIn: n(c.fadeIn, 0, 0),
+      fadeOut: n(c.fadeOut, 0, 0),
+    };
+  }
+  return null;
+}
+
+/** Asset references: well-formed entries only (the bytes live in storage under the same id). */
+function sanitizeAssets(raw: unknown): Project['assets'] {
+  const out: Project['assets'] = {};
+  if (!isRec(raw)) return out;
+  for (const [id, a] of Object.entries(raw)) {
+    if (!isRec(a) || typeof a.name !== 'string') continue;
+    out[id] = { id, name: a.name, sampleRate: n(a.sampleRate, 48000, 1), channels: int(a.channels, 2, 1, 32), durationSec: n(a.durationSec, 0, 0), frames: int(a.frames, 0, 0) };
+  }
+  return out;
+}
+
+/** The loop region, start before end (swapped if stored the wrong way round). */
+function sanitizeLoop(loop: Record<string, unknown>): Project['loop'] {
+  const a = n(loop.start, 0, 0);
+  const b = n(loop.end, 15360, 0);
+  const [start, end] = a < b ? [a, b] : a > b ? [b, a] : [a, a + 15360];
+  return { enabled: loop.enabled === true, start, end };
+}
+
 /** Both send channels, always; missing ones (older projects) get the defaults (Reverb / Delay). */
 function sanitizeSendBuses(raw: unknown): SendBus[] {
   const list = Array.isArray(raw) ? raw.filter(isRec) : [];
@@ -104,13 +168,12 @@ function validateProject(raw: RawProject): Project {
   tracks.forEach((t, i) => {
     t.automation = sanitizeLanes(rawTracks[i]?.automation, t);
   });
-  const trackIds = new Set(tracks.map((t) => t.id));
+  const kindOf = new Map(tracks.map((t) => [t.id, t.kind]));
   const clips: Record<string, Clip> = {};
   if (isRec(raw.clips)) {
     for (const [id, c] of Object.entries(raw.clips)) {
-      if (!isRec(c) || typeof c.trackId !== 'string' || !trackIds.has(c.trackId)) continue;
-      if (c.kind !== 'midi' && c.kind !== 'audio') continue;
-      clips[id] = { ...(c as unknown as Clip), id };
+      const clip = isRec(c) ? sanitizeClip(c, id, kindOf) : null;
+      if (clip) clips[id] = clip;
     }
   }
   const ts = isRec(raw.timeSignature) ? raw.timeSignature : {};
@@ -121,7 +184,7 @@ function validateProject(raw: RawProject): Project {
     id: typeof raw.id === 'string' ? raw.id : createId('prj'),
     name: typeof raw.name === 'string' ? raw.name : 'Untitled Project',
     bpm: n(raw.bpm, 120, 20, 400),
-    timeSignature: { numerator: n(ts.numerator, 4, 1, 16), denominator: [2, 4, 8, 16].includes(ts.denominator as number) ? (ts.denominator as number) : 4 },
+    timeSignature: { numerator: Math.round(n(ts.numerator, 4, 1, 16)), denominator: [2, 4, 8, 16].includes(ts.denominator as number) ? (ts.denominator as number) : 4 },
     tracks,
     clips,
     master: {
@@ -133,10 +196,10 @@ function validateProject(raw: RawProject): Project {
         .slice(0, MAX_EFFECT_SLOTS),
     },
     sends: sanitizeSendBuses(raw.sends),
-    loop: { enabled: loop.enabled === true, start: n(loop.start, 0, 0), end: n(loop.end, 15360, 1) },
+    loop: sanitizeLoop(loop),
     metronome: raw.metronome === true,
     countInBars: n(raw.countInBars, 1, 0, 4),
-    assets: isRec(raw.assets) ? (raw.assets as Project['assets']) : {},
+    assets: sanitizeAssets(raw.assets),
     createdAt: n(raw.createdAt, Date.now()),
     updatedAt: n(raw.updatedAt, Date.now()),
   };
