@@ -7,11 +7,11 @@
  * All parameter changes use setTargetAtTime smoothing to avoid zipper noise.
  */
 import { dbToGain } from '../../core/ids';
-import type { AutoFilterMode, AutoFilterParams, PhaserParams, RoomParams, SaturatorMode, SaturatorParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, PhaserParams, RoomParams, SaturatorMode, SaturatorParams, UtilityParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
 import { parseBandKey } from '../../project/automation';
 import { generateImpulse } from './impulse';
 import { SAT_RANGE, saturatorCurve, saturatorGain } from '../saturator/shapes';
-import { MAX_DELAY_SECONDS, PEQ_BANDS, autoFilterLfoHz, delayTimeSeconds, mixGains, phaserLfoHz } from './specs';
+import { MAX_DELAY_SECONDS, PEQ_BANDS, autoFilterLfoHz, delayTimeSeconds, mixGains, phaserLfoHz, saturatorCrushOn } from './specs';
 
 const SMOOTH = 0.02;
 const EQ_LOW_FREQ = 220;
@@ -216,6 +216,107 @@ export function autoMakeupCompensationDb(threshold: number, ratio: number): numb
   return 0.6 * fullRangeGainDb;
 }
 
+/**
+ * Utility: gain → per-channel polarity → mid/side width matrix → balance.
+ * Four gains do the width (L' = M + w·S, R' = M − w·S, folded into
+ * L/R → L'/R' coefficients), so width ramps smoothly under automation; a
+ * StereoPannerNode does the balance. Nearly free.
+ */
+class UtilityUnit extends BaseUnit {
+  readonly type = 'utility' as const;
+  private readonly gain: GainNode;
+  private readonly duck: GainNode;
+  private readonly split: ChannelSplitterNode;
+  private readonly ll: GainNode;
+  private readonly lr: GainNode;
+  private readonly rl: GainNode;
+  private readonly rr: GainNode;
+  private readonly merge: ChannelMergerNode;
+  private readonly pan: StereoPannerNode;
+  private invL = 1;
+  private invR = 1;
+
+  constructor(ctx: BaseAudioContext, id: string) {
+    super(ctx, id);
+    this.gain = new GainNode(ctx);
+    this.duck = new GainNode(ctx, { gain: 1, channelCount: 2, channelCountMode: 'explicit' });
+    this.split = new ChannelSplitterNode(ctx, { numberOfOutputs: 2 });
+    this.ll = new GainNode(ctx);
+    this.lr = new GainNode(ctx, { gain: 0 });
+    this.rl = new GainNode(ctx, { gain: 0 });
+    this.rr = new GainNode(ctx);
+    this.merge = new ChannelMergerNode(ctx, { numberOfInputs: 2 });
+    this.pan = new StereoPannerNode(ctx);
+    this.src.connect(this.gain);
+    this.gain.connect(this.duck);
+    this.duck.connect(this.split);
+    this.split.connect(this.ll, 0);
+    this.split.connect(this.lr, 0);
+    this.split.connect(this.rl, 1);
+    this.split.connect(this.rr, 1);
+    this.ll.connect(this.merge, 0, 0);
+    this.rl.connect(this.merge, 0, 0);
+    this.lr.connect(this.merge, 0, 1);
+    this.rr.connect(this.merge, 0, 1);
+    this.merge.connect(this.pan);
+    this.pan.connect(this.wet);
+  }
+
+  /** width w → the four matrix gains (with polarity) */
+  private matrix(w: number): { ll: number; lr: number; rl: number; rr: number } {
+    const a = 0.5 * (1 + w);
+    const b = 0.5 * (1 - w);
+    return { ll: a * this.invL, lr: b * this.invL, rl: b * this.invR, rr: a * this.invR };
+  }
+
+  update(slot: EffectSlot, _bpm: number, auto: ReadonlySet<string> = NONE): void {
+    if (slot.type !== 'utility') return;
+    const p: UtilityParams = slot.params;
+    const im = !this.initialized;
+    this.invL = p.invertL ? -1 : 1;
+    this.invR = p.invertR ? -1 : 1;
+    if (!auto.has('gain')) setParam(this.gain.gain, dbToGain(p.gain), this.ctx, im);
+    if (!auto.has('pan')) setParam(this.pan.pan, p.pan, this.ctx, im);
+    if (!auto.has('width')) {
+      const m = this.matrix(p.width);
+      setParam(this.ll.gain, m.ll, this.ctx, im);
+      setParam(this.lr.gain, m.lr, this.ctx, im);
+      setParam(this.rl.gain, m.rl, this.ctx, im);
+      setParam(this.rr.gain, m.rr, this.ctx, im);
+    }
+    this.setEnabled(slot.enabled);
+    this.initialized = true;
+  }
+
+  automationParams(key: string): ParamTarget[] {
+    switch (key) {
+      case 'gain':
+        return [{ param: this.gain.gain, map: (v) => dbToGain(v) }];
+      case 'pan':
+        return [{ param: this.pan.pan, map: (v) => Math.max(-1, Math.min(1, v)) }];
+      case 'width':
+        return [
+          { param: this.ll.gain, map: (v) => this.matrix(v).ll },
+          { param: this.lr.gain, map: (v) => this.matrix(v).lr },
+          { param: this.rl.gain, map: (v) => this.matrix(v).rl },
+          { param: this.rr.gain, map: (v) => this.matrix(v).rr },
+        ];
+      default:
+        return [];
+    }
+  }
+
+  override modulationInputs(key: string): ModInput[] {
+    if (key === 'gain') return [{ param: this.duck.gain, scale: wetDuckScale }];
+    return [];
+  }
+
+  override dispose(): void {
+    super.dispose();
+    for (const n of [this.gain, this.duck, this.split, this.ll, this.lr, this.rl, this.rr, this.merge, this.pan]) n.disconnect();
+  }
+}
+
 /** a 4× oversampled WaveShaperNode delays its output by this many samples (measured in Chromium) */
 const SAT_OS_LATENCY = 192;
 const satCurves = new Map<SaturatorMode, Float32Array<ArrayBuffer>>();
@@ -226,23 +327,46 @@ const satCurve = (m: SaturatorMode) => {
 };
 
 /**
- * Saturator: drive gain → WaveShaperNode (4× oversampled, so the added
- * harmonics don't alias) → DC blocker → tone low-pass → auto-gain, blended
- * with the dry signal (delayed by the oversampler's latency, so a parallel
- * mix doesn't comb-filter) → output gain. Drive is a plain gain in front of
- * a curve that covers ±64 (see shapes.ts), so it ramps smoothly under
- * automation. Auto gain measures the dry and saturated levels and matches
- * them (AutoGainCore), so it works for quiet and loud sources alike.
+ * Saturator (saturation → distortion → fuzz):
+ *
+ *   src ─┬─ low-pass (clean <) ─ delay ─┬──────────────────────────── (clean lows) ─┐
+ *        │                              │                                          wet blend ─┐
+ *        └─ high-pass (clean <) ─┬ emphasis + → drive (+ bias) → WaveShaper 4× → [Lo-Fi]      │
+ *                                │   → DC block → emphasis − → tone → auto gain ──┘            ├→ output
+ *                                └ delay ─┬→ (auto gain's reference)                           │
+ *                                         └─────────────── + lows ───────── dry blend ─────────┘
+ *
+ * The WaveShaper is 4× oversampled (the added harmonics don't alias); every
+ * path that skips it is delayed by its latency, so splits and blends stay in
+ * phase. Below "Clean <" the signal bypasses the distortion (kick and sub stay
+ * solid; Linkwitz-Riley split, so the bands sum flat). The emphasis boosts a
+ * band before the drive and takes it out again after: the distortion
+ * concentrates there without changing the EQ. Bias shifts the curve off
+ * centre (even harmonics). Drive is a plain gain in front of a curve that
+ * covers ±64 (see shapes.ts), so it ramps smoothly under automation. Auto
+ * gain measures the dry and saturated levels and matches them
+ * (AutoGainCore). The Lo-Fi stage (worklet) is only wired in while it
+ * changes the sound.
  */
 class SaturatorUnit extends BaseUnit {
   readonly type = 'saturator' as const;
+  private readonly lowA: BiquadFilterNode;
+  private readonly lowB: BiquadFilterNode;
+  private readonly lowDelay: DelayNode;
+  private readonly lowGain: GainNode;
+  private readonly highA: BiquadFilterNode;
+  private readonly highB: BiquadFilterNode;
+  private readonly emphPre: BiquadFilterNode;
+  private readonly emphPost: BiquadFilterNode;
   private readonly pre: GainNode;
+  private readonly bias: ConstantSourceNode;
   private readonly shaper: WaveShaperNode;
+  private crush: AudioWorkletNode | null = null;
   private readonly dcBlock: BiquadFilterNode;
   private readonly tone: BiquadFilterNode;
   /** auto gain: matches the saturated signal's level to the dry one (phasr-satgain worklet) */
   private readonly comp: AudioWorkletNode;
-  private readonly dryDelay: DelayNode;
+  private readonly refDelay: DelayNode;
   private readonly dGain: GainNode;
   private readonly wGain: GainNode;
   private readonly wetDuck: GainNode;
@@ -252,7 +376,20 @@ class SaturatorUnit extends BaseUnit {
 
   constructor(ctx: BaseAudioContext, id: string) {
     super(ctx, id);
+    const lat = SAT_OS_LATENCY / ctx.sampleRate;
+    // (Web Audio reads a low/high-pass Q in dB: −3.01 dB = 1/√2, Butterworth)
+    const lr = (type: BiquadFilterType) => new BiquadFilterNode(ctx, { type, frequency: 20, Q: -3.01 });
+    // clean-low split (Linkwitz-Riley: two Butterworth stages per side)
+    this.lowA = lr('lowpass');
+    this.lowB = lr('lowpass');
+    this.lowDelay = new DelayNode(ctx, { maxDelayTime: 0.05, delayTime: lat });
+    this.lowGain = new GainNode(ctx);
+    this.highA = lr('highpass');
+    this.highB = lr('highpass');
+    this.emphPre = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1200, Q: 0.9, gain: 0 });
+    this.emphPost = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1200, Q: 0.9, gain: 0 });
     this.pre = new GainNode(ctx);
+    this.bias = new ConstantSourceNode(ctx, { offset: 0 });
     this.shaper = new WaveShaperNode(ctx, { oversample: '4x' });
     this.dcBlock = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 8, Q: -3.01 });
     this.tone = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000, Q: -3.01 });
@@ -264,27 +401,71 @@ class SaturatorUnit extends BaseUnit {
       channelCountMode: 'explicit',
       channelInterpretation: 'speakers',
     });
-    this.dryDelay = new DelayNode(ctx, { maxDelayTime: 0.05, delayTime: SAT_OS_LATENCY / ctx.sampleRate });
+    this.refDelay = new DelayNode(ctx, { maxDelayTime: 0.05, delayTime: lat });
     this.dGain = new GainNode(ctx, { gain: 0 });
     this.wGain = new GainNode(ctx);
     this.wetDuck = new GainNode(ctx, { gain: 1 });
     this.out = new GainNode(ctx);
     this.outDuck = new GainNode(ctx, { gain: 1 });
-    this.src.connect(this.pre);
+    // fixed connections; the optional stages (split, emphasis, bias, Lo-Fi) are wired by rewire()
+    this.lowA.connect(this.lowB);
+    this.lowB.connect(this.lowDelay);
+    this.highA.connect(this.highB);
+    this.lowGain.connect(this.wGain);
     this.pre.connect(this.shaper);
-    this.shaper.connect(this.dcBlock);
-    this.dcBlock.connect(this.tone);
+    this.bias.start();
     this.tone.connect(this.comp);
     this.comp.connect(this.wGain);
+    // the auto gain's reference: the distorted band, dry, aligned with the oversampler
+    this.refDelay.connect(this.comp, 0, 1);
+    // dry blend: the band(s) re-joined (the split sums flat, with the same phase as the wet path)
+    this.refDelay.connect(this.dGain);
     this.wGain.connect(this.wetDuck);
     this.wetDuck.connect(this.out);
-    this.src.connect(this.dryDelay);
-    this.dryDelay.connect(this.dGain);
-    // the auto gain's reference: the dry signal, aligned with the oversampler
-    this.dryDelay.connect(this.comp, 0, 1);
     this.dGain.connect(this.out);
     this.out.connect(this.outDuck);
     this.outDuck.connect(this.wet);
+    this.rewire(false, false, false, false);
+  }
+
+  private wiring = '';
+
+  /**
+   * Wire only the stages in use, so a plain setting costs what a plain saturator does:
+   * split (clean lows), emphasis (pre / post), bias, Lo-Fi.
+   */
+  private rewire(split: boolean, emph: boolean, bias: boolean, crush: boolean): void {
+    const key = `${+split}${+emph}${+bias}${+crush}`;
+    if (key === this.wiring) return;
+    this.wiring = key;
+    if (crush) this.crush ??= new AudioWorkletNode(this.ctx, 'phasr-crush', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
+    for (const n of [this.src, this.highB, this.lowDelay, this.emphPre, this.shaper, this.dcBlock, this.emphPost, this.bias]) n.disconnect();
+    this.crush?.disconnect();
+    // the band that gets distorted: everything, or what's above the split
+    let band: AudioNode = this.src;
+    if (split) {
+      this.src.connect(this.lowA);
+      this.src.connect(this.highA);
+      this.lowDelay.connect(this.lowGain);
+      this.lowDelay.connect(this.dGain);
+      band = this.highB;
+    }
+    band.connect(this.refDelay);
+    if (emph) {
+      band.connect(this.emphPre);
+      this.emphPre.connect(this.pre);
+    } else band.connect(this.pre);
+    if (bias) this.bias.connect(this.shaper);
+    let at: AudioNode = this.shaper;
+    if (crush && this.crush) {
+      at.connect(this.crush);
+      at = this.crush;
+    }
+    at.connect(this.dcBlock);
+    if (emph) {
+      this.dcBlock.connect(this.emphPost);
+      this.emphPost.connect(this.tone);
+    } else this.dcBlock.connect(this.tone);
   }
 
   /** the auto gain's starting point (a static estimate) before it has measured the levels */
@@ -296,21 +477,39 @@ class SaturatorUnit extends BaseUnit {
     return this.comp.parameters.get(name) as AudioParam;
   }
 
+  private crushParam(name: 'bits' | 'rate'): AudioParam | null {
+    return (this.crush?.parameters.get(name) as AudioParam | undefined) ?? null;
+  }
+
   update(slot: EffectSlot, _bpm: number, auto: ReadonlySet<string> = NONE): void {
     if (slot.type !== 'saturator') return;
     const p: SaturatorParams = slot.params;
     const im = !this.initialized;
+    const nyq = this.ctx.sampleRate * 0.45;
     if (p.mode !== this.mode) {
       this.mode = p.mode;
       this.shaper.curve = satCurve(p.mode);
     }
-
     this.compParam('auto').value = p.autoGain ? 1 : 0;
     if (!auto.has('drive')) {
       setParam(this.pre.gain, dbToGain(p.drive) / SAT_RANGE, this.ctx, im);
       this.compParam('guess').value = this.compGain(p.drive);
     }
-    if (!auto.has('tone')) setParam(this.tone.frequency, Math.min(this.ctx.sampleRate * 0.45, p.tone), this.ctx, im);
+    const splitOn = p.clean > 20.5;
+    const emphOn = p.emph > 0.05;
+    const biasOn = p.bias > 0.005;
+    this.rewire(splitOn, emphOn, biasOn, saturatorCrushOn(p) || auto.has('bits') || auto.has('rate'));
+    setParam(this.bias.offset, p.bias / SAT_RANGE, this.ctx, im);
+    // clean lows: split at `clean`
+    for (const n of [this.lowA, this.lowB, this.highA, this.highB]) setParam(n.frequency, Math.max(20, p.clean), this.ctx, im);
+    for (const n of [this.emphPre, this.emphPost]) setParam(n.frequency, Math.min(nyq, p.focus), this.ctx, im);
+    setParam(this.emphPre.gain, p.emph, this.ctx, im);
+    setParam(this.emphPost.gain, -p.emph, this.ctx, im);
+    const bits = this.crushParam('bits');
+    const rate = this.crushParam('rate');
+    if (bits && !auto.has('bits')) setParam(bits, p.bits, this.ctx, im);
+    if (rate && !auto.has('rate')) setParam(rate, p.rate >= 39900 ? this.ctx.sampleRate : p.rate, this.ctx, im);
+    if (!auto.has('tone')) setParam(this.tone.frequency, Math.min(nyq, p.tone), this.ctx, im);
     if (!auto.has('output')) setParam(this.out.gain, dbToGain(p.output), this.ctx, im);
     if (!auto.has('mix')) {
       setParam(this.dGain.gain, 1 - p.mix, this.ctx, im);
@@ -323,9 +522,7 @@ class SaturatorUnit extends BaseUnit {
   automationParams(key: string): ParamTarget[] {
     switch (key) {
       case 'drive':
-        return [
-          { param: this.pre.gain, map: (v) => dbToGain(Math.max(0, v)) / SAT_RANGE },
-        ];
+        return [{ param: this.pre.gain, map: (v) => dbToGain(Math.max(0, v)) / SAT_RANGE }];
       case 'tone':
         return [{ param: this.tone.frequency, map: (v) => Math.min(this.ctx.sampleRate * 0.45, Math.max(20, v)), exp: true }];
       case 'output':
@@ -350,7 +547,14 @@ class SaturatorUnit extends BaseUnit {
   override dispose(): void {
     super.dispose();
     this.comp.port.postMessage({ type: 'dispose' });
-    for (const n of [this.pre, this.shaper, this.dcBlock, this.tone, this.comp, this.dryDelay, this.dGain, this.wGain, this.wetDuck, this.out, this.outDuck]) n.disconnect();
+    this.crush?.port.postMessage({ type: 'dispose' });
+    try {
+      this.bias.stop();
+    } catch {
+      // already stopped
+    }
+    for (const n of [this.lowA, this.lowB, this.lowDelay, this.lowGain, this.highA, this.highB, this.emphPre, this.emphPost, this.pre, this.bias, this.shaper, this.dcBlock, this.tone, this.comp, this.refDelay, this.dGain, this.wGain, this.wetDuck, this.out, this.outDuck]) n.disconnect();
+    this.crush?.disconnect();
   }
 }
 
@@ -504,27 +708,37 @@ class DelayUnit extends BaseUnit {
 }
 
 /**
- * Convolution reverb with a generated IR. Changing the decay generates a new
- * IR on a fresh ConvolverNode and crossfades to it, so there is no click and
- * the old tail finishes naturally.
+ * Reverb Pro: pre-delay → ConvolverNode (a generated stereo room impulse,
+ * shaped by decay, size, damping and early reflections) → tail EQ (low cut,
+ * high cut) → width → wet blend. The impulse is rebuilt when its shape
+ * changes (debounced while a knob moves, with a short crossfade). The tail
+ * EQ and width stages are only wired in while they change the sound (or are
+ * automated), so the default path is exactly the convolver.
  */
 class ReverbUnit extends BaseUnit {
   readonly type = 'reverb' as const;
   private readonly pre: DelayNode;
   private readonly dGain: GainNode;
+  private readonly tailIn: GainNode;
   private readonly wGain: GainNode;
   private readonly wetDuck: GainNode;
   private branch: { conv: ConvolverNode; gain: GainNode } | null = null;
-  private decay = -1;
-  private pendingDecay: number | null = null;
+  /** the impulse currently built (decay|size|damping|early) */
+  private irKey = '';
+  private pendingIr: ReverbParams | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly realtime: boolean;
+  private lowCut: BiquadFilterNode | null = null;
+  private highCut: BiquadFilterNode | null = null;
+  private widthStage: { split: ChannelSplitterNode; ll: GainNode; lr: GainNode; rl: GainNode; rr: GainNode; merge: ChannelMergerNode } | null = null;
+  private tailWiring = '';
 
   constructor(ctx: BaseAudioContext, id: string) {
     super(ctx, id);
     this.realtime = !(typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext);
     this.pre = new DelayNode(ctx, { maxDelayTime: 0.5 });
     this.dGain = new GainNode(ctx);
+    this.tailIn = new GainNode(ctx);
     this.wGain = new GainNode(ctx);
     this.wetDuck = new GainNode(ctx, { gain: 1 });
     this.src.connect(this.dGain);
@@ -533,10 +747,15 @@ class ReverbUnit extends BaseUnit {
     // sidechain stage on the wet signal only ("ducked" reverb / delay / chorus)
     this.wGain.connect(this.wetDuck);
     this.wetDuck.connect(this.wet);
+    this.rewireTail(false, false, false);
   }
 
-  private buildBranch(decay: number, fadeIn: boolean): void {
-    const [l, r] = generateImpulse(this.ctx.sampleRate, decay);
+  private static irKeyOf(p: ReverbParams): string {
+    return `${p.decay.toFixed(4)}|${p.size.toFixed(3)}|${p.damping.toFixed(3)}|${p.early.toFixed(3)}`;
+  }
+
+  private buildBranch(p: ReverbParams, fadeIn: boolean): void {
+    const [l, r] = generateImpulse(this.ctx.sampleRate, p.decay, { size: p.size, damping: p.damping, early: p.early });
     const buf = new AudioBuffer({ numberOfChannels: 2, length: l.length, sampleRate: this.ctx.sampleRate });
     buf.copyToChannel(l, 0);
     buf.copyToChannel(r, 1);
@@ -544,10 +763,10 @@ class ReverbUnit extends BaseUnit {
     const gain = new GainNode(this.ctx, { gain: fadeIn ? 0 : 1 });
     this.pre.connect(conv);
     conv.connect(gain);
-    gain.connect(this.wGain);
+    gain.connect(this.tailIn);
     const old = this.branch;
     this.branch = { conv, gain };
-    this.decay = decay;
+    this.irKey = ReverbUnit.irKeyOf(p);
     if (fadeIn) {
       const t = this.ctx.currentTime;
       gain.gain.setTargetAtTime(1, t, 0.03);
@@ -567,6 +786,54 @@ class ReverbUnit extends BaseUnit {
     }
   }
 
+  /** tailIn → [low cut] → [high cut] → [width] → wet gain, with only the stages in use */
+  private rewireTail(lc: boolean, hc: boolean, w: boolean): void {
+    const key = `${+lc}${+hc}${+w}`;
+    if (key === this.tailWiring) return;
+    this.tailWiring = key;
+    const ctx = this.ctx;
+    if (lc) this.lowCut ??= new BiquadFilterNode(ctx, { type: 'highpass', frequency: 20, Q: -3.01 });
+    if (hc) this.highCut ??= new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000, Q: -3.01 });
+    if (w && !this.widthStage) {
+      const split = new ChannelSplitterNode(ctx, { numberOfOutputs: 2 });
+      const g = () => new GainNode(ctx, { gain: 0 });
+      const st = { split, ll: g(), lr: g(), rl: g(), rr: g(), merge: new ChannelMergerNode(ctx, { numberOfInputs: 2 }) };
+      split.connect(st.ll, 0);
+      split.connect(st.lr, 0);
+      split.connect(st.rl, 1);
+      split.connect(st.rr, 1);
+      st.ll.connect(st.merge, 0, 0);
+      st.rl.connect(st.merge, 0, 0);
+      st.lr.connect(st.merge, 0, 1);
+      st.rr.connect(st.merge, 0, 1);
+      this.widthStage = st;
+    }
+    this.tailIn.disconnect();
+    this.lowCut?.disconnect();
+    this.highCut?.disconnect();
+    this.widthStage?.merge.disconnect();
+    let at: AudioNode = this.tailIn;
+    if (lc && this.lowCut) {
+      at.connect(this.lowCut);
+      at = this.lowCut;
+    }
+    if (hc && this.highCut) {
+      at.connect(this.highCut);
+      at = this.highCut;
+    }
+    if (w && this.widthStage) {
+      at.connect(this.widthStage.split);
+      at = this.widthStage.merge;
+    }
+    at.connect(this.wGain);
+  }
+
+  private static widthGains(w: number): [number, number, number, number] {
+    const a = 0.5 * (1 + w);
+    const b = 0.5 * (1 - w);
+    return [a, b, b, a];
+  }
+
   automationParams(key: string): ParamTarget[] {
     switch (key) {
       case 'preDelay':
@@ -576,6 +843,15 @@ class ReverbUnit extends BaseUnit {
           { param: this.dGain.gain, map: (v) => mixGains(v).dry },
           { param: this.wGain.gain, map: (v) => mixGains(v).wet },
         ];
+      case 'lowCut':
+        return this.lowCut ? [{ param: this.lowCut.frequency, map: (v) => Math.max(10, v), exp: true }] : [];
+      case 'highCut':
+        return this.highCut ? [{ param: this.highCut.frequency, map: (v) => Math.min(this.ctx.sampleRate * 0.45, v), exp: true }] : [];
+      case 'width': {
+        const st = this.widthStage;
+        if (!st) return [];
+        return [st.ll, st.lr, st.rl, st.rr].map((n, i) => ({ param: n.gain, map: (v: number) => ReverbUnit.widthGains(v)[i] as number }));
+      }
       default:
         return [];
     }
@@ -585,16 +861,30 @@ class ReverbUnit extends BaseUnit {
     if (slot.type !== 'reverb') return;
     const p: ReverbParams = slot.params;
     const im = !this.initialized;
+    const key = ReverbUnit.irKeyOf(p);
     if (im || !this.realtime) {
-      if (Math.abs(p.decay - this.decay) > 1e-6) this.buildBranch(p.decay, false);
-    } else if (Math.abs(p.decay - this.decay) > 1e-3) {
+      if (key !== this.irKey) this.buildBranch(p, false);
+    } else if (key !== this.irKey) {
       // debounce IR regeneration while a knob is being dragged
-      this.pendingDecay = p.decay;
+      this.pendingIr = p;
       this.timer ??= setTimeout(() => {
         this.timer = null;
-        if (this.pendingDecay !== null && Math.abs(this.pendingDecay - this.decay) > 1e-3) this.buildBranch(this.pendingDecay, true);
-        this.pendingDecay = null;
+        const q = this.pendingIr;
+        if (q && ReverbUnit.irKeyOf(q) !== this.irKey) this.buildBranch(q, true);
+        this.pendingIr = null;
       }, 120);
+    }
+    // tail stages: only while they do something (or automation drives them)
+    const lc = p.lowCut > 20.5 || auto.has('lowCut');
+    const hc = p.highCut < 19900 || auto.has('highCut');
+    const w = Math.abs(p.width - 1) > 0.005 || auto.has('width');
+    this.rewireTail(lc, hc, w);
+    if (this.lowCut && !auto.has('lowCut')) setParam(this.lowCut.frequency, p.lowCut, this.ctx, im);
+    if (this.highCut && !auto.has('highCut')) setParam(this.highCut.frequency, Math.min(this.ctx.sampleRate * 0.45, p.highCut), this.ctx, im);
+    if (this.widthStage && !auto.has('width')) {
+      const g = ReverbUnit.widthGains(p.width);
+      const st = this.widthStage;
+      [st.ll, st.lr, st.rl, st.rr].forEach((n, i) => setParam(n.gain, g[i] as number, this.ctx, im));
     }
     if (!auto.has('preDelay')) setParam(this.pre.delayTime, p.preDelay, this.ctx, im);
     if (!auto.has('mix')) {
@@ -616,10 +906,9 @@ class ReverbUnit extends BaseUnit {
   override dispose(): void {
     if (this.timer) clearTimeout(this.timer);
     super.dispose();
-    this.pre.disconnect();
-    this.dGain.disconnect();
-    this.wGain.disconnect();
-    this.wetDuck.disconnect();
+    for (const n of [this.pre, this.dGain, this.tailIn, this.wGain, this.wetDuck, this.lowCut, this.highCut]) n?.disconnect();
+    const st = this.widthStage;
+    if (st) for (const n of [st.split, st.ll, st.lr, st.rl, st.rr, st.merge]) n.disconnect();
     if (this.branch) {
       this.branch.conv.disconnect();
       this.branch.gain.disconnect();
@@ -1353,6 +1642,9 @@ export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: n
       break;
     case 'saturator':
       unit = new SaturatorUnit(ctx, slot.id);
+      break;
+    case 'utility':
+      unit = new UtilityUnit(ctx, slot.id);
       break;
   }
   unit.update(slot, bpm, automated);

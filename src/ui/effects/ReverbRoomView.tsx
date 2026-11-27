@@ -15,7 +15,8 @@
  * drawn on a canvas; nothing animates per frame.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { generateImpulse } from '../../audio/effects/impulse';
+import { generateImpulse, type ImpulseShape } from '../../audio/effects/impulse';
+import type { ReverbParams } from '../../project/types';
 import { engine } from '../../audio/engine';
 
 const W = 464;
@@ -74,8 +75,8 @@ function fft(re: Float64Array, im: Float64Array): void {
   }
 }
 
-function analyse(decay: number, sr: number): Analysis {
-  const [ir] = generateImpulse(sr, decay);
+function analyse(decay: number, shape: ImpulseShape, sr: number): Analysis {
+  const [ir] = generateImpulse(sr, decay, shape);
   const n = ir.length;
   const irSec = n / sr;
   // spectrogram
@@ -111,9 +112,9 @@ function analyse(decay: number, sr: number): Analysis {
     for (; idx < upto; idx++) acc -= (ir[idx] as number) ** 2;
     edc[f] = 10 * Math.log10(Math.max(acc, 1e-30) / total);
   }
-  // early reflections: spikes in the first 90 ms that stand well above their surroundings
+  // early reflections: spikes in the first 90 ms (× size) that stand well above their surroundings
   const reflections: { t: number; a: number }[] = [];
-  const erEnd = Math.min(n, Math.round(0.09 * sr));
+  const erEnd = Math.min(n, Math.round(0.09 * (shape.size ?? 1) * sr));
   const hw = Math.round(0.002 * sr);
   let peak = 0;
   for (let i = 0; i < erEnd; i++) peak = Math.max(peak, Math.abs(ir[i] as number));
@@ -148,17 +149,19 @@ function heat(x: number): [number, number, number] {
   return [255, 240, 220];
 }
 
-export function ReverbRoomView({ decay, preDelay, mix, color }: { decay: number; preDelay: number; mix: number; color: string }) {
+export function ReverbRoomView({ params, color }: { params: ReverbParams; color: string }) {
+  const { decay, preDelay, mix, size } = params;
   const canvas = useRef<HTMLCanvasElement>(null);
-  // follow the knob, but rebuild the analysis only once it rests for a moment
-  const [shownDecay, setShownDecay] = useState(decay);
+  // follow the knobs, but rebuild the analysis only once they rest for a moment
+  const key = `${decay}|${size}|${params.damping}|${params.early}`;
+  const [shown, setShown] = useState({ key, decay, shape: { size, damping: params.damping, early: params.early } });
   useEffect(() => {
-    if (Math.abs(decay - shownDecay) < 1e-4) return;
-    const t = setTimeout(() => setShownDecay(decay), 90);
+    if (key === shown.key) return;
+    const t = setTimeout(() => setShown({ key, decay, shape: { size, damping: params.damping, early: params.early } }), 90);
     return () => clearTimeout(t);
-  }, [decay, shownDecay]);
+  }, [key, shown.key, decay, size, params.damping, params.early]);
   const sr = engine.ctx?.sampleRate ?? 48000;
-  const a = useMemo(() => analyse(shownDecay, sr), [shownDecay, sr]);
+  const a = useMemo(() => analyse(shown.decay, shown.shape, sr), [shown, sr]);
 
   useEffect(() => {
     const cv = canvas.current;
@@ -171,16 +174,16 @@ export function ReverbRoomView({ decay, preDelay, mix, color }: { decay: number;
     g.clearRect(0, 0, W, H);
     g.fillStyle = '#0a0a12';
     g.fillRect(0, 0, W, H);
-    drawRoom(g, decay, preDelay, a, color);
-    drawSpectrum(g, decay, preDelay, mix, a, color);
-  }, [a, decay, preDelay, mix, color]);
+    drawRoom(g, decay, size, preDelay, a, color);
+    drawSpectrum(g, decay, preDelay, mix, a, color, params.lowCut, params.highCut);
+  }, [a, decay, size, preDelay, mix, color, params.lowCut, params.highCut]);
 
   return <canvas ref={canvas} style={{ width: W, height: H }} className="rounded" aria-label="Reverb room and impulse response" />;
 }
 
-function drawRoom(g: CanvasRenderingContext2D, decay: number, preDelay: number, a: Analysis, color: string): void {
-  // room size from the decay (bigger rooms ring longer): width 4 … 40 m
-  const width = Math.min(40, 4 + 7.5 * Math.sqrt(decay));
+function drawRoom(g: CanvasRenderingContext2D, decay: number, size: number, preDelay: number, a: Analysis, color: string): void {
+  // room size from the decay (bigger rooms ring longer) and the Size knob: width 3 … 60 m
+  const width = Math.min(60, Math.max(3, (4 + 7.5 * Math.sqrt(decay)) * size));
   const depth = width * 0.68;
   const height = Math.min(18, 2.6 + 1.6 * Math.sqrt(decay));
   const pad = 14;
@@ -309,7 +312,7 @@ function reflectionPath(S: { x: number; y: number }, L: { x: number; y: number }
   return out;
 }
 
-function drawSpectrum(g: CanvasRenderingContext2D, decay: number, preDelay: number, mix: number, a: Analysis, color: string): void {
+function drawSpectrum(g: CanvasRenderingContext2D, decay: number, preDelay: number, mix: number, a: Analysis, color: string, lowCut: number, highCut: number): void {
   const x0 = ROOM_W + 8;
   const w = W - x0 - 6;
   const y0 = 8;
@@ -339,6 +342,11 @@ function drawSpectrum(g: CanvasRenderingContext2D, decay: number, preDelay: numb
   g.fillStyle = '#07070d';
   g.fillRect(x0, y0, w, h);
   g.drawImage(tmp, tx(preDelay), y0, w * (a.irSec / totalSec), h);
+  // tail EQ: the cut regions (frequency is log from 60 Hz at the bottom to 18 kHz at the top)
+  const yHz = (hzv: number) => y0 + h - (Math.log(Math.max(F_LO, Math.min(F_HI, hzv)) / F_LO) / Math.log(F_HI / F_LO)) * h;
+  g.fillStyle = 'rgba(7,7,13,0.62)';
+  if (lowCut > 20.5) g.fillRect(tx(preDelay), yHz(lowCut), x0 + w - tx(preDelay), y0 + h - yHz(lowCut));
+  if (highCut < 19900) g.fillRect(tx(preDelay), y0, x0 + w - tx(preDelay), yHz(highCut) - y0);
   // pre-delay gap
   if (preDelay > 0.002) {
     g.fillStyle = 'rgba(255,255,255,0.05)';

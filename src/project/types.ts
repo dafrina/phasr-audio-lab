@@ -151,7 +151,7 @@ export type InstrumentConfig =
   | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string }
   | { type: 'sampler'; zones: SamplerZone[]; params: SamplerParams; autoMap: boolean; presetName: string };
 
-export type EffectType = 'eq' | 'peq' | 'compressor' | 'saturator' | 'delay' | 'reverb' | 'room' | 'chorus' | 'autofilter' | 'phaser';
+export type EffectType = 'utility' | 'eq' | 'peq' | 'compressor' | 'saturator' | 'delay' | 'reverb' | 'room' | 'chorus' | 'autofilter' | 'phaser';
 
 /** Phaser: swept all-pass stages with feedback, mixed with the dry signal for moving notches. */
 export interface PhaserParams {
@@ -257,15 +257,53 @@ export interface ReverbParams {
   decay: number;
   preDelay: number;
   mix: number;
+  /** room size: early reflections arrive later and sparser (1 = default) */
+  size: number;
+  /** 0 bright … 1 dark: how fast the tail's highs die (0.5 = default) */
+  damping: number;
+  /** early-reflection level, 0 … 2 (1 = default) */
+  early: number;
+  /** low cut on the reverb only, Hz (20 = off) */
+  lowCut: number;
+  /** high cut on the reverb only, Hz (20 kHz = off) */
+  highCut: number;
+  /** stereo width of the reverb, 0 = mono … 1.5 (1 = as rendered) */
+  width: number;
 }
 
-export type SaturatorMode = 'tape' | 'tube' | 'overdrive' | 'hard' | 'fold';
+/** Utility: level, balance, stereo width and polarity — nearly free, for gain staging anywhere in a chain. */
+export interface UtilityParams {
+  /** dB */
+  gain: number;
+  /** −1 … 1 (balance) */
+  pan: number;
+  /** 0 = mono, 1 = as is, 2 = twice as wide (mid/side) */
+  width: number;
+  /** polarity (phase) invert per channel */
+  invertL: boolean;
+  invertR: boolean;
+}
 
-/** Saturator: a waveshaper (4× oversampled) with drive, tone, auto gain and a parallel mix. */
+export type SaturatorMode = 'tape' | 'tube' | 'overdrive' | 'hard' | 'fuzz' | 'rectify' | 'fold';
+
+/** Saturator: saturation → distortion → fuzz. A waveshaper (4× oversampled) with a clean low split, focus
+ * emphasis, bias, an optional Lo-Fi stage, tone, auto gain and a parallel mix. */
 export interface SaturatorParams {
   mode: SaturatorMode;
   /** dB into the shaper, 0 … 36 */
   drive: number;
+  /** 0 … 1: shifts the curve off centre (even harmonics, any character) */
+  bias: number;
+  /** Hz: below this the signal stays clean (kick and sub stay solid); 20 = off */
+  clean: number;
+  /** Hz: the band the emphasis pushes into the drive */
+  focus: number;
+  /** dB boost at `focus` before the drive, cut back after (0 = off): distortion concentrates there */
+  emph: number;
+  /** Lo-Fi: bit depth (16 = off) */
+  bits: number;
+  /** Lo-Fi: sample rate in Hz (≥ 40 kHz = off) */
+  rate: number;
   /** low-pass after the shaper, Hz (20 kHz = open) */
   tone: number;
   /** dB after everything */
@@ -296,6 +334,7 @@ export type EffectSlot =
   | { id: string; enabled: boolean; type: 'reverb'; params: ReverbParams }
   | { id: string; enabled: boolean; type: 'room'; params: RoomParams }
   | { id: string; enabled: boolean; type: 'saturator'; params: SaturatorParams }
+  | { id: string; enabled: boolean; type: 'utility'; params: UtilityParams }
   | { id: string; enabled: boolean; type: 'peq'; params: PeqParams }
   | { id: string; enabled: boolean; type: 'chorus'; params: ChorusParams }
   | { id: string; enabled: boolean; type: 'autofilter'; params: AutoFilterParams }

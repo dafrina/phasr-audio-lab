@@ -37,6 +37,12 @@ export function saturate(mode: SaturatorMode, x: number): number {
       // wave folder: past full scale the wave folds back on itself (metallic, synth-like)
       return Math.sin((Math.PI / 2) * x);
     }
+    case 'fuzz':
+      // high gain, the halves clip at very different points: buzzy, gated, sputtering
+      return x > 0 ? Math.tanh(4 * x) : 0.85 * Math.tanh(1.4 * x);
+    case 'rectify':
+      // full-wave rectifier, softened: the negative half flips up → an octave above, ring-mod grit
+      return Math.tanh(1.3 * Math.abs(x));
   }
 }
 
@@ -75,11 +81,11 @@ export function saturatorGain(mode: SaturatorMode, driveDb: number): number {
 const GAIN_LEVELS = [0.2, 0.4, 0.8];
 
 /** Harmonic levels (1st … n-th) of a sine at this drive, relative to the fundamental (0 dB). */
-export function saturatorHarmonics(mode: SaturatorMode, driveDb: number, n = 10): number[] {
+export function saturatorHarmonics(mode: SaturatorMode, driveDb: number, n = 10, bias = 0): number[] {
   const g = Math.pow(10, driveDb / 20);
   const N = 512;
   const x = new Float64Array(N);
-  for (let i = 0; i < N; i++) x[i] = saturate(mode, 0.5 * g * Math.sin((2 * Math.PI * i) / N));
+  for (let i = 0; i < N; i++) x[i] = saturate(mode, 0.5 * g * Math.sin((2 * Math.PI * i) / N) + bias);
   // remove DC (asymmetric shapes), then a DFT at the harmonic bins
   let dc = 0;
   for (let i = 0; i < N; i++) dc += x[i] as number;

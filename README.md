@@ -66,15 +66,20 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
 - **Milestone 4 (multitrack mixing): done.** Up to 4 insert effects per track — EQ-3 (low shelf / peaking mid / high
   shelf), Spectra EQ (below), Compressor (threshold/ratio/attack/release/makeup + live gain-reduction meter), Delay (time
   or tempo-synced division, feedback with damping, equal-power mix), **Reverb Pro** (convolution with a generated stereo
-  room impulse, decay/pre-delay/mix, and a room view drawn from that impulse: floor plan with the early-reflection
-  paths, the impulse's spectrogram, decay curve and −60 dB point), **Reverb Lite** (algorithmic room — diffusers into
+  room impulse shaped by decay, size, damping and early reflections, plus pre-delay, low / high cut and width on the
+  tail, and a room view drawn from that impulse: floor plan with the early-reflection paths, the impulse's spectrogram
+  with the cut bands, decay curve and −60 dB point), **Reverb Lite** (algorithmic room — diffusers into
   an 8-line feedback delay network — with decay, size, tone, pre-delay and mix; ≈ 0.8 % of a core at any decay against
   Pro's 4–10 %, sleeps when silent, and its decay can be automated and sidechained, e.g. a kick choking the tail),
   Chorus / Flanger, Auto-Filter (low/high/band-pass with an LFO), Phaser (swept all-pass stages with feedback and
-  stereo spread) and **Saturator** (4× oversampled waveshaper: Tape, Tube, Drive, Clip and Fold characters; drive,
-  tone, output, parallel mix with the dry path delayed to match the oversampler; adaptive auto gain that measures the
-  dry and saturated levels and matches them, so drive adds character, not volume — within 2 dB from 0 to 36 dB of
-  drive on synths, piano and drums; the display shows the transfer curve and the odd / even harmonics it adds). Enable/bypass (click-free crossfade; a switched-off effect does no work), parameter smoothing, reorder,
+  stereo spread), **Saturator** (saturation → distortion → fuzz: a 4× oversampled waveshaper with Tape, Tube, Crunch,
+  Clip, Fuzz, Rectify and Fold characters; drive and bias (even harmonics on any character); *Clean <* keeps the lows
+  below a frequency undistorted (Linkwitz-Riley split, flat when summed); *Focus / Emph* boosts a band before the drive
+  and cuts it back after, so the distortion concentrates there; an optional Lo-Fi stage (bit depth, sample rate);
+  tone, output, and a parallel mix whose dry path is delayed to match the oversampler; adaptive auto gain that
+  measures the dry and saturated levels and matches them — within 2 dB from 0 to 36 dB of drive on synths, piano and
+  drums; the display shows the transfer curve and the odd / even harmonics it adds; stages that are off aren't wired
+  in) and **Utility** (gain, balance, width from mono to 150 %, polarity per channel — for gain staging anywhere). Enable/bypass (click-free crossfade; a switched-off effect does no work), parameter smoothing, reorder,
   remove, factory + user effect presets, all saved in the project.
   Mixer (F9 or toolbar): a channel strip per track (up to 12) with fader, pan, mute/solo, send A/B knobs, real meters
   with peak hold/clip LED and effect slots; strips for the two send channels; the master with its own 4 effect slots and
@@ -230,8 +235,8 @@ Convolution reverb is now the dominant cost of the worst case; in a realtime con
 partitions on a background thread, and the live 8-track/32-effect test keeps pace with wall-clock time.
 
 **Effects** (offline render in headless Chromium, CPU per instance per audio second, 48 kHz): Spectra EQ 0.07 %,
-EQ-3 / Delay 0.22 %, Compressor 0.25 %, Auto-Filter 0.29 %, Chorus 0.32 %, Phaser 0.35 %, Saturator 1.1 % (4×
-oversampling), Reverb Lite 0.80 % (any
+Utility 0.16 %, EQ-3 / Delay 0.22 %, Compressor 0.25 %, Auto-Filter 0.29 %, Chorus 0.32 %, Phaser 0.35 %, Saturator
+1.1–1.5 % (4× oversampling; 2.5 % with split, emphasis, bias and Lo-Fi all on), Reverb Lite 0.80 % (any
 decay), Reverb Pro 3.9 % at 2.2 s and 9.4 % at 6 s of decay. Idle (8 silent instrument tracks, live context):
 4.5 % of the audio thread with no effects, 25.6 % with a Reverb Pro on each, 5.6 % with a Reverb Lite on each.
 

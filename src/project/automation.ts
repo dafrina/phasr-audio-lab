@@ -9,7 +9,7 @@
  */
 import { createId } from '../core/ids';
 import {
-  AUTOFILTER_SPECS, CHORUS_SPECS, PHASER_SPECS, ROOM_SPECS, SATURATOR_SPECS,
+  AUTOFILTER_SPECS, CHORUS_SPECS, PHASER_SPECS, ROOM_SPECS, SATURATOR_SPECS, UTILITY_SPECS,
   COMP_SPECS,
   DELAY_SPECS,
   EFFECT_LABELS,
@@ -76,7 +76,7 @@ export function automatableParams(slot: EffectSlot): AutoParamInfo[] {
       return keys.map((k) => ({ key: k, label: DELAY_SPECS[k].label, spec: DELAY_SPECS[k] }));
     }
     case 'reverb':
-      return (['preDelay', 'mix'] as const).map((k) => ({ key: k, label: REVERB_SPECS[k].label, spec: REVERB_SPECS[k] }));
+      return (['preDelay', 'lowCut', 'highCut', 'width', 'mix'] as const).map((k) => ({ key: k, label: REVERB_SPECS[k].label, spec: REVERB_SPECS[k] }));
     case 'chorus':
       return (['rate', 'depth', 'delay', 'feedback', 'mix'] as const).map((k) => ({ key: k, label: CHORUS_SPECS[k].label, spec: CHORUS_SPECS[k] }));
     case 'autofilter':
@@ -86,7 +86,9 @@ export function automatableParams(slot: EffectSlot): AutoParamInfo[] {
     case 'room':
       return (['decay', 'tone', 'preDelay', 'mix'] as const).map((k) => ({ key: k, label: ROOM_SPECS[k].label, spec: ROOM_SPECS[k] }));
     case 'saturator':
-      return (['drive', 'tone', 'output', 'mix'] as const).map((k) => ({ key: k, label: SATURATOR_SPECS[k].label, spec: SATURATOR_SPECS[k] }));
+      return (['drive', 'bits', 'rate', 'tone', 'output', 'mix'] as const).map((k) => ({ key: k, label: SATURATOR_SPECS[k].label, spec: SATURATOR_SPECS[k] }));
+    case 'utility':
+      return (['gain', 'pan', 'width'] as const).map((k) => ({ key: k, label: UTILITY_SPECS[k].label, spec: UTILITY_SPECS[k] }));
   }
 }
 

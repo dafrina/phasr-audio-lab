@@ -19,13 +19,14 @@ import {
   ROOM_SPECS,
   SATURATOR_MODES,
   SATURATOR_SPECS,
+  UTILITY_SPECS,
   EFFECT_BLURBS,
   delayTimeSeconds,
   loadUserEffectPresets,
   saveUserEffectPresets,
   type EffectPreset,
 } from '../../audio/effects/specs';
-import type { AutoFilterMode, AutoFilterParams, EffectSlot, EqParams, LfoShape, PhaserParams, SaturatorParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, EffectSlot, EqParams, LfoShape, PhaserParams, SaturatorParams, UtilityParams } from '../../project/types';
 import { moveEffect, removeEffect, replaceEffectParams, setEffectEnabled, setEffectParams } from '../../state/effectActions';
 import { useProjectStore } from '../../state/projectStore';
 import { uiToast } from '../../state/uiStore';
@@ -43,13 +44,14 @@ const TYPE_COLOR: Record<EffectSlot['type'], string> = {
   phaser: '#34d399',
   compressor: '#facc15',
   saturator: '#fb7185',
+  utility: '#94a3b8',
   delay: '#4ade80',
   reverb: '#9b8aff',
   room: '#a78bfa',
 };
 
 /** device widths: the Spectra EQ and Reverb Pro carry big displays */
-const DEVICE_W: Partial<Record<EffectSlot['type'], string>> = { peq: 'w-[618px]', reverb: 'w-[484px]' };
+const DEVICE_W: Partial<Record<EffectSlot['type'], string>> = { peq: 'w-[618px]', reverb: 'w-[484px]', saturator: 'w-[484px]', utility: 'w-[200px]' };
 
 function samePar(a: object, b: object): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -148,6 +150,7 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
             </div>
           </>
         )}
+        {slot.type === 'utility' && <UtilityBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'saturator' && <SaturatorBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'delay' && <DelayBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'autofilter' && <AutoFilterBody trackId={trackId} slot={slot} color={color} set={set} />}
@@ -171,17 +174,34 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
         )}
         {slot.type === 'reverb' && (
           <>
-            <ReverbRoomView decay={slot.params.decay} preDelay={slot.params.preDelay} mix={slot.params.mix} color={color} />
+            <ReverbRoomView params={slot.params} color={color} />
+            <div className="grid grid-cols-[1fr_1fr] gap-1.5">
+              <div className="flex flex-col gap-1 rounded border border-line px-1.5 pb-1 pt-0.5">
+                <div className="text-[8px] font-semibold uppercase tracking-[0.14em] text-dim">Room</div>
+                <div className="flex items-start justify-between gap-1">
+                  <Knob spec={REVERB_SPECS.decay} value={slot.params.decay} color={color} size={30} onChange={(v) => set({ decay: v }, 'decay')} title="Decay: time for the tail to fall 60 dB" />
+                  <Knob spec={REVERB_SPECS.size} value={slot.params.size} color={color} size={30} onChange={(v) => set({ size: v }, 'size')} title="Size: bigger rooms put the early reflections later and further apart" />
+                  <Knob spec={REVERB_SPECS.damping} value={slot.params.damping} color={color} size={30} onChange={(v) => set({ damping: v }, 'damp')} title="Damping: how fast the walls absorb the highs (bright stone … dark curtains)" />
+                  <Knob spec={REVERB_SPECS.early} value={slot.params.early} color={color} size={30} onChange={(v) => set({ early: v }, 'early')} title="Early: level of the first reflections off the walls" />
+                  <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'preDelay' }} spec={REVERB_SPECS.preDelay} value={slot.params.preDelay} color={color} size={30} onChange={(v) => set({ preDelay: v }, 'pre')} />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1 rounded border border-line px-1.5 pb-1 pt-0.5">
+                <div className="text-[8px] font-semibold uppercase tracking-[0.14em] text-dim">Tail · Out</div>
+                <div className="flex items-start justify-between gap-1">
+                  <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'lowCut' }} spec={REVERB_SPECS.lowCut} value={slot.params.lowCut} color={color} size={30} onChange={(v) => set({ lowCut: v }, 'lc')} />
+                  <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'highCut' }} spec={REVERB_SPECS.highCut} value={slot.params.highCut} color={color} size={30} onChange={(v) => set({ highCut: v }, 'hc')} />
+                  <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'width' }} spec={REVERB_SPECS.width} value={slot.params.width} color={color} size={30} onChange={(v) => set({ width: v }, 'width')} />
+                  <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'mix' }} spec={REVERB_SPECS.mix} value={slot.params.mix} color={color} size={30} onChange={(v) => set({ mix: v }, 'mix')} />
+                </div>
+              </div>
+            </div>
             <div className="flex items-center justify-around">
-              <Knob spec={REVERB_SPECS.decay} value={slot.params.decay} color={color} size={40} onChange={(v) => set({ decay: v }, 'decay')} />
-              <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'preDelay' }} spec={REVERB_SPECS.preDelay} value={slot.params.preDelay} color={color} size={40} onChange={(v) => set({ preDelay: v }, 'pre')} />
-              <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'mix' }} spec={REVERB_SPECS.mix} value={slot.params.mix} color={color} size={40} onChange={(v) => set({ mix: v }, 'mix')} />
-              <div className="w-[150px] text-[9px] leading-tight text-dim">
+              <div className="text-[9px] leading-tight text-dim">
                 <span className="font-semibold" style={{ color }}>
                   PRO · convolution
                 </span>
-                <br />
-                Real room impulse, every echo rendered. CPU grows with the decay: ≈ {(0.5 + 1.5 * slot.params.decay).toFixed(1)} % of a core. For lots of tracks, try Reverb Lite or a send.
+                {' '}— real room impulse, every echo rendered · ≈ {(0.5 + 1.5 * slot.params.decay).toFixed(1)} % of a core (grows with decay) · many tracks? try Reverb Lite or a send
               </div>
             </div>
           </>
@@ -209,9 +229,40 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
 
 function SaturatorBody({ trackId, slot, color, set }: { trackId: string; slot: Extract<EffectSlot, { type: 'saturator' }>; color: string; set: (p: Partial<EffectSlot['params']>, k: string) => void }) {
   const p = slot.params;
-  const knob = (key: 'drive' | 'tone' | 'output' | 'mix', k: string) => (
-    <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: key }} spec={SATURATOR_SPECS[key]} value={p[key]} color={color} onChange={(v) => set({ [key]: v } as Partial<SaturatorParams>, k)} />
+  type K = 'drive' | 'bias' | 'clean' | 'focus' | 'emph' | 'bits' | 'rate' | 'tone' | 'output' | 'mix';
+  const TIPS: Record<K, string> = {
+    drive: 'Drive: how hard the signal hits the curve',
+    bias: 'Bias: shifts the curve off centre — even harmonics (warmth) on any character',
+    clean: 'Clean <: below this frequency the signal stays clean (kick and sub stay solid)',
+    focus: 'Focus: the band the emphasis pushes into the drive',
+    emph: 'Emphasis: boost Focus before the drive and cut it back after — the distortion concentrates there, the EQ stays',
+    bits: 'Lo-Fi bits: fewer bits = grainier, noisier',
+    rate: 'Lo-Fi sample rate: lower = crunchier, aliasing, metallic',
+    tone: 'Tone: low-pass after the drive',
+    output: 'Output level',
+    mix: 'Mix: blend with the dry signal (parallel saturation)',
+  };
+  const AUTO: ReadonlySet<K> = new Set(['drive', 'bits', 'rate', 'tone', 'output', 'mix']);
+  const knob = (key: K, k: string) =>
+    AUTO.has(key) ? (
+      <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: key }} spec={SATURATOR_SPECS[key]} value={p[key]} color={color} size={30} onChange={(v) => set({ [key]: v } as Partial<SaturatorParams>, k)} />
+    ) : (
+      <Knob spec={SATURATOR_SPECS[key]} value={p[key]} color={color} size={30} title={TIPS[key]} onChange={(v) => set({ [key]: v } as Partial<SaturatorParams>, k)} />
+    );
+  const group = (label: string, keys: [K, string][], extra?: React.ReactNode) => (
+    <div className="flex flex-col gap-1 rounded border border-line px-1.5 pb-1 pt-0.5">
+      <div className="text-[8px] font-semibold uppercase tracking-[0.14em] text-dim">{label}</div>
+      <div className="flex items-start justify-between gap-1">
+        {keys.map(([key, k]) => (
+          <div key={key} title={TIPS[key]}>
+            {knob(key, k)}
+          </div>
+        ))}
+        {extra}
+      </div>
+    </div>
   );
+  const crush = p.bits < 15.95 || p.rate < 39900;
   return (
     <>
       <div className="flex gap-[2px]">
@@ -229,42 +280,55 @@ function SaturatorBody({ trackId, slot, color, set }: { trackId: string; slot: E
         ))}
       </div>
       <SaturatorDisplay params={p} color={color} />
-      <div className="flex justify-between">
-        {knob('drive', 'drive')}
-        {knob('tone', 'tone')}
-        {knob('output', 'out')}
-        {knob('mix', 'mix')}
+      <div className="grid grid-cols-[1fr_1fr] gap-1.5">
+        {group('Drive', [
+          ['drive', 'drive'],
+          ['bias', 'bias'],
+          ['clean', 'clean'],
+          ['focus', 'focus'],
+          ['emph', 'emph'],
+        ])}
+        {group(crush ? 'Lo-Fi (on) · Out' : 'Lo-Fi · Out', [
+          ['bits', 'bits'],
+          ['rate', 'rate'],
+          ['tone', 'tone'],
+          ['output', 'out'],
+          ['mix', 'mix'],
+        ])}
       </div>
-      <button
-        type="button"
-        title="Auto gain: the level stays the same while you turn the drive, so you hear the character, not just louder"
-        onClick={() => set({ autoGain: !p.autoGain }, 'ag')}
-        className={`mx-auto h-5 rounded px-2 text-[10px] font-semibold uppercase tracking-wide ${p.autoGain ? 'text-black' : 'bg-panel-3 text-muted'}`}
-        style={p.autoGain ? { background: color } : undefined}
-      >
-        Auto gain
-      </button>
+      <div className="flex items-center justify-center gap-2">
+        <button
+          type="button"
+          title="Auto gain: measures the dry and saturated levels and matches them — the drive adds character, not volume"
+          onClick={() => set({ autoGain: !p.autoGain }, 'ag')}
+          className={`h-5 rounded px-2 text-[10px] font-semibold uppercase tracking-wide ${p.autoGain ? 'text-black' : 'bg-panel-3 text-muted'}`}
+          style={p.autoGain ? { background: color } : undefined}
+        >
+          Auto gain
+        </button>
+        <span className="text-[9px] text-dim">4× oversampled · Lo-Fi runs only while on</span>
+      </div>
     </>
   );
 }
 
-/** Transfer curve (input → output at this drive) and the harmonics it adds to a sine. */
+/** Transfer curve (input → output at this drive and bias) and the harmonics it adds to a sine. */
 function SaturatorDisplay({ params, color }: { params: SaturatorParams; color: string }) {
-  const W = 228;
+  const W = 468;
   const H = 64;
-  const CW = 64;
+  const CW = 96;
   const { path, bars } = useMemo(() => {
     const g = Math.pow(10, params.drive / 20);
-    const comp = params.autoGain ? 1 / saturatorGain(params.mode, params.drive) : 1;
+    const comp = 1 / saturatorGain(params.mode, params.drive);
+    const rest = saturate(params.mode, params.bias);
     let d = '';
-    for (let i = 0; i <= 64; i++) {
-      const x = (i / 64) * 2 - 1;
-      const y = Math.max(-1.1, Math.min(1.1, saturate(params.mode, x * g) * Math.min(comp, 4)));
+    for (let i = 0; i <= 96; i++) {
+      const x = (i / 96) * 2 - 1;
+      const y = Math.max(-1.1, Math.min(1.1, (saturate(params.mode, x * g + params.bias) - rest) * Math.min(comp, 4)));
       d += `${i ? 'L' : 'M'}${(2 + ((x + 1) / 2) * (CW - 4)).toFixed(1)},${(H / 2 - y * (H / 2 - 4)).toFixed(1)}`;
     }
-    const h = saturatorHarmonics(params.mode, params.drive, 10);
-    return { path: d, bars: h };
-  }, [params.mode, params.drive, params.autoGain]);
+    return { path: d, bars: saturatorHarmonics(params.mode, params.drive, 16, params.bias) };
+  }, [params.mode, params.drive, params.bias]);
   const bx = CW + 10;
   const bw = (W - bx - 4) / bars.length;
   return (
@@ -287,9 +351,47 @@ function SaturatorDisplay({ params, color }: { params: SaturatorParams; color: s
         );
       })}
       <text x={W - 4} y={9} textAnchor="end" fontSize={7} fill="#8b8ba6">
-        harmonics · <tspan fill={color}>odd</tspan> <tspan fill="#fbbf24">even</tspan>
+        harmonics of a sine · <tspan fill={color}>odd</tspan> <tspan fill="#fbbf24">even</tspan>
       </text>
     </svg>
+  );
+}
+
+function UtilityBody({ trackId, slot, color, set }: { trackId: string; slot: Extract<EffectSlot, { type: 'utility' }>; color: string; set: (p: Partial<EffectSlot['params']>, k: string) => void }) {
+  const p = slot.params;
+  const toggle = (key: 'invertL' | 'invertR', label: string, title: string) => (
+    <button
+      type="button"
+      title={title}
+      onClick={() => set({ [key]: !p[key] } as Partial<UtilityParams>, key)}
+      className={`h-5 rounded px-2 text-[10px] font-semibold ${p[key] ? 'text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
+      style={p[key] ? { background: color } : undefined}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <>
+      <div className="flex justify-between">
+        <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'gain' }} spec={UTILITY_SPECS.gain} value={p.gain} color={color} onChange={(v) => set({ gain: v }, 'gain')} />
+        <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'pan' }} spec={UTILITY_SPECS.pan} value={p.pan} color={color} onChange={(v) => set({ pan: v }, 'pan')} />
+        <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'width' }} spec={UTILITY_SPECS.width} value={p.width} color={color} onChange={(v) => set({ width: v }, 'width')} />
+      </div>
+      <div className="flex items-center justify-center gap-1.5">
+        {toggle('invertL', 'Ø L', 'Flip the left channel’s polarity')}
+        {toggle('invertR', 'Ø R', 'Flip the right channel’s polarity')}
+        <button
+          type="button"
+          title={p.width < 0.005 ? 'Back to normal width' : 'Mono: sum left and right'}
+          onClick={() => set({ width: p.width < 0.005 ? 1 : 0 }, 'width')}
+          className={`h-5 rounded px-2 text-[10px] font-semibold ${p.width < 0.005 ? 'text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
+          style={p.width < 0.005 ? { background: color } : undefined}
+        >
+          Mono
+        </button>
+      </div>
+      <div className="text-center text-[9px] text-dim">gain staging · nearly free</div>
+    </>
   );
 }
 

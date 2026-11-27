@@ -19,6 +19,7 @@ import type {
   RoomParams,
   SaturatorMode,
   SaturatorParams,
+  UtilityParams,
   AutoFilterParams,
   AutoFilterMode,
   PhaserParams,
@@ -26,7 +27,7 @@ import type {
 } from '../../project/types';
 import type { NumericParamSpec } from '../../synth/params';
 
-export const EFFECT_TYPES: EffectType[] = ['eq', 'peq', 'compressor', 'saturator', 'autofilter', 'delay', 'chorus', 'phaser', 'room', 'reverb'];
+export const EFFECT_TYPES: EffectType[] = ['utility', 'eq', 'peq', 'compressor', 'saturator', 'autofilter', 'delay', 'chorus', 'phaser', 'room', 'reverb'];
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
   eq: 'EQ-3',
@@ -36,6 +37,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   phaser: 'Phaser',
   compressor: 'Compressor',
   saturator: 'Saturator',
+  utility: 'Utility',
   delay: 'Delay',
   reverb: 'Reverb Pro',
   room: 'Reverb Lite',
@@ -43,8 +45,9 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
 
 /** One line on what each effect is (the add-effect menu and device headers). */
 export const EFFECT_BLURBS: Partial<Record<EffectType, string>> = {
-  reverb: 'Convolution reverb: a dense, natural room rendered from a generated impulse response — the rich one, heavier on CPU (grows with decay)',
+  reverb: 'Convolution reverb: a dense, natural room rendered from a generated impulse response, with room size, damping, early reflections, tail EQ and width — the rich one, heavier on CPU (grows with decay)',
   room: 'Algorithmic room (feedback delay network): light on CPU at any decay, decay and tone can be automated and sidechained',
+  utility: 'Gain, balance, stereo width (mono … extra wide) and polarity: gain staging anywhere in a chain, nearly free',
   saturator: 'Drive into a waveshaper (tape, tube, overdrive, hard clip, wave folder) for warmth, grit or fuzz; auto gain keeps the level',
 };
 
@@ -78,20 +81,45 @@ export const REVERB_SPECS = {
   decay: { label: 'Decay', min: 0.2, max: 10, default: 2.2, curve: 'exp', format: ms },
   preDelay: { label: 'Pre-Dly', min: 0, max: 0.25, default: 0.02, curve: 'linear', format: ms },
   mix: { label: 'Mix', min: 0, max: 1, default: 0.25, curve: 'linear', format: pct },
+  size: { label: 'Size', min: 0.3, max: 2.5, default: 1, curve: 'exp', format: (v) => `${Math.round(v * 100)}%` },
+  damping: { label: 'Damping', min: 0, max: 1, default: 0.5, curve: 'linear', format: (v) => (v < 0.3 ? 'bright ' : v > 0.7 ? 'dark ' : '') + pct(v) },
+  early: { label: 'Early', min: 0, max: 2, default: 1, curve: 'linear', format: pct },
+  lowCut: { label: 'Low Cut', min: 20, max: 1000, default: 20, curve: 'exp', format: (v) => (v <= 20.5 ? 'off' : hz(v)) },
+  highCut: { label: 'High Cut', min: 1000, max: 20000, default: 20000, curve: 'exp', format: (v) => (v >= 19900 ? 'off' : hz(v)) },
+  width: { label: 'Width', min: 0, max: 1.5, default: 1, curve: 'linear', format: (v) => (v < 0.005 ? 'mono' : pct(v)) },
 } satisfies Record<keyof ReverbParams, NumericParamSpec>;
 
 export const SATURATOR_SPECS = {
   drive: { label: 'Drive', min: 0, max: 36, default: 6, curve: 'linear', format: (v) => `+${v.toFixed(1)} dB` },
+  bias: { label: 'Bias', min: 0, max: 1, default: 0, curve: 'linear', format: (v) => (v < 0.005 ? 'centred' : pct(v)) },
+  clean: { label: 'Clean <', min: 20, max: 500, default: 20, curve: 'exp', format: (v) => (v <= 20.5 ? 'off' : `< ${Math.round(v)} Hz`) },
+  focus: { label: 'Focus', min: 200, max: 6000, default: 1200, curve: 'exp', format: hz },
+  emph: { label: 'Emph', min: 0, max: 15, default: 0, curve: 'linear', format: (v) => (v < 0.05 ? 'off' : `+${v.toFixed(1)} dB`) },
+  bits: { label: 'Bits', min: 1, max: 16, default: 16, curve: 'linear', format: (v) => (v >= 15.95 ? 'off' : `${v.toFixed(1)} bit`) },
+  rate: { label: 'Rate', min: 500, max: 40000, default: 40000, curve: 'exp', format: (v) => (v >= 39900 ? 'off' : hz(v)) },
   tone: { label: 'Tone', min: 1000, max: 20000, default: 20000, curve: 'exp', format: (v) => (v >= 19900 ? 'open' : hz(v)) },
   output: { label: 'Output', min: -24, max: 12, default: 0, curve: 'linear', bipolar: true, format: db },
   mix: { label: 'Mix', min: 0, max: 1, default: 1, curve: 'linear', format: pct },
-} satisfies Record<'drive' | 'tone' | 'output' | 'mix', NumericParamSpec>;
+} satisfies Record<'drive' | 'bias' | 'clean' | 'focus' | 'emph' | 'bits' | 'rate' | 'tone' | 'output' | 'mix', NumericParamSpec>;
+
+/** the Lo-Fi stage only runs (and costs anything) while it changes the sound */
+export function saturatorCrushOn(p: Pick<SaturatorParams, 'bits' | 'rate'>): boolean {
+  return p.bits < 15.95 || p.rate < 39900;
+}
+
+export const UTILITY_SPECS = {
+  gain: { label: 'Gain', min: -48, max: 24, default: 0, curve: 'linear', bipolar: true, format: db },
+  pan: { label: 'Balance', min: -1, max: 1, default: 0, curve: 'linear', bipolar: true, format: (v) => (Math.abs(v) < 0.005 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`) },
+  width: { label: 'Width', min: 0, max: 2, default: 1, curve: 'linear', format: (v) => (v < 0.005 ? 'mono' : `${Math.round(v * 100)}%`) },
+} satisfies Record<'gain' | 'pan' | 'width', NumericParamSpec>;
 
 export const SATURATOR_MODES: { value: SaturatorMode; label: string; title: string }[] = [
   { value: 'tape', label: 'Tape', title: 'Soft and smooth (odd harmonics): glue, warmth on buses and drums' },
   { value: 'tube', label: 'Tube', title: 'Asymmetric (even harmonics): thick, warm mids — bass, vocals, keys' },
-  { value: 'overdrive', label: 'Drive', title: 'Harder knee with bite: guitars, leads, aggressive bass' },
+  { value: 'overdrive', label: 'Crunch', title: 'Harder knee with bite: guitars, leads, aggressive bass' },
   { value: 'hard', label: 'Clip', title: 'Hard digital clip: loud, bright, buzzy — 808s and drums' },
+  { value: 'fuzz', label: 'Fuzz', title: 'High gain, lopsided clipping: buzzy, sputtering fuzz — leads, bass, drums gone wild' },
+  { value: 'rectify', label: 'Rect', title: 'Rectifier: flips the negative half up — an octave above and ring-mod grit' },
   { value: 'fold', label: 'Fold', title: 'Wave folder: folds the wave back past full scale — metallic synth tones' },
 ];
 
@@ -245,6 +273,7 @@ export function defaultParams(type: 'delay'): DelayParams;
 export function defaultParams(type: 'reverb'): ReverbParams;
 export function defaultParams(type: 'room'): RoomParams;
 export function defaultParams(type: 'saturator'): SaturatorParams;
+export function defaultParams(type: 'utility'): UtilityParams;
 export function defaultParams(type: 'chorus'): ChorusParams;
 export function defaultParams(type: 'autofilter'): AutoFilterParams;
 export function defaultParams(type: 'phaser'): PhaserParams;
@@ -260,11 +289,13 @@ export function defaultParams(type: EffectType): EffectSlot['params'] {
     case 'delay':
       return { time: 0.375, feedback: 0.35, mix: 0.3, sync: true, division: 0.75 };
     case 'reverb':
-      return { decay: 2.2, preDelay: 0.02, mix: 0.25 };
+      return { decay: 2.2, preDelay: 0.02, mix: 0.25, size: 1, damping: 0.5, early: 1, lowCut: 20, highCut: 20000, width: 1 };
     case 'room':
       return { decay: 1.6, size: 1, tone: 6000, preDelay: 0.012, mix: 0.25 };
+    case 'utility':
+      return { gain: 0, pan: 0, width: 1, invertL: false, invertR: false };
     case 'saturator':
-      return { mode: 'tape', drive: 6, tone: 20000, output: 0, mix: 1, autoGain: true };
+      return { mode: 'tape', drive: 6, bias: 0, clean: 20, focus: 1200, emph: 0, bits: 16, rate: 40000, tone: 20000, output: 0, mix: 1, autoGain: true };
     case 'chorus':
       return { rate: 0.8, depth: 0.003, delay: 0.012, feedback: 0, mix: 0.5, width: 0.5 };
     case 'autofilter':
@@ -291,6 +322,8 @@ export function createEffectSlot(type: EffectType): EffectSlot {
       return { id, type, enabled: true, params: defaultParams('room') };
     case 'saturator':
       return { id, type, enabled: true, params: defaultParams('saturator') };
+    case 'utility':
+      return { id, type, enabled: true, params: defaultParams('utility') };
     case 'chorus':
       return { id, type, enabled: true, params: defaultParams('chorus') };
     case 'autofilter':
@@ -434,6 +467,25 @@ export function sanitizeEffect(input: unknown): EffectSlot | null {
           decay: clampSpec(REVERB_SPECS.decay, p.decay),
           preDelay: clampSpec(REVERB_SPECS.preDelay, p.preDelay),
           mix: clampSpec(REVERB_SPECS.mix, p.mix),
+          size: clampSpec(REVERB_SPECS.size, p.size),
+          damping: clampSpec(REVERB_SPECS.damping, p.damping),
+          early: clampSpec(REVERB_SPECS.early, p.early),
+          lowCut: clampSpec(REVERB_SPECS.lowCut, p.lowCut),
+          highCut: clampSpec(REVERB_SPECS.highCut, p.highCut),
+          width: clampSpec(REVERB_SPECS.width, p.width),
+        },
+      };
+    case 'utility':
+      return {
+        id,
+        enabled,
+        type: 'utility',
+        params: {
+          gain: clampSpec(UTILITY_SPECS.gain, p.gain),
+          pan: clampSpec(UTILITY_SPECS.pan, p.pan),
+          width: clampSpec(UTILITY_SPECS.width, p.width),
+          invertL: p.invertL === true,
+          invertR: p.invertR === true,
         },
       };
     case 'saturator':
@@ -444,6 +496,12 @@ export function sanitizeEffect(input: unknown): EffectSlot | null {
         params: {
           mode: SATURATOR_MODES.some((m) => m.value === p.mode) ? (p.mode as SaturatorMode) : 'tape',
           drive: clampSpec(SATURATOR_SPECS.drive, p.drive),
+          bias: clampSpec(SATURATOR_SPECS.bias, p.bias),
+          clean: clampSpec(SATURATOR_SPECS.clean, p.clean),
+          focus: clampSpec(SATURATOR_SPECS.focus, p.focus),
+          emph: clampSpec(SATURATOR_SPECS.emph, p.emph),
+          bits: clampSpec(SATURATOR_SPECS.bits, p.bits),
+          rate: clampSpec(SATURATOR_SPECS.rate, p.rate),
           tone: clampSpec(SATURATOR_SPECS.tone, p.tone),
           output: clampSpec(SATURATOR_SPECS.output, p.output),
           mix: clampSpec(SATURATOR_SPECS.mix, p.mix),
@@ -569,16 +627,34 @@ export const FACTORY_EFFECT_PRESETS: EffectPreset[] = [
   { name: 'Dotted Eighth', type: 'delay', factory: true, params: { time: 0.375, feedback: 0.4, mix: 0.3, sync: true, division: 0.75 } },
   { name: 'Slapback', type: 'delay', factory: true, params: { time: 0.09, feedback: 0.1, mix: 0.3, sync: false, division: 0.25 } },
   { name: 'Quarter Echo', type: 'delay', factory: true, params: { time: 0.5, feedback: 0.55, mix: 0.35, sync: true, division: 1 } },
-  { name: 'Small Room', type: 'reverb', factory: true, params: { decay: 0.7, preDelay: 0.008, mix: 0.2 } },
-  { name: 'Hall', type: 'reverb', factory: true, params: { decay: 3.2, preDelay: 0.03, mix: 0.3 } },
-  { name: 'Ambient Wash', type: 'reverb', factory: true, params: { decay: 8, preDelay: 0.06, mix: 0.5 } },
+  { name: 'Small Room', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 0.7, preDelay: 0.008, mix: 0.2 } },
+  { name: 'Hall', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 3.2, preDelay: 0.03, mix: 0.3 } },
+  { name: 'Ambient Wash', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 8, preDelay: 0.06, mix: 0.5 } },
+  { name: 'Concert Hall', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 2.8, preDelay: 0.035, mix: 0.28, size: 1.8, damping: 0.55, early: 0.8, lowCut: 120 } },
+  { name: 'Bright Plate', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 1.8, preDelay: 0.01, mix: 0.25, size: 0.6, damping: 0.15, early: 0.3, lowCut: 200, width: 1.2 } },
+  { name: 'Dark Cathedral', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 7, preDelay: 0.05, mix: 0.35, size: 2.5, damping: 0.85, early: 0.6, highCut: 7000, width: 1.3 } },
+  { name: 'Vocal Room', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 1.1, preDelay: 0.025, mix: 0.2, size: 0.8, damping: 0.6, lowCut: 250, highCut: 10000 } },
+  { name: 'Drum Room', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 0.6, preDelay: 0.004, mix: 0.25, size: 0.5, damping: 0.4, early: 1.6, lowCut: 150 } },
+  { name: 'Mono Tail', type: 'reverb', factory: true, params: { ...defaultParams('reverb'), decay: 2, preDelay: 0.02, mix: 0.25, width: 0 } },
+  { name: 'Unity', type: 'utility', factory: true, params: defaultParams('utility') },
+  { name: 'Mono', type: 'utility', factory: true, params: { ...defaultParams('utility'), width: 0 } },
+  { name: 'Extra Wide', type: 'utility', factory: true, params: { ...defaultParams('utility'), width: 1.6 } },
+  { name: 'Trim −6 dB', type: 'utility', factory: true, params: { ...defaultParams('utility'), gain: -6 } },
+  { name: 'Flip Polarity', type: 'utility', factory: true, params: { ...defaultParams('utility'), invertL: true, invertR: true } },
   { name: 'Warm Tape', type: 'saturator', factory: true, params: defaultParams('saturator') },
-  { name: 'Tube Bass', type: 'saturator', factory: true, params: { mode: 'tube', drive: 12, tone: 12000, output: 0, mix: 1, autoGain: true } },
-  { name: 'Drum Bus Glue', type: 'saturator', factory: true, params: { mode: 'tape', drive: 9, tone: 16000, output: 0, mix: 0.6, autoGain: true } },
-  { name: 'Crunchy Drive', type: 'saturator', factory: true, params: { mode: 'overdrive', drive: 20, tone: 7000, output: 0, mix: 1, autoGain: true } },
-  { name: 'Loud 808', type: 'saturator', factory: true, params: { mode: 'hard', drive: 14, tone: 9000, output: -1, mix: 1, autoGain: true } },
-  { name: 'Metal Fold', type: 'saturator', factory: true, params: { mode: 'fold', drive: 16, tone: 10000, output: 0, mix: 0.8, autoGain: true } },
-  { name: 'Parallel Fuzz', type: 'saturator', factory: true, params: { mode: 'overdrive', drive: 30, tone: 5000, output: 0, mix: 0.3, autoGain: true } },
+  { name: 'Tube Bass', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'tube', drive: 12, tone: 12000, output: 0, mix: 1, autoGain: true } },
+  { name: 'Drum Bus Glue', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'tape', drive: 9, tone: 16000, output: 0, mix: 0.6, autoGain: true } },
+  { name: 'Crunchy Drive', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'overdrive', drive: 20, tone: 7000, output: 0, mix: 1, autoGain: true } },
+  { name: 'Loud 808', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'hard', drive: 14, tone: 9000, output: -1, mix: 1, autoGain: true } },
+  { name: 'Metal Fold', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'fold', drive: 16, tone: 10000, output: 0, mix: 0.8, autoGain: true } },
+  { name: 'Tight Kick Drive', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'overdrive', drive: 16, clean: 110, tone: 9000 } },
+  { name: 'Guitar Pedal', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'overdrive', drive: 24, clean: 160, focus: 900, emph: 9, tone: 5500 } },
+  { name: 'Velvet Fuzz', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'fuzz', drive: 22, bias: 0.2, clean: 90, tone: 6000, mix: 0.85 } },
+  { name: 'Octave Up', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'rectify', drive: 6, tone: 9000, mix: 0.5 } },
+  { name: 'Warm Bias Tape', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'tape', drive: 10, bias: 0.35 } },
+  { name: '8-Bit', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'hard', drive: 4, bits: 8, rate: 11025, tone: 12000 } },
+  { name: 'Dusty Sampler', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'tape', drive: 8, bits: 12, rate: 26000, tone: 9000 } },
+  { name: 'Parallel Fuzz', type: 'saturator', factory: true, params: { ...defaultParams('saturator'), mode: 'overdrive', drive: 30, tone: 5000, output: 0, mix: 0.3, autoGain: true } },
   { name: 'Room', type: 'room', factory: true, params: defaultParams('room') },
   { name: 'Small Booth', type: 'room', factory: true, params: { decay: 0.55, size: 0.5, tone: 7500, preDelay: 0.004, mix: 0.2 } },
   { name: 'Plate', type: 'room', factory: true, params: { decay: 1.9, size: 0.8, tone: 10000, preDelay: 0.008, mix: 0.25 } },

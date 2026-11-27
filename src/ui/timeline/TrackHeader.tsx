@@ -168,7 +168,7 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
                 synthOpen ? 'bg-accent text-white' : 'bg-panel text-muted hover:text-fg'
               }`}
             >
-              {InstIcon && <InstIcon size={11} className="shrink-0" />} <span className="min-w-0 max-w-[64px] truncate">{track.instrument?.presetName ?? instDef?.label}</span>
+              {InstIcon && <InstIcon size={11} className="shrink-0" />} <span className="min-w-0 max-w-[92px] truncate">{track.instrument?.presetName ?? instDef?.label}</span>
             </button>
           ) : (
             <span className="text-[10px] text-dim">Audio</span>
@@ -213,7 +213,7 @@ export function TrackHeader({ track, selected }: { track: Track; selected: boole
               else if (v.startsWith('duck:')) duckFrom(track.id, v.slice(5));
               else showLane(track.id, v || null);
             }}
-            className={`!h-5 min-w-[34px] max-w-[80px] flex-1 !pl-1 !pr-4 !text-[10px] ${shownLane ? '!text-[#f472b6]' : '!text-muted'}`}
+            className={`!h-5 min-w-[34px] max-w-[130px] flex-1 !pl-1 !pr-4 !text-[10px] ${shownLane ? '!text-[#f472b6]' : '!text-muted'}`}
           >
             <option value="">Auto…</option>
             {track.automation.map((l) => (
