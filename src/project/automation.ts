@@ -9,7 +9,7 @@
  */
 import { createId } from '../core/ids';
 import {
-  AUTOFILTER_SPECS, CHORUS_SPECS, PHASER_SPECS,
+  AUTOFILTER_SPECS, CHORUS_SPECS, PHASER_SPECS, ROOM_SPECS,
   COMP_SPECS,
   DELAY_SPECS,
   EFFECT_LABELS,
@@ -83,6 +83,8 @@ export function automatableParams(slot: EffectSlot): AutoParamInfo[] {
       return (['cutoff', 'reso', 'lfoDepth', 'mix'] as const).map((k) => ({ key: k, label: AUTOFILTER_SPECS[k].label, spec: AUTOFILTER_SPECS[k] }));
     case 'phaser':
       return (['center', 'depth', 'feedback', 'mix'] as const).map((k) => ({ key: k, label: PHASER_SPECS[k].label, spec: PHASER_SPECS[k] }));
+    case 'room':
+      return (['decay', 'tone', 'preDelay', 'mix'] as const).map((k) => ({ key: k, label: ROOM_SPECS[k].label, spec: ROOM_SPECS[k] }));
   }
 }
 

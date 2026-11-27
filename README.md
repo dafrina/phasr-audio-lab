@@ -65,7 +65,11 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   else the selected instrument track.
 - **Milestone 4 (multitrack mixing): done.** Up to 4 insert effects per track — EQ-3 (low shelf / peaking mid / high
   shelf), Spectra EQ (below), Compressor (threshold/ratio/attack/release/makeup + live gain-reduction meter), Delay (time
-  or tempo-synced division, feedback with damping, equal-power mix), Reverb (generated stereo IR, decay/pre-delay/mix),
+  or tempo-synced division, feedback with damping, equal-power mix), **Reverb Pro** (convolution with a generated stereo
+  room impulse, decay/pre-delay/mix, and a room view drawn from that impulse: floor plan with the early-reflection
+  paths, the impulse's spectrogram, decay curve and −60 dB point), **Reverb Lite** (algorithmic room — diffusers into
+  an 8-line feedback delay network — with decay, size, tone, pre-delay and mix; ≈ 0.8 % of a core at any decay against
+  Pro's 4–10 %, sleeps when silent, and its decay can be automated and sidechained, e.g. a kick choking the tail),
   Chorus / Flanger, Auto-Filter (low/high/band-pass with an LFO) and Phaser (swept all-pass stages with feedback and
   stereo spread). Enable/bypass (click-free crossfade; a switched-off effect does no work), parameter smoothing, reorder,
   remove, factory + user effect presets, all saved in the project.
@@ -222,6 +226,11 @@ from 1.25× to 8.2×), switched-off effects stop processing, and a Keyforge that
 Convolution reverb is now the dominant cost of the worst case; in a realtime context Chrome runs long convolution
 partitions on a background thread, and the live 8-track/32-effect test keeps pace with wall-clock time.
 
+**Effects** (offline render in headless Chromium, CPU per instance per audio second, 48 kHz): Spectra EQ 0.07 %,
+EQ-3 / Delay 0.22 %, Compressor 0.25 %, Auto-Filter 0.29 %, Chorus 0.32 %, Phaser 0.35 %, Reverb Lite 0.80 % (any
+decay), Reverb Pro 3.9 % at 2.2 s and 9.4 % at 6 s of decay. Idle (8 silent instrument tracks, live context):
+4.5 % of the audio thread with no effects, 25.6 % with a Reverb Pro on each, 5.6 % with a Reverb Lite on each.
+
 **Keyforge engines** (`npm run bench`, Node, one track, × realtime; the output is bit-identical before and after):
 
 | Preset (load) | Before | After |
@@ -261,7 +270,8 @@ the MP3 encoder is no longer part of the startup bundle.
 - The compressor is the browser's `DynamicsCompressorNode`; its built-in automatic makeup gain is cancelled so the
   Makeup knob is literal (residual error < ~1.5 dB around the fixed 6 dB knee).
 - Master and send-channel effects can't be automated or sidechained yet.
-- Reverb decay can't be automated or sidechained (changing it regenerates the impulse response). Automating
+- Reverb Pro's decay can't be automated or sidechained (changing it regenerates the impulse response); Reverb Lite's
+  can. Automating
   compressor threshold/ratio doesn't update its makeup compensation.
 - Recording latency compensation relies on what the browser reports; use the manual offset to fine-tune per interface.
 - In the piano roll, Space starts/stops playback on key release (so it can double as the pan key). New notes default

@@ -16,6 +16,7 @@ import type {
   PeqParams,
   PeqSlope,
   ReverbParams,
+  RoomParams,
   AutoFilterParams,
   AutoFilterMode,
   PhaserParams,
@@ -23,7 +24,7 @@ import type {
 } from '../../project/types';
 import type { NumericParamSpec } from '../../synth/params';
 
-export const EFFECT_TYPES: EffectType[] = ['eq', 'peq', 'compressor', 'autofilter', 'delay', 'chorus', 'phaser', 'reverb'];
+export const EFFECT_TYPES: EffectType[] = ['eq', 'peq', 'compressor', 'autofilter', 'delay', 'chorus', 'phaser', 'room', 'reverb'];
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
   eq: 'EQ-3',
@@ -33,7 +34,14 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   phaser: 'Phaser',
   compressor: 'Compressor',
   delay: 'Delay',
-  reverb: 'Reverb',
+  reverb: 'Reverb Pro',
+  room: 'Reverb Lite',
+};
+
+/** One line on what each effect is (the add-effect menu and device headers). */
+export const EFFECT_BLURBS: Partial<Record<EffectType, string>> = {
+  reverb: 'Convolution reverb: a dense, natural room rendered from a generated impulse response — the rich one, heavier on CPU (grows with decay)',
+  room: 'Algorithmic room (feedback delay network): light on CPU at any decay, decay and tone can be automated and sidechained',
 };
 
 const db = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
@@ -67,6 +75,14 @@ export const REVERB_SPECS = {
   preDelay: { label: 'Pre-Dly', min: 0, max: 0.25, default: 0.02, curve: 'linear', format: ms },
   mix: { label: 'Mix', min: 0, max: 1, default: 0.25, curve: 'linear', format: pct },
 } satisfies Record<keyof ReverbParams, NumericParamSpec>;
+
+export const ROOM_SPECS = {
+  decay: { label: 'Decay', min: 0.2, max: 12, default: 1.6, curve: 'exp', format: (v) => (v < 10 ? `${v.toFixed(2)} s` : `${v.toFixed(1)} s`) },
+  size: { label: 'Size', min: 0.4, max: 1.6, default: 1, curve: 'linear', format: (v) => (v < 0.7 ? 'Booth' : v < 1 ? 'Room' : v < 1.3 ? 'Hall' : 'Cathedral') + ` ${Math.round(v * 100)}%` },
+  tone: { label: 'Tone', min: 800, max: 16000, default: 6000, curve: 'exp', format: hz },
+  preDelay: { label: 'Pre-Dly', min: 0, max: 0.25, default: 0.012, curve: 'linear', format: ms },
+  mix: { label: 'Mix', min: 0, max: 1, default: 0.25, curve: 'linear', format: pct },
+} satisfies Record<keyof RoomParams, NumericParamSpec>;
 
 export const CHORUS_SPECS = {
   rate: { label: 'Rate', min: 0.02, max: 10, default: 0.8, curve: 'exp', format: (v) => `${v.toFixed(2)} Hz` },
@@ -208,6 +224,7 @@ export function defaultParams(type: 'peq'): PeqParams;
 export function defaultParams(type: 'compressor'): CompressorParams;
 export function defaultParams(type: 'delay'): DelayParams;
 export function defaultParams(type: 'reverb'): ReverbParams;
+export function defaultParams(type: 'room'): RoomParams;
 export function defaultParams(type: 'chorus'): ChorusParams;
 export function defaultParams(type: 'autofilter'): AutoFilterParams;
 export function defaultParams(type: 'phaser'): PhaserParams;
@@ -224,6 +241,8 @@ export function defaultParams(type: EffectType): EffectSlot['params'] {
       return { time: 0.375, feedback: 0.35, mix: 0.3, sync: true, division: 0.75 };
     case 'reverb':
       return { decay: 2.2, preDelay: 0.02, mix: 0.25 };
+    case 'room':
+      return { decay: 1.6, size: 1, tone: 6000, preDelay: 0.012, mix: 0.25 };
     case 'chorus':
       return { rate: 0.8, depth: 0.003, delay: 0.012, feedback: 0, mix: 0.5, width: 0.5 };
     case 'autofilter':
@@ -246,6 +265,8 @@ export function createEffectSlot(type: EffectType): EffectSlot {
       return { id, type, enabled: true, params: defaultParams('delay') };
     case 'reverb':
       return { id, type, enabled: true, params: defaultParams('reverb') };
+    case 'room':
+      return { id, type, enabled: true, params: defaultParams('room') };
     case 'chorus':
       return { id, type, enabled: true, params: defaultParams('chorus') };
     case 'autofilter':
@@ -391,6 +412,19 @@ export function sanitizeEffect(input: unknown): EffectSlot | null {
           mix: clampSpec(REVERB_SPECS.mix, p.mix),
         },
       };
+    case 'room':
+      return {
+        id,
+        enabled,
+        type: 'room',
+        params: {
+          decay: clampSpec(ROOM_SPECS.decay, p.decay),
+          size: clampSpec(ROOM_SPECS.size, p.size),
+          tone: clampSpec(ROOM_SPECS.tone, p.tone),
+          preDelay: clampSpec(ROOM_SPECS.preDelay, p.preDelay),
+          mix: clampSpec(ROOM_SPECS.mix, p.mix),
+        },
+      };
     default:
       return null;
   }
@@ -408,6 +442,7 @@ export function effectTailSeconds(slot: EffectSlot, bpm: number): number {
       return Math.min(30, t * (1 + Math.log(0.001) / Math.log(fb)));
     }
     case 'reverb':
+    case 'room':
       return slot.params.preDelay + slot.params.decay + 0.05;
     case 'compressor':
       return slot.params.release;
@@ -499,6 +534,13 @@ export const FACTORY_EFFECT_PRESETS: EffectPreset[] = [
   { name: 'Small Room', type: 'reverb', factory: true, params: { decay: 0.7, preDelay: 0.008, mix: 0.2 } },
   { name: 'Hall', type: 'reverb', factory: true, params: { decay: 3.2, preDelay: 0.03, mix: 0.3 } },
   { name: 'Ambient Wash', type: 'reverb', factory: true, params: { decay: 8, preDelay: 0.06, mix: 0.5 } },
+  { name: 'Room', type: 'room', factory: true, params: defaultParams('room') },
+  { name: 'Small Booth', type: 'room', factory: true, params: { decay: 0.55, size: 0.5, tone: 7500, preDelay: 0.004, mix: 0.2 } },
+  { name: 'Plate', type: 'room', factory: true, params: { decay: 1.9, size: 0.8, tone: 10000, preDelay: 0.008, mix: 0.25 } },
+  { name: 'Hall', type: 'room', factory: true, params: { decay: 3.2, size: 1.35, tone: 5500, preDelay: 0.03, mix: 0.28 } },
+  { name: 'Dark Chamber', type: 'room', factory: true, params: { decay: 2.4, size: 1.1, tone: 2200, preDelay: 0.02, mix: 0.3 } },
+  { name: 'Huge Wash', type: 'room', factory: true, params: { decay: 9, size: 1.6, tone: 4500, preDelay: 0.06, mix: 0.45 } },
+  { name: 'Tight Snare Room', type: 'room', factory: true, params: { decay: 0.35, size: 0.6, tone: 9000, preDelay: 0, mix: 0.3 } },
 ];
 
 const USER_FX_KEY = 'phasr.fx.userPresets.v1';

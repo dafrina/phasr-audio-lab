@@ -191,7 +191,7 @@ describe('send channels', () => {
     expect(p.sends.map((b) => b.effects.map((e) => e.type))).toEqual([['reverb'], ['delay']]);
     expect(p.sends.every((b) => b.effects[0]!.params && (b.effects[0]!.params as { mix: number }).mix === 1)).toBe(true);
     expect(p.tracks.every((t) => t.sends.every((v) => v === 0))).toBe(true);
-    expect(sendLabel(p.sends[0]!, (t) => EFFECT_LABELS[t])).toBe('A · Reverb');
+    expect(sendLabel(p.sends[0]!, (t) => EFFECT_LABELS[t])).toBe('A · Reverb Pro');
     expect(sendLabel({ ...p.sends[1]!, effects: [] }, (t) => EFFECT_LABELS[t])).toBe('B · empty');
   });
 

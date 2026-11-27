@@ -8,9 +8,9 @@
  *   EQ gains → dB
  *   frequencies → semitones (via the filters' detune params, so it's musical)
  *   threshold → dB, feedback → 0..1
- *   wet level (reverb, delay, chorus, auto-filter, phaser) → dB on the wet
+ *   wet level (reverbs, delay, chorus, auto-filter, phaser) → dB on the wet
  *   signal, pre-delay / chorus depth → ms, chorus rate, auto-filter cutoff and
- *   phaser centre → octaves, EQ Q → Q units
+ *   phaser centre → octaves, EQ Q → Q units, Reverb Lite decay → seconds
  */
 import { createId } from '../core/ids';
 import { EFFECT_LABELS, peqHasGain } from '../audio/effects/specs';
@@ -133,6 +133,17 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
     case 'phaser':
       // the sweep's centre in octaves (a kick can push the notches up), and the wet level
       return [{ key: 'center', label: 'Center', depth: { ...octDepth, min: -4, max: 4, default: 1 } }, wetParam()];
+    case 'room':
+      // decay in seconds: a negative depth chokes the tail on every hit (gated reverb)
+      return [
+        wetParam(),
+        {
+          key: 'decay',
+          label: 'Decay',
+          depth: { label: 'Depth', min: -6, max: 6, default: -1, curve: 'linear', bipolar: true, format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)} s` },
+        },
+        { key: 'preDelay', label: 'Pre-delay', depth: msDepth(200, 40) },
+      ];
   }
 }
 

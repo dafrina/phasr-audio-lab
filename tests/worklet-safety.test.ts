@@ -31,6 +31,8 @@ const WORKLET_SOURCES = [
   'src/keys/dsp/sub808.ts',
   'src/audio/worklets/phaser.worklet.ts',
   'src/audio/phaser/PhaserCore.ts',
+  'src/audio/worklets/room.worklet.ts',
+  'src/audio/room/RoomCore.ts',
 ];
 const FORBIDDEN = ['structuredClone(', 'setTimeout(', 'setInterval(', 'fetch(', 'requestAnimationFrame(', 'document.', 'window.', 'localStorage'];
 

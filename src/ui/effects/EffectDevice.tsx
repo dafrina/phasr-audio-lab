@@ -16,6 +16,8 @@ import {
   EQ_SPECS,
   FACTORY_EFFECT_PRESETS,
   REVERB_SPECS,
+  ROOM_SPECS,
+  EFFECT_BLURBS,
   delayTimeSeconds,
   loadUserEffectPresets,
   saveUserEffectPresets,
@@ -28,6 +30,7 @@ import { uiToast } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
 import { AutoKnob } from '../common/AutoKnob';
 import { PeqDevice } from './PeqDevice';
+import { ReverbRoomView } from './ReverbRoomView';
 
 const TYPE_COLOR: Record<EffectSlot['type'], string> = {
   eq: '#22d3ee',
@@ -38,7 +41,11 @@ const TYPE_COLOR: Record<EffectSlot['type'], string> = {
   compressor: '#facc15',
   delay: '#4ade80',
   reverb: '#9b8aff',
+  room: '#a78bfa',
 };
+
+/** device widths: the Spectra EQ and Reverb Pro carry big displays */
+const DEVICE_W: Partial<Record<EffectSlot['type'], string>> = { peq: 'w-[618px]', reverb: 'w-[484px]' };
 
 function samePar(a: object, b: object): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -68,7 +75,7 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
   };
 
   return (
-    <div className={`flex ${slot.type === 'peq' ? 'w-[618px]' : 'w-[244px]'} shrink-0 flex-col rounded-md border bg-panel-2 ${slot.enabled ? 'border-line-2' : 'border-line opacity-60'}`}>
+    <div className={`flex ${DEVICE_W[slot.type] ?? 'w-[244px]'} shrink-0 flex-col rounded-md border bg-panel-2 ${slot.enabled ? 'border-line-2' : 'border-line opacity-60'}`}>
       <div className="flex h-7 items-center gap-1 border-b border-line px-1.5" style={{ boxShadow: `inset 0 2px 0 ${color}` }}>
         <button
           type="button"
@@ -79,7 +86,9 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
         >
           <Power size={10} />
         </button>
-        <span className="text-[11px] font-semibold tracking-wide text-fg">{EFFECT_LABELS[slot.type]}</span>
+        <span className="text-[11px] font-semibold tracking-wide text-fg" title={EFFECT_BLURBS[slot.type]}>
+          {EFFECT_LABELS[slot.type]}
+        </span>
         <select
           value={current?.name ?? ''}
           onChange={(e) => {
@@ -156,11 +165,37 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
           </>
         )}
         {slot.type === 'reverb' && (
-          <div className="flex justify-around">
-            <Knob spec={REVERB_SPECS.decay} value={slot.params.decay} color={color} size={40} onChange={(v) => set({ decay: v }, 'decay')} />
-            <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'preDelay' }} spec={REVERB_SPECS.preDelay} value={slot.params.preDelay} color={color} size={40} onChange={(v) => set({ preDelay: v }, 'pre')} />
-            <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'mix' }} spec={REVERB_SPECS.mix} value={slot.params.mix} color={color} size={40} onChange={(v) => set({ mix: v }, 'mix')} />
-          </div>
+          <>
+            <ReverbRoomView decay={slot.params.decay} preDelay={slot.params.preDelay} mix={slot.params.mix} color={color} />
+            <div className="flex items-center justify-around">
+              <Knob spec={REVERB_SPECS.decay} value={slot.params.decay} color={color} size={40} onChange={(v) => set({ decay: v }, 'decay')} />
+              <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'preDelay' }} spec={REVERB_SPECS.preDelay} value={slot.params.preDelay} color={color} size={40} onChange={(v) => set({ preDelay: v }, 'pre')} />
+              <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'mix' }} spec={REVERB_SPECS.mix} value={slot.params.mix} color={color} size={40} onChange={(v) => set({ mix: v }, 'mix')} />
+              <div className="w-[150px] text-[9px] leading-tight text-dim">
+                <span className="font-semibold" style={{ color }}>
+                  PRO · convolution
+                </span>
+                <br />
+                Real room impulse, every echo rendered. CPU grows with the decay: ≈ {(0.5 + 1.5 * slot.params.decay).toFixed(1)} % of a core. For lots of tracks, try Reverb Lite or a send.
+              </div>
+            </div>
+          </>
+        )}
+        {slot.type === 'room' && (
+          <>
+            <div className="flex justify-between">
+              <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'decay' }} spec={ROOM_SPECS.decay} value={slot.params.decay} color={color} onChange={(v) => set({ decay: v }, 'decay')} />
+              <Knob spec={ROOM_SPECS.size} value={slot.params.size} color={color} onChange={(v) => set({ size: v }, 'size')} title="Size: how big the room is (booth → cathedral)" />
+              <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'tone' }} spec={ROOM_SPECS.tone} value={slot.params.tone} color={color} onChange={(v) => set({ tone: v }, 'tone')} />
+            </div>
+            <div className="flex justify-around">
+              <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'preDelay' }} spec={ROOM_SPECS.preDelay} value={slot.params.preDelay} color={color} onChange={(v) => set({ preDelay: v }, 'pre')} />
+              <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: 'mix' }} spec={ROOM_SPECS.mix} value={slot.params.mix} color={color} onChange={(v) => set({ mix: v }, 'mix')} />
+            </div>
+            <div className="text-center text-[9px] text-dim">
+              LITE · algorithmic room — ≈ 0.8 % of a core at any decay, sleeps when silent; decay can be automated and sidechained
+            </div>
+          </>
         )}
       </div>
     </div>

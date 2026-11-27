@@ -7,7 +7,7 @@
  * All parameter changes use setTargetAtTime smoothing to avoid zipper noise.
  */
 import { dbToGain } from '../../core/ids';
-import type { AutoFilterMode, AutoFilterParams, PhaserParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, PhaserParams, RoomParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
 import { parseBandKey } from '../../project/automation';
 import { generateImpulse } from './impulse';
 import { MAX_DELAY_SECONDS, PEQ_BANDS, autoFilterLfoHz, delayTimeSeconds, mixGains, phaserLfoHz } from './specs';
@@ -1090,6 +1090,98 @@ export class PhaserUnit extends BaseUnit {
   }
 }
 
+/**
+ * Reverb Lite: the phasr-room worklet (diffusers + feedback delay network,
+ * wet only) after a pre-delay, mixed with the dry signal. Decay, size and
+ * tone are worklet AudioParams (automatable; decay also takes a sidechain in
+ * seconds), and the worklet sleeps while its input and tail are silent.
+ */
+export class RoomUnit extends BaseUnit {
+  readonly type = 'room' as const;
+  private readonly node: AudioWorkletNode;
+  private readonly pre: DelayNode;
+  private readonly dGain: GainNode;
+  private readonly wGain: GainNode;
+  private readonly wetDuck: GainNode;
+
+  constructor(ctx: BaseAudioContext, id: string) {
+    super(ctx, id);
+    this.node = new AudioWorkletNode(ctx, 'phasr-room', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: 'explicit',
+      channelInterpretation: 'speakers',
+    });
+    this.pre = new DelayNode(ctx, { maxDelayTime: 0.5 });
+    this.dGain = new GainNode(ctx);
+    this.wGain = new GainNode(ctx);
+    this.wetDuck = new GainNode(ctx, { gain: 1 });
+    this.src.connect(this.dGain);
+    this.dGain.connect(this.wet);
+    this.src.connect(this.pre);
+    this.pre.connect(this.node);
+    this.node.connect(this.wGain);
+    this.wGain.connect(this.wetDuck);
+    this.wetDuck.connect(this.wet);
+  }
+
+  private param(name: string): AudioParam {
+    return this.node.parameters.get(name) as AudioParam;
+  }
+
+  update(slot: EffectSlot, _bpm: number, auto: ReadonlySet<string> = NONE): void {
+    if (slot.type !== 'room') return;
+    const p: RoomParams = slot.params;
+    const im = !this.initialized;
+    if (!auto.has('decay')) setParam(this.param('decay'), p.decay, this.ctx, im);
+    // size moves delay lengths: the worklet glides it, so it's set directly
+    this.param('size').value = p.size;
+    if (!auto.has('tone')) setParam(this.param('tone'), p.tone, this.ctx, im);
+    if (!auto.has('preDelay')) setParam(this.pre.delayTime, p.preDelay, this.ctx, im);
+    if (!auto.has('mix')) {
+      const g = mixGains(p.mix);
+      setParam(this.dGain.gain, g.dry, this.ctx, im);
+      setParam(this.wGain.gain, g.wet, this.ctx, im);
+    }
+    this.setEnabled(slot.enabled);
+    this.initialized = true;
+  }
+
+  automationParams(key: string): ParamTarget[] {
+    switch (key) {
+      case 'decay':
+        return [{ param: this.param('decay'), map: (v: number) => Math.max(0.1, v), exp: true }];
+      case 'tone':
+        return [{ param: this.param('tone'), map: (v: number) => Math.min(20000, Math.max(200, v)), exp: true }];
+      case 'preDelay':
+        return [{ param: this.pre.delayTime, map: ident }];
+      case 'mix':
+        return [
+          { param: this.dGain.gain, map: (v) => mixGains(v).dry },
+          { param: this.wGain.gain, map: (v) => mixGains(v).wet },
+        ];
+      default:
+        return [];
+    }
+  }
+
+  override modulationInputs(key: string): ModInput[] {
+    if (key === 'mix') return [{ param: this.wetDuck.gain, scale: wetDuckScale }];
+    // depth in seconds of decay (a kick can choke the tail: negative depth)
+    if (key === 'decay') return [{ param: this.param('decayShift'), scale: ident }];
+    if (key === 'preDelay') return [{ param: this.pre.delayTime, scale: (d) => d / 1000 }];
+    return [];
+  }
+
+  override dispose(): void {
+    super.dispose();
+    this.node.port.postMessage({ type: 'dispose' });
+    for (const n of [this.node, this.pre, this.dGain, this.wGain, this.wetDuck]) n.disconnect();
+  }
+}
+
 export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: number, automated?: ReadonlySet<string>): EffectUnit {
   let unit: BaseUnit;
   switch (slot.type) {
@@ -1116,6 +1208,9 @@ export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: n
       break;
     case 'reverb':
       unit = new ReverbUnit(ctx, slot.id);
+      break;
+    case 'room':
+      unit = new RoomUnit(ctx, slot.id);
       break;
   }
   unit.update(slot, bpm, automated);

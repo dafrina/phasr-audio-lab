@@ -1,5 +1,5 @@
 import { ArrowRight, Plus, Send, Shield, SlidersVertical } from 'lucide-react';
-import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
+import { EFFECT_BLURBS, EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
 import { MASTER_ID, MAX_EFFECT_SLOTS, SEND_IDS, sendLabel, sendsTo } from '../../project/types';
 import { addEffect, updateSendBus } from '../../state/effectActions';
 import { updateProjectFields, useProjectStore } from '../../state/projectStore';
@@ -62,7 +62,7 @@ export function MasterDevicePanel({ busId = MASTER_ID }: { busId?: string }) {
                 <button
                   key={t}
                   type="button"
-                  title={`Insert ${EFFECT_LABELS[t]} at the end of the chain`}
+                  title={`Insert ${EFFECT_LABELS[t]} at the end of the chain${EFFECT_BLURBS[t] ? ` — ${EFFECT_BLURBS[t]}` : ''}`}
                   onClick={() => addEffect(busId, t)}
                   className="h-6 rounded bg-panel-3 text-left text-[11px] text-fg hover:bg-line-2"
                 >

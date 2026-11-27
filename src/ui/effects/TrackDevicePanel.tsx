@@ -6,7 +6,7 @@ import { chordToolActive, chordToolAvailable } from '../../chords/expand';
 import { keyName, progressionOf, vibeById } from '../../chords/theory';
 import { INSTRUMENTS } from '../../instruments/definitions';
 import { INSTRUMENT_UI } from '../instruments';
-import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
+import { EFFECT_BLURBS, EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
 import { MAX_EFFECT_SLOTS, SEND_IDS } from '../../project/types';
 import { addEffect } from '../../state/effectActions';
 import { useProjectStore } from '../../state/projectStore';
@@ -104,7 +104,7 @@ export function TrackDevicePanel({ trackId }: { trackId: string }) {
                 <button
                   key={t}
                   type="button"
-                  title={`Insert ${EFFECT_LABELS[t]} at the end of the chain`}
+                  title={`Insert ${EFFECT_LABELS[t]} at the end of the chain${EFFECT_BLURBS[t] ? ` — ${EFFECT_BLURBS[t]}` : ''}`}
                   onClick={() => addEffect(track.id, t)}
                   className="h-6 rounded bg-panel-3 text-left text-[11px] text-fg hover:bg-line-2"
                 >

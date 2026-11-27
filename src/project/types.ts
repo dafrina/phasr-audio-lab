@@ -151,7 +151,7 @@ export type InstrumentConfig =
   | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string }
   | { type: 'sampler'; zones: SamplerZone[]; params: SamplerParams; autoMap: boolean; presetName: string };
 
-export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'autofilter' | 'phaser';
+export type EffectType = 'eq' | 'peq' | 'compressor' | 'delay' | 'reverb' | 'room' | 'chorus' | 'autofilter' | 'phaser';
 
 /** Phaser: swept all-pass stages with feedback, mixed with the dry signal for moving notches. */
 export interface PhaserParams {
@@ -259,11 +259,25 @@ export interface ReverbParams {
   mix: number;
 }
 
+/** Reverb Lite: an algorithmic room (feedback delay network) — a fraction of the convolution reverb's CPU. */
+export interface RoomParams {
+  /** seconds to −60 dB */
+  decay: number;
+  /** 0.4 … 1.6: small booth → big hall */
+  size: number;
+  /** damping cutoff in Hz (lower = darker tail) */
+  tone: number;
+  /** seconds */
+  preDelay: number;
+  mix: number;
+}
+
 export type EffectSlot =
   | { id: string; enabled: boolean; type: 'eq'; params: EqParams }
   | { id: string; enabled: boolean; type: 'compressor'; params: CompressorParams }
   | { id: string; enabled: boolean; type: 'delay'; params: DelayParams }
   | { id: string; enabled: boolean; type: 'reverb'; params: ReverbParams }
+  | { id: string; enabled: boolean; type: 'room'; params: RoomParams }
   | { id: string; enabled: boolean; type: 'peq'; params: PeqParams }
   | { id: string; enabled: boolean; type: 'chorus'; params: ChorusParams }
   | { id: string; enabled: boolean; type: 'autofilter'; params: AutoFilterParams }

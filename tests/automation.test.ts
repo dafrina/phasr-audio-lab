@@ -153,7 +153,7 @@ describe('automation targets and persistence', () => {
     if (!t) throw new Error();
     const rev = createEffectSlot('reverb');
     t.effects = [rev];
-    expect(targetInfo(t, { kind: 'fx', slotId: rev.id, param: 'mix' })?.fullLabel).toBe('Reverb · Mix');
+    expect(targetInfo(t, { kind: 'fx', slotId: rev.id, param: 'mix' })?.fullLabel).toBe('Reverb Pro · Mix');
     expect(staticValue(t, { kind: 'fx', slotId: rev.id, param: 'mix' })).toBe(0.25);
     expect(staticValue(t, { kind: 'track', param: 'volumeDb' })).toBe(-6);
     const lanes = sanitizeLanes(

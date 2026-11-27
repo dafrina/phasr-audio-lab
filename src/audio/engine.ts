@@ -14,6 +14,7 @@ import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
 import recorderWorkletUrl from './worklets/recorder.worklet.ts?worker&url';
 import modsourceWorkletUrl from './worklets/modsource.worklet.ts?worker&url';
 import phaserWorkletUrl from './worklets/phaser.worklet.ts?worker&url';
+import roomWorkletUrl from './worklets/room.worklet.ts?worker&url';
 import { ModulationRouter } from './modulation';
 import { DrumRackInstrument } from './drumRack';
 import { AssetRegistry, type LoadedAsset } from './assets';
@@ -90,6 +91,7 @@ export class AudioEngine {
       await ctx.audioWorklet.addModule(recorderWorkletUrl);
       await ctx.audioWorklet.addModule(modsourceWorkletUrl);
       await ctx.audioWorklet.addModule(phaserWorkletUrl);
+      await ctx.audioWorklet.addModule(roomWorkletUrl);
       this.ctx = ctx;
       this.master = buildMaster(ctx);
       this.transport = new Transport({
