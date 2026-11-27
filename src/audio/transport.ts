@@ -217,6 +217,20 @@ export class Transport {
     this.countInEnd = 0;
   }
 
+  /** The AudioParams that live automation lanes drive in the current project. */
+  private liveAutomatedParams(): Set<AudioParam> {
+    const out = new Set<AudioParam>();
+    for (const track of this.host.getProject().tracks) {
+      const ch = this.host.channel(track.id);
+      if (!ch) continue;
+      for (const lane of liveLanes(track)) {
+        if (lane.target.kind === 'inst') continue;
+        for (const t of ch.automationParams(lane.target)) out.add(t.param);
+      }
+    }
+    return out;
+  }
+
   /** Cancel everything scheduled at/after `time` on all channels. */
   private cancelScheduled(time: number, includeClicks: boolean): void {
     const project = this.host.getProject();
@@ -228,8 +242,14 @@ export class Transport {
     }
     this.host.modCancel?.(time);
     this.instAutoLast.clear();
-    // freeze automated params at their current curve value; new events replace the rest
-    for (const p of this.automatedParams) holdParam(p, time);
+    // freeze still-automated params at their current curve value; new events replace the rest.
+    // A param whose lane went away (deleted, switched off, paused) is released instead: the
+    // channel has just started gliding it to its own value, and holding would freeze that glide.
+    const still = this.liveAutomatedParams();
+    for (const p of this.automatedParams) {
+      if (still.has(p)) holdParam(p, time);
+      else p.cancelScheduledValues(time);
+    }
     this.automatedParams.clear();
     this.autoLastTime.clear();
     if (includeClicks) {

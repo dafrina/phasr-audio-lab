@@ -66,3 +66,47 @@ test('audio clip fades hold when playback starts mid-clip, stops mid-fade or end
   near(r.stopped.slice(0, 3), [0.8, 0.55, 0.5], 0.02);
   expect(r.stopped[3]).toBeLessThan(0.01);
 });
+
+/**
+ * A volume lane removed (or switched off) while playing: the fader goes back
+ * to its own value. (It used to freeze part-way between the lane's value and
+ * the fader's, until the track was edited again.)
+ */
+test('removing a volume automation lane during playback returns the fader to its own level', async ({ page }) => {
+  await openApp(page);
+  const r = await page.evaluate(async () => {
+    const { engine, projectStore } = (window as unknown as { __phasr: Record<string, any> }).__phasr;
+    await engine.ctx.resume();
+    const st = projectStore.getState();
+    const id = st.project.tracks[1].id;
+    const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
+    // fader at 0 dB, lane at −60 dB
+    st.commit('lane', (p: any) => ({
+      ...p,
+      loop: { ...p.loop, enabled: false },
+      tracks: p.tracks.map((t: any) => (t.id === id ? { ...t, volumeDb: 0, automation: [{ id: 'L', enabled: true, target: { kind: 'track', param: 'volumeDb' }, points: [{ id: 'a', tick: 0, value: -60 }] }] } : t)),
+    }));
+    engine.transport.seek(0);
+    engine.transport.play();
+    await wait(400);
+    const gain = () => engine.channels.get(id).volume.gain.value as number;
+    const during = gain();
+    // the lane is deleted while playing
+    projectStore.getState().commit('delete lane', (p: any) => ({ ...p, tracks: p.tracks.map((t: any) => (t.id === id ? { ...t, automation: [] } : t)) }));
+    await wait(500);
+    const after = gain();
+    // and a lane switched off behaves the same
+    projectStore.getState().commit('lane', (p: any) => ({ ...p, tracks: p.tracks.map((t: any) => (t.id === id ? { ...t, automation: [{ id: 'L', enabled: true, target: { kind: 'track', param: 'volumeDb' }, points: [{ id: 'a', tick: 0, value: -60 }] }] } : t)) }));
+    await wait(400);
+    const again = gain();
+    projectStore.getState().commit('off', (p: any) => ({ ...p, tracks: p.tracks.map((t: any) => (t.id === id ? { ...t, automation: t.automation.map((l: any) => ({ ...l, enabled: false })) } : t)) }));
+    await wait(500);
+    const off = gain();
+    engine.transport.stop();
+    return { during, after, again, off };
+  });
+  expect(r.during).toBeLessThan(0.01);
+  expect(r.after).toBeCloseTo(1, 2);
+  expect(r.again).toBeLessThan(0.01);
+  expect(r.off).toBeCloseTo(1, 2);
+});
