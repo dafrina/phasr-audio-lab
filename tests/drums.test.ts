@@ -187,6 +187,54 @@ describe('per-pad EQ, pad sends and split to own track', () => {
   });
 });
 
+describe('split to own track takes what belongs to the pad along', () => {
+  it('its sidechain routes, its automation and the reverb it got through the track send move with it', async () => {
+    const { createRoute } = await import('../src/project/modulation');
+    const { splitPadToTrack } = await import('../src/ui/actions');
+    const { createLane } = await import('../src/project/automation');
+    const p = createProject();
+    const drums = createTrack('instrument', 0, INSTRUMENTS.drumrack.createConfig());
+    drums.name = 'Drums';
+    drums.sends = [0.5, 0];
+    drums.automation = [
+      { ...createLane({ kind: 'inst', param: 'p0.tune' }, 0, 0), points: [{ id: 'a', tick: 0, value: 0 }, { id: 'b', tick: 3840, value: -5 }] },
+      { ...createLane({ kind: 'inst', param: 'p6.gain' }, 0, 0), points: [{ id: 'c', tick: 0, value: -3 }] },
+    ];
+    drums.instrument = { ...(drums.instrument as any), kit: { pads: (drums.instrument as any).kit.pads.map((pd: any, i: number) => (i === 0 ? { ...pd, sends: [0.25, 0] } : pd)) } };
+    const bass = createTrack('instrument', 1, INSTRUMENTS.triosc.createConfig());
+    // "Duck from Drums": listens to the kick note; a second route listens to every hit
+    const kickDuck = { ...createRoute(bass, drums.id, 'midi', { kind: 'track', param: 'volumeDb' })!, note: DRUM_BASE_NOTE };
+    const anyHit = { ...createRoute(bass, drums.id, 'midi', { kind: 'track', param: 'pan' })!, note: null };
+    bass.modulations = [kickDuck, anyHit];
+    const notes = [
+      { id: 'k1', pitch: DRUM_BASE_NOTE, start: 0, length: 100, velocity: 120 },
+      { id: 'h1', pitch: DRUM_BASE_NOTE + 6, start: 240, length: 60, velocity: 90 },
+    ];
+    const clip = { id: 'c1', kind: 'midi' as const, trackId: drums.id, name: 'Beat', start: 0, length: 3840, loopLength: 3840, loop: false, notes };
+    useProjectStore.getState().loadProject({ ...p, tracks: [drums, bass], clips: { c1: clip } });
+
+    splitPadToTrack(drums.id, 0);
+    const after = useProjectStore.getState().project;
+    const kick = after.tracks[1]!;
+    const d = after.tracks[0]!;
+    const b = after.tracks[2]!;
+    // the kick reached Send A through its pad send (0.25) and the Drums send (0.5): it still does
+    expect(kick.sends).toEqual([0.75, 0]);
+    // the kick-note duck now listens to the kick track; the any-hit route stays on Drums
+    expect(b.modulations.map((r) => [r.sourceTrackId, r.note])).toEqual([[kick.id, DRUM_BASE_NOTE], [drums.id, null]]);
+    // the kick pad's lane went with it; the other pad's lane stayed
+    expect(kick.automation.map((l) => (l.target as { param: string }).param)).toEqual(['p0.tune']);
+    expect(kick.automation[0]!.points.map((x) => x.value)).toEqual([0, -5]);
+    expect(d.automation.map((l) => (l.target as { param: string }).param)).toEqual(['p6.gain']);
+    // one undo puts everything back
+    useProjectStore.getState().undo();
+    const back = useProjectStore.getState().project;
+    expect(back.tracks.map((t) => t.id)).toEqual([drums.id, bass.id]);
+    expect(back.tracks[1]!.modulations.map((r) => r.sourceTrackId)).toEqual([drums.id, drums.id]);
+    expect(back.tracks[0]!.automation).toHaveLength(2);
+  });
+});
+
 describe('drum voice styles (Classic + House / Techno / Hip-Hop / Trap / Lo-Fi, per pad)', () => {
   it('every voice offers six styles; each renders clean, full-level and different from the classic one', async () => {
     const { DRUM_MODELS } = await import('../src/drums/kit');

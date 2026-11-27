@@ -6,7 +6,7 @@ import { createId } from '../core/ids';
 import { PPQ, quantize, secondsToTicks, snapToTicks, ticksPerBar } from '../core/time';
 import { duplicateClip, setClipLoop, splitClip } from '../project/clipOps';
 import { createAudioClip, createMidiClip, createTrack, TRACK_COLORS } from '../project/defaults';
-import { INSTRUMENTS, type InstrumentType } from '../instruments/definitions';
+import { INSTRUMENTS, parsePadKey, type InstrumentType } from '../instruments/definitions';
 import { MAX_TRACKS, type Clip, type Project } from '../project/types';
 import { getProject, removeClips, removeTrack, upsertClips, useProjectStore } from '../state/projectStore';
 import { uiToast, useUiStore } from '../state/uiStore';
@@ -15,7 +15,7 @@ import { fitClipToNotes } from '../project/noteOps';
 import { padNote } from '../drums/kit';
 import { clipToMidi, projectToMidi } from '../midi/export';
 import { downloadBlob, safeFileName } from '../persistence/download';
-import type { MidiClip, Track } from '../project/types';
+import type { AutomationLane, MidiClip, Track } from '../project/types';
 
 export function currentTick(): number {
   return engine.transport?.getTick() ?? 0;
@@ -442,7 +442,12 @@ export function splitPadToTrack(trackId: string, pad: number): void {
   const used = new Set(p.tracks.map((t) => t.color));
   track.color = TRACK_COLORS.find((c) => !used.has(c)) ?? track.color;
   if (padDef.eq) track.effects = [{ ...padDef.eq, id: createId('fx') }];
-  track.sends = [0, 1].map((k) => padDef.sends?.[k] ?? 0);
+  // the pad reached each send channel through its own pad send and the source track's send (both
+  // after the fader): the new track sends their sum
+  track.sends = [0, 1].map((k) => Math.min(1, (padDef.sends?.[k] ?? 0) + (src.sends?.[k] ?? 0)));
+  // the pad's automation lanes go with it (the new track's kit has the same layout)
+  const padLane = (l: AutomationLane) => l.target.kind === 'inst' && parsePadKey(l.target.param)?.pad === pad;
+  track.automation = src.automation.filter(padLane);
   const moved: MidiClip[] = [];
   const kept: MidiClip[] = [];
   for (const c of srcClips) {
@@ -455,7 +460,17 @@ export function splitPadToTrack(trackId: string, pad: number): void {
   useProjectStore.getState().commit(`Split ${padDef.name} to its own track`, (prev) => {
     const clips = { ...prev.clips };
     for (const c of [...kept, ...moved]) clips[c.id] = c;
-    const tracks = [...prev.tracks];
+    // sidechains triggered by this pad's note on the source track now listen to the new track
+    const tracks = prev.tracks.map((t) => {
+      const moves = t.modulations.some((r) => r.sourceTrackId === trackId && r.source === 'midi' && r.note === note);
+      const lanes = t.id === trackId && t.automation.some(padLane);
+      if (!moves && !lanes) return t;
+      return {
+        ...t,
+        automation: lanes ? t.automation.filter((l) => !padLane(l)) : t.automation,
+        modulations: moves ? t.modulations.map((r) => (r.sourceTrackId === trackId && r.source === 'midi' && r.note === note ? { ...r, sourceTrackId: track.id } : r)) : t.modulations,
+      };
+    });
     tracks.splice(at, 0, track);
     return { ...prev, tracks, clips };
   });
