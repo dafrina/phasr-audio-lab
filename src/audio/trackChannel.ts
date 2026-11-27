@@ -17,6 +17,7 @@ import { automatedKeys, isTrackParamAutomated } from '../project/automation';
 import { createEffectUnit, type EffectUnit, type ModInput, type ParamTarget } from './effects/units';
 import { StereoMeter } from './meter';
 import { sendGain } from './sendGain';
+import { clipEnvelope, envelopeAt, type EnvPoint } from './clipEnvelope';
 
 const PARAM_SMOOTH = 0.015;
 
@@ -24,6 +25,8 @@ interface ScheduledSource {
   src: AudioBufferSourceNode;
   gain: GainNode;
   stopTime: number;
+  /** its gain envelope (to stop it from the level it has then) */
+  env: EnvPoint[];
 }
 
 export interface AudioPlayback {
@@ -246,14 +249,12 @@ export class TrackChannel {
     g.connect(this.input);
     const { when, stopAt } = p;
     if (stopAt <= when) return;
-    // Fade in at the true clip start; a short de-click ramp when starting mid-clip.
-    const fadeIn = p.clipOffset <= 1e-6 ? Math.max(0.002, p.fadeIn) : 0.004;
-    g.gain.setValueAtTime(0, when);
-    g.gain.linearRampToValueAtTime(p.gain, Math.min(stopAt, when + fadeIn));
-    // Fade out toward the stop point (clip end, loop end or split).
-    const fadeOut = Math.min(Math.max(0.002, p.fadeOut), (stopAt - when) / 2);
-    g.gain.setValueAtTime(p.gain, Math.max(when + fadeIn, stopAt - fadeOut));
-    g.gain.linearRampToValueAtTime(0, stopAt);
+    // the clip's own fades wherever playback starts and stops in it (a de-click only at a cut)
+    const env = clipEnvelope(p);
+    const [first, ...rest] = env;
+    if (!first) return;
+    g.gain.setValueAtTime(first.v, first.t);
+    for (const e of rest) g.gain.linearRampToValueAtTime(e.v, e.t);
     if (p.loop) {
       src.loop = true;
       src.loopStart = p.loop.start;
@@ -265,7 +266,7 @@ export class TrackChannel {
       src.start(when, p.sourcePos);
       src.stop(stopAt + 0.001);
     }
-    const entry: ScheduledSource = { src, gain: g, stopTime: stopAt };
+    const entry: ScheduledSource = { src, gain: g, stopTime: stopAt, env };
     this.sources.add(entry);
     src.onended = () => {
       src.disconnect();
@@ -274,11 +275,14 @@ export class TrackChannel {
     };
   }
 
-  /** Stop all clip sources at `time` with a short fade (no clicks). */
+  /** Stop all clip sources at `time` with a short fade (no clicks), from wherever their fade was. */
   stopSources(time: number): void {
     for (const s of this.sources) {
       const g = s.gain.gain;
+      // dropping the future of the envelope would also drop the ramp that is under way (its end
+      // point defines it) and snap the level back up: end that ramp at its value at `time` instead
       g.cancelScheduledValues(time);
+      g.linearRampToValueAtTime(envelopeAt(s.env, time), time);
       g.setTargetAtTime(0, time, 0.004);
       try {
         s.src.stop(time + 0.03);
