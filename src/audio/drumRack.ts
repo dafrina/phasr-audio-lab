@@ -13,11 +13,12 @@
  * send channels (see TrackChannel).
  */
 import { dbToGain } from '../core/ids';
-import { DRUM_PADS, padIndexForNote } from '../drums/kit';
+import { DRUM_PADS, DRUM_SPECS, padIndexForNote } from '../drums/kit';
 import { renderDrumVoice, voiceKey } from '../drums/synth';
 import type { DrumKit, DrumPad } from '../project/types';
 import { createEffectUnit, type EffectUnit } from './effects/units';
 import { sendGain } from './sendGain';
+import { envelopeAt, type EnvPoint } from './clipEnvelope';
 import type { SynthEvent } from '../synth/dsp/TriOscCore';
 
 interface Hit {
@@ -28,6 +29,11 @@ interface Hit {
   choke: number;
   start: number;
   end: number;
+  /** its own gain envelope (level, the Decay fade) and stop time, to choke it from where it is or undo a choke */
+  env: EnvPoint[];
+  stopAt: number;
+  /** when a later hit of its choke group cuts it off (undone if that hit is cancelled) */
+  chokedAt?: number;
 }
 
 export class DrumRackInstrument {
@@ -201,18 +207,22 @@ export class DrumRackInstrument {
     if (!p || !buf) return;
     const ctx = this.ctx;
     const t = Math.max(when, ctx.currentTime);
-    // choke: fade out earlier hits of the same group that are still sounding at t
+    // choke: fade out earlier hits of the same group that are still sounding at t — from the level
+    // they have then (dropping the rest of a Decay fade would snap it back up to full: a click)
     if (p.choke > 0) {
       for (const h of this.hits) {
         if (h.choke === p.choke && h.start <= t && h.end > t) {
-          h.gain.gain.cancelScheduledValues(t);
-          h.gain.gain.setTargetAtTime(0, t, 0.004);
+          const g = h.gain.gain;
+          g.cancelScheduledValues(t);
+          g.linearRampToValueAtTime(envelopeAt(h.env, t), t);
+          g.setTargetAtTime(0, t, 0.004);
           try {
             h.src.stop(t + 0.03);
           } catch {
             // already stopped
           }
           h.end = t + 0.03;
+          h.chokedAt = t;
         }
       }
     }
@@ -226,15 +236,25 @@ export class DrumRackInstrument {
     gain.connect(pan);
     pan.connect(this.padIn[index] as GainNode);
     let end = t + natural;
-    if (p.decay < natural) {
+    let env: EnvPoint[] = [
+      { t, v: level },
+      { t: end, v: level },
+    ];
+    // Decay at its maximum is "Full": the sample plays to its end, however long it is
+    if (p.decay < natural && p.decay < DRUM_SPECS.decay.max - 1e-6) {
       // shorten the hit: hold, then a fast fade over the last 30 % of the decay time
       gain.gain.setValueAtTime(level, t + p.decay * 0.7);
       gain.gain.linearRampToValueAtTime(0, t + p.decay);
       end = t + p.decay;
+      env = [
+        { t, v: level },
+        { t: t + p.decay * 0.7, v: level },
+        { t: end, v: 0 },
+      ];
     }
     src.start(t);
     src.stop(end + 0.01);
-    const hit: Hit = { src, gain, pan, pad: index, choke: p.choke, start: t, end };
+    const hit: Hit = { src, gain, pan, pad: index, choke: p.choke, start: t, end, env, stopAt: end };
     this.hits.add(hit);
     this.lastHit[index] = t;
     src.onended = () => {
@@ -282,6 +302,19 @@ export class DrumRackInstrument {
   cancel(time: number): void {
     for (const [k, segs] of this.autoSegs) this.autoSegs.set(k, segs.filter((s) => s.t0 < time));
     for (const h of this.hits) {
+      // choked by a hit that is cancelled now (it starts at/after `time`): undo the choke, it rings on
+      if (h.start < time && h.chokedAt !== undefined && h.chokedAt >= time) {
+        const g = h.gain.gain;
+        g.cancelScheduledValues(h.chokedAt);
+        for (const e of h.env) if (e.t > h.chokedAt) g.linearRampToValueAtTime(e.v, e.t);
+        try {
+          h.src.stop(h.stopAt + 0.01); // (a later stop() replaces the earlier one)
+        } catch {
+          // already stopped
+        }
+        h.end = h.stopAt;
+        h.chokedAt = undefined;
+      }
       if (h.start >= time) {
         try {
           h.src.stop();

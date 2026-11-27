@@ -164,3 +164,56 @@ test('drum pad sends follow the track volume automation and sidechain ducking', 
     expect(r[k].send, k).toBeLessThan(0.003);
   }
 });
+
+/**
+ * Drum Rack hits: a choke continues from where the hit's Decay fade is (no
+ * jump back to full level, no click); Decay at "Full" never shortens a long
+ * sample; a hit that gets cancelled (Stop, a reschedule) doesn't choke the
+ * hit before it.
+ */
+test('drum rack: chokes fade from the current level, Decay "Full" keeps long samples, a cancelled hit chokes nothing', async ({ page }) => {
+  await openApp(page);
+  const r = await page.evaluate(async () => {
+    const load = (u: string): Promise<any> => import(/* @vite-ignore */ u);
+    const { DrumRackInstrument } = await load('/src/audio/drumRack.ts');
+    const { defaultKit } = await load('/src/drums/kit.ts');
+    const SR = 48000;
+    const render = async (secs: number, pads: Record<number, object>, fn: (rack: any) => void) => {
+      const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.round(secs * SR), sampleRate: SR });
+      const dc = new AudioBuffer({ length: 6 * SR, numberOfChannels: 1, sampleRate: SR });
+      dc.getChannelData(0).fill(1);
+      const kit = defaultKit();
+      for (const [i, o] of Object.entries(pads)) kit.pads[Number(i)] = { ...kit.pads[Number(i)], source: { kind: 'sample', assetId: 'dc' }, gain: 0, pan: 0, tune: 0, ...o };
+      const rack = new DrumRackInstrument(ctx, kit, (id: string) => (id === 'dc' ? dc : undefined));
+      rack.output.connect(ctx.destination);
+      fn(rack);
+      const out = (await ctx.startRendering()).getChannelData(0);
+      // a full-velocity hit at 0 dB is level 1 (through an equal-power centre pan)
+      return (t: number) => (out[Math.round(t * SR)] as number) / Math.SQRT1_2;
+    };
+    // pads 0 and 1 share a choke group; pad 0 decays over 0.2 s (hold to 0.14 s, then fades to 0.2 s).
+    // (pad 1 is panned hard right: the left channel carries pad 0 alone)
+    const choke = await render(0.4, { 0: { decay: 0.2, choke: 1 }, 1: { decay: 4, choke: 1, pan: 1 } }, (rack) => {
+      rack.play(0, 0, 1);
+      rack.play(1, 0.18, 1); // chokes pad 0 two thirds into its fade
+    });
+    // a 6 s sample on a pad at Decay "Full"
+    const full = await render(5.5, { 0: { decay: 4 } }, (rack) => rack.play(0, 0, 1));
+    // pad 1 is scheduled at 0.5 s to choke pad 0, then cancelled at 0.4 s (Stop)
+    const cancelled = await render(0.8, { 0: { decay: 4, choke: 1 }, 1: { decay: 4, choke: 1, pan: 1 } }, (rack) => {
+      rack.play(0, 0, 1);
+      rack.play(1, 0.5, 1);
+      rack.cancel(0.4);
+    });
+    return { choke: [0.17, 0.179, 0.185].map(choke), full: [3.5, 4.5, 5.4].map(full), cancelled: [0.45, 0.7].map(cancelled) };
+  });
+  // just before the choke the fade is at ~1/3; it never rises again
+  expect(r.choke[0]).toBeGreaterThan(0.45);
+  expect(r.choke[0]).toBeLessThan(0.55);
+  expect(r.choke[1]).toBeLessThan(0.4);
+  expect(r.choke[2]).toBeLessThan(r.choke[1] as number);
+  // Full: still sounding at 4.5 and 5.4 s
+  for (const v of r.full) expect(v).toBeCloseTo(1, 2);
+  // the cancelled hit didn't choke the open one
+  for (const v of r.cancelled) expect(v).toBeCloseTo(1, 2);
+});
