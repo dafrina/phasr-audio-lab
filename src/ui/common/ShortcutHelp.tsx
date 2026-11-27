@@ -9,6 +9,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ['Space', 'Play / stop (also right after using a dropdown)'],
       ['Enter', 'Stop (again: back to bar 1)'],
       ['Shift+R', 'Record on the armed track (audio input or MIDI)'],
+      ['Ctrl+K', 'Capture: the last bar(s) you played on an instrument become a clip (no recording needed; set how many bars in the toolbar)'],
       ['Shift+L', 'Loop the time selection — or loop on / off'],
       ['Shift+M', 'Metronome on / off'],
       ['Ctrl+S', 'Save now (autosave is always on)'],

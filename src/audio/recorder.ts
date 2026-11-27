@@ -26,7 +26,7 @@ import { engine } from './engine';
 import { StereoMeter, type MeterReading } from './meter';
 import { assembleChunks, estimateLatency, LivePeaks, placeRecordedClip, type CapturedChunk } from './recordingMath';
 import { encodeWav } from './wav';
-import { heardContextTime, MidiTake, type LiveNote } from './midiTake';
+import { MidiTake, type LiveNote } from './midiTake';
 
 const set = (s: Partial<ReturnType<typeof useRecordingStore.getState>>) => useRecordingStore.setState(s);
 
@@ -411,17 +411,7 @@ class AudioRecorder {
 
   /** timeline tick the player was hearing at a performance.now() timestamp */
   private heardTick(atMs: number): number {
-    const ctx = engine.ctx;
-    const transport = engine.transport;
-    if (!ctx || !transport) return 0;
-    let out: AudioTimestamp | null = null;
-    try {
-      out = ctx.getOutputTimestamp?.() ?? null;
-    } catch {
-      out = null;
-    }
-    const t = heardContextTime(atMs, out, { currentTime: ctx.currentTime, outputLatency: ctx.outputLatency, baseLatency: ctx.baseLatency, nowMs: performance.now() });
-    return transport.tickAtContextTime(t);
+    return engine.heardTick(atMs);
   }
 
   private startMidi(trackId: string): void {

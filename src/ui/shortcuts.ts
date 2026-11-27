@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { useProjectStore, updateProjectFields, getProject } from '../state/projectStore';
 import { toggleMixer, useUiStore } from '../state/uiStore';
 import { recorder } from '../audio/recorder';
+import { captureNow } from '../audio/captureLive';
 import { saveNow } from '../persistence/session';
 import {
   copySelectedClips,
@@ -92,7 +93,7 @@ export function useGlobalShortcuts(): void {
       // song commands are Shift + letter, always (plain letters play notes; Ctrl/Cmd + letter edits)
       const cmd = e.shiftKey && !mod && !e.altKey;
       // Inside an editor, only transport and undo/redo stay global.
-      if (inOwnShortcutScope(e.target) && !(key === ' ' || key === 'enter' || (mod && (key === 'z' || key === 'y')))) return;
+      if (inOwnShortcutScope(e.target) && !(key === ' ' || key === 'enter' || (mod && (key === 'z' || key === 'y' || key === 'k')))) return;
       if (e.repeat && (key === ' ' || key === 'r')) return;
       // sliders keep their own arrow keys
       if (key.startsWith('arrow') && e.target instanceof HTMLInputElement && e.target.type === 'range') return;
@@ -128,6 +129,10 @@ export function useGlobalShortcuts(): void {
       } else if (mod && key === 'v') {
         e.preventDefault();
         pasteClips();
+      } else if (mod && key === 'k' && !e.shiftKey && !e.altKey) {
+        // Capture: what was just played becomes a clip (an edit, so Ctrl/Cmd)
+        e.preventDefault();
+        if (!e.repeat) captureNow(useUiStore.getState().captureBars);
       } else if (mod && key === 'd') {
         e.preventDefault();
         duplicateSelectedClips();

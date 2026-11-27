@@ -134,7 +134,7 @@ export function SamplerWindow({ trackId }: { trackId: string }) {
     });
   const audition = (z: SamplerZone) => {
     // at a velocity inside the sample's own layer (a fixed loud one would always pick the loudest layer)
-    const id = engine.previewNoteOn(trackId, z.root - Math.round(cfg.params.transpose), auditionVelocity(cfg, z.id));
+    const id = engine.previewNoteOn(trackId, z.root - Math.round(cfg.params.transpose), auditionVelocity(cfg, z.id), performance.now(), true);
     if (id !== null) setTimeout(() => engine.previewNoteOff(trackId, id), 700);
   };
 

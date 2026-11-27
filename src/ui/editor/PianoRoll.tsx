@@ -186,7 +186,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
 
   const preview = (pitch: number, ms = 220) => {
     if (!track) return;
-    const id = engine.previewNoteOn(track.id, pitch, newVel / 127);
+    const id = engine.previewNoteOn(track.id, pitch, newVel / 127, performance.now(), true);
     if (id !== null) setTimeout(() => engine.previewNoteOff(track.id, id), ms);
   };
 

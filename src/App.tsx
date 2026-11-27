@@ -1,5 +1,6 @@
 import { Suspense, useEffect } from 'react';
 import { startAudioBridge } from './audio/bridge';
+import { startCapture } from './audio/captureLive';
 import { useTransportStore } from './state/transportStore';
 import { useUiStore } from './state/uiStore';
 import { Toasts } from './ui/common/Toasts';
@@ -29,6 +30,7 @@ export default function App() {
   useSelectedTrackKeys();
   useEffect(() => {
     startAudioBridge();
+    startCapture();
     void initPersistence();
     preloadWindows();
   }, []);

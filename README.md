@@ -180,6 +180,16 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
   hearing (input timestamps are mapped through the context's output timestamp, so output latency is compensated),
   count-in notes snap to the start, the sustain pedal extends note lengths, loop passes merge, the take is drawn live,
   and one undo removes it. Web MIDI input always goes to the armed instrument track.
+- **Capture** (retrospective MIDI, like Ableton's Capture MIDI): played something good without recording? Press
+  **Ctrl/Cmd+K** or the capture button next to Record. Every instrument track keeps its last minute of live notes
+  (MIDI keyboard, computer keys, on-screen keys, drum pads; not an editor auditioning a note) with the sustain pedal
+  and, while the transport runs, the position you were hearing — a fixed-size ring per track (4096 events ≈ 110 kB,
+  nothing allocated per note). Capture takes the last bar played (counted back from the last note, or from now while a
+  key is held); the button's popover extends it bar by bar up to the minute and previews the notes it would take.
+  Played while the transport ran, the notes go where you heard them (loop passes merged, a note held over the loop end
+  cut there, like a recording); played while stopped, the timing between them is kept at the current tempo and the
+  clip goes to the playhead's bar, or the next bar the track is free. A normal MIDI clip ("Lead capture 1"), one undo
+  step, a toast. Notes struck before the window aren't taken (extend it to include them).
 - **Gucci Slipper-izer** (chord tool for any synth track — footprints button in the track header or the device panel):
   play single keys, hear full chords. Pick a vibe (90s Deep House, Jazzy, Neo-Soul, Lo-fi Chill, Emotional Techno,
   Pop Anthem, Gospel), a progression and a key; white keys C D E F play the progression's four chords, G A B three
@@ -311,6 +321,10 @@ fields or whole blocks instead of per-sample calls would remove most of it.
 | + all three, tab hidden (window still open) | | 19.4–20.4 % |
 | Startup JavaScript (gzip) | 296 kB | 200 kB |
 
+Startup JavaScript after the Limiter, the analysers' mixer hooks, the General MIDI drum tables and Capture: 216.8 kB
+gzip, against 208.5 kB for the previous release measured the same way (index.html's scripts and preloads, gzip -9);
+the analyser window itself loads on demand (11 kB).
+
 The analyser rows (two runs) are reproducible with `UI_COST=1 npx playwright test e2e/ui-cost.e2e.ts` (Chrome's
 TaskDuration over 5 s, software rendering in headless Chromium; with a GPU the canvas work is cheaper). Drawing all three views at
 60 fps cost 31 %: spectrum and scope now redraw at 30 fps.
@@ -350,7 +364,7 @@ is uploaded. Things that can lose work:
 | --- | --- | --- |
 | `npm test` | unit + integration tests (Vitest, Node): DSP, scheduling, persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
-| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, and the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed) | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), and Capture (keys played with the transport stopped and over a loop, the popover, one undo) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound
@@ -369,6 +383,8 @@ change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium i
 - Rescheduling after an edit during playback restarts in-progress audio clips at the correct offset, with a 4 ms de-click fade.
   Synth notes that are sounding at the moment of an edit are released (not re-triggered), so a held note may cut short once.
 - MIDI recording bakes the sustain pedal into note lengths (there are no CC lanes) and doesn't record pitch bend.
+  Capture does the same, and only keeps MIDI: capturing audio input would need a minute of float audio per armed or
+  monitored track (≈ 23 MB stereo) running all the time — not done (future work).
   With the loop on, passes are merged into one clip.
 - The master's always-on safety limiter (the shield button) is still a hard-knee `DynamicsCompressorNode` just under
   0 dBFS — a last resort, not a brickwall; for a brickwall put the Limiter effect last on the master. The node's
@@ -400,7 +416,7 @@ Ctrl/Cmd + letter edits.**
 
 - Song commands: Shift+S split at playhead · Shift+R record · Shift+L loop the time selection (or loop on/off) ·
   Shift+M metronome · Shift+A automation mode · Shift+Q quantize (piano roll).
-- Editing: Ctrl+S save · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+A select all · Ctrl+C / V copy/paste · Ctrl+D duplicate ·
+- Editing: Ctrl+S save · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+K capture what you just played · Ctrl+A select all · Ctrl+C / V copy/paste · Ctrl+D duplicate ·
   Ctrl+L loop clip content.
 - Everywhere: Space play/stop · Enter stop · Delete remove · ←→ nudge · ↑↓ move to track (piano roll: transpose, Shift =
   octave) · F9 mixer · ? help · Esc closes a window / deselects.

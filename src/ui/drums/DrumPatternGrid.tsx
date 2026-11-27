@@ -122,7 +122,7 @@ export function DrumPatternGrid({ trackId, pads, onPickPad }: { trackId: string;
       return;
     }
     commit([...rest, { id: createId('n'), pitch: padNote(pad), start: step * STEP, length: STEP / 2, velocity: VEL_NORMAL }], 'Drum step on');
-    engine.previewNoteOn(trackId, padNote(pad), 0.8);
+    engine.previewNoteOn(trackId, padNote(pad), 0.8, performance.now(), true);
   };
   const roll = (pad: number, step: number) => {
     const c = live();
@@ -179,7 +179,7 @@ export function DrumPatternGrid({ trackId, pads, onPickPad }: { trackId: string;
               type="button"
               onClick={() => {
                 onPickPad(pad);
-                engine.previewNoteOn(trackId, padNote(pad), 0.8);
+                engine.previewNoteOn(trackId, padNote(pad), 0.8, performance.now(), true);
               }}
               className="truncate rounded bg-panel-3 px-1.5 text-left text-[10px] text-fg hover:bg-line-2"
               title={`Play ${pads[pad]?.name ?? ''} (and select the pad)`}

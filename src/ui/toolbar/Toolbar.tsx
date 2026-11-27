@@ -17,6 +17,7 @@ import {
 import { engine } from '../../audio/engine';
 import { PPQ, SNAP_VALUES, formatBBT, formatSeconds, ticksToSeconds, type SnapValue } from '../../core/time';
 import { RecordControls } from './RecordControls';
+import { CaptureControls } from './CaptureControls';
 import { getProject, updateProjectFields, useProjectStore } from '../../state/projectStore';
 import { useTransportStore } from '../../state/transportStore';
 import { useUiStore } from '../../state/uiStore';
@@ -200,6 +201,7 @@ export function Toolbar() {
             {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
           </IconButton>
           <RecordControls />
+          <CaptureControls />
           <IconButton
             title="Loop playback over the loop region (Shift+L; drag in the ruler to set it)"
             active={project.loop.enabled}

@@ -32,9 +32,11 @@ import { LiveChords } from './chordLive';
 import { LiveArp, type ArpNoteListener } from './arpLive';
 import { arpActive } from '../arp/expand';
 import { expandNote } from '../chords/theory';
+import { heardContextTime } from './midiTake';
 
 export type LiveInputEvent =
-  | { type: 'noteOn'; trackId: string; id: number; note: number; velocity: number; at: number }
+  /** audition: an editor previewing a note (placing it, a step on), not someone playing — Capture skips it */
+  | { type: 'noteOn'; trackId: string; id: number; note: number; velocity: number; at: number; audition?: boolean }
   | { type: 'noteOff'; trackId: string; id: number; at: number }
   | { type: 'sustain'; trackId: string; on: boolean; at: number };
 
@@ -296,8 +298,29 @@ export class AudioEngine {
   /** tracks whose keys play plain notes for now (the arp / Slipper-izer skipped): step recording */
   readonly toolBypass = new Set<string>();
 
-  /** `at` = when the input happened (performance.now() ms; MIDI events carry their own timestamp). */
-  previewNoteOn(trackId: string, note: number, velocity = 0.8, at = performance.now()): number | null {
+  /**
+   * The timeline tick the player was hearing at a performance.now() timestamp
+   * (players play along to the speakers; MIDI recording and Capture place notes there).
+   */
+  heardTick(atMs: number): number {
+    const ctx = this.ctx;
+    const transport = this.transport;
+    if (!ctx || !transport) return 0;
+    let out: AudioTimestamp | null = null;
+    try {
+      out = ctx.getOutputTimestamp?.() ?? null;
+    } catch {
+      out = null;
+    }
+    const t = heardContextTime(atMs, out, { currentTime: ctx.currentTime, outputLatency: ctx.outputLatency, baseLatency: ctx.baseLatency, nowMs: performance.now() });
+    return transport.tickAtContextTime(t);
+  }
+
+  /**
+   * `at` = when the input happened (performance.now() ms; MIDI events carry their own timestamp).
+   * `audition`: an editor previewing a note rather than someone playing (Capture skips it).
+   */
+  previewNoteOn(trackId: string, note: number, velocity = 0.8, at = performance.now(), audition = false): number | null {
     const inst = this.channels.get(trackId)?.instrument;
     if (!inst) return null;
     if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume();
@@ -323,7 +346,7 @@ export class AudioEngine {
       inst.noteOn(id, note, velocity);
     }
     this.modulation?.trigger(trackId, [{ time: -1, note }]); // live notes also fire MIDI sidechains
-    this.tap({ type: 'noteOn', trackId, id, note, velocity, at });
+    this.tap({ type: 'noteOn', trackId, id, note, velocity, at, audition });
     return id;
   }
 
