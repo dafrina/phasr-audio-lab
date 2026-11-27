@@ -1,6 +1,6 @@
-import { ArrowRight, AudioLines, Footprints, Music, Plus, Repeat2, Send } from 'lucide-react';
+import { ArrowRight, AudioLines, Footprints, Music, Plus, Power, Repeat2, Send, type LucideIcon } from 'lucide-react';
 import { arpActive } from '../../arp/expand';
-import { openArp, openSlipperizer } from '../tools/open';
+import { openArp, openSlipperizer, setArpEnabled, setSlipperizerEnabled } from '../tools/open';
 import { SendKnobs } from '../mixer/Mixer';
 import { chordToolActive, chordToolAvailable } from '../../chords/expand';
 import { keyName, progressionOf, vibeById } from '../../chords/theory';
@@ -36,35 +36,51 @@ export function TrackDevicePanel({ trackId }: { trackId: string }) {
       <div className="flex min-h-0 flex-1 items-start gap-2 overflow-auto p-2">
         {chordToolAvailable(track) && (
           <>
-            <div className="flex h-[150px] w-[150px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-md border border-[#5a4a22] bg-[#1d1a12] p-2 text-center">
-              <Footprints size={20} className="text-[#d9b44a]" />
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#d9b44a]">Gucci Slipper-izer</div>
-              {track.chords ? (
-                <div className="text-[10px] leading-tight text-muted">
-                  {chordToolActive(track) ? `${vibeById(track.chords.vibe).name} · ${progressionOf(track.chords).name}` : 'Off'}
-                  <br />
-                  {chordToolActive(track) && keyName(track.chords)}
-                </div>
-              ) : (
-                <div className="text-[10px] leading-tight text-muted">Single keys → full chords</div>
-              )}
-              <button type="button" onClick={() => openSlipperizer(track.id)} className="h-6 rounded bg-[#d9b44a] px-2 text-[11px] font-semibold text-black">
-                {track.chords ? 'Open' : 'Add chords'}
-              </button>
-            </div>
+            <ToolCard
+              icon={Footprints}
+              name="Gucci Slipper-izer"
+              color="#d9b44a"
+              border="#5a4a22"
+              bg="#1d1a12"
+              added={!!track.chords}
+              on={chordToolActive(track)}
+              onToggle={(v) => setSlipperizerEnabled(track.id, v)}
+              offHint="keys play single notes"
+              status={
+                track.chords ? (
+                  chordToolActive(track) ? (
+                    <>
+                      {vibeById(track.chords.vibe).name} · {progressionOf(track.chords).name}
+                      <br />
+                      {keyName(track.chords)}
+                    </>
+                  ) : null
+                ) : (
+                  'Single keys → full chords'
+                )
+              }
+              onOpen={() => openSlipperizer(track.id)}
+              addLabel="Add chords"
+            />
             <ArrowRight size={14} className="mt-[68px] shrink-0 text-dim" />
           </>
         )}
         {track.kind === 'instrument' && (
           <>
-            <div className="flex h-[150px] w-[150px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-md border border-[#1f4a52] bg-[#0f1c20] p-2 text-center">
-              <Repeat2 size={20} className="text-[#22d3ee]" />
-              <div className="text-[10px] font-semibold uppercase leading-tight tracking-[0.1em] text-[#22d3ee]">Arp-Ape-ator</div>
-              <div className="text-[10px] leading-tight text-muted">{track.arp ? (arpActive(track) ? track.arp.presetName : 'Off') : 'Hold keys → patterns'}</div>
-              <button type="button" onClick={() => openArp(track.id)} className="h-6 rounded bg-[#22d3ee] px-2 text-[11px] font-semibold text-black">
-                {track.arp ? 'Open' : 'Add ape'}
-              </button>
-            </div>
+            <ToolCard
+              icon={Repeat2}
+              name="Arp-Ape-ator"
+              color="#22d3ee"
+              border="#1f4a52"
+              bg="#0f1c20"
+              added={!!track.arp}
+              on={arpActive(track)}
+              onToggle={(v) => setArpEnabled(track.id, v)}
+              offHint="keys and clips play as they are"
+              status={track.arp ? (arpActive(track) ? track.arp.presetName : null) : 'Hold keys → patterns'}
+              onOpen={() => openArp(track.id)}
+              addLabel="Add ape"
+            />
             <ArrowRight size={14} className="mt-[68px] shrink-0 text-dim" />
           </>
         )}
@@ -134,6 +150,62 @@ export function TrackDevicePanel({ trackId }: { trackId: string }) {
           <Meter source={track.id} width={10} height={120} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A playing tool (Slipper-izer, Arp-Ape-ator) in the chain: power switch like an effect's, status, open / add. */
+function ToolCard({
+  icon: Icon,
+  name,
+  color,
+  border,
+  bg,
+  added,
+  on,
+  onToggle,
+  offHint,
+  status,
+  onOpen,
+  addLabel,
+}: {
+  icon: LucideIcon;
+  name: string;
+  color: string;
+  border: string;
+  bg: string;
+  added: boolean;
+  on: boolean;
+  onToggle: (on: boolean) => void;
+  /** what happens while it's off */
+  offHint: string;
+  /** shown while on (or before it's added) */
+  status: React.ReactNode;
+  onOpen: () => void;
+  addLabel: string;
+}) {
+  return (
+    <div className={`relative flex h-[150px] w-[150px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-md border p-2 text-center ${added && !on ? 'opacity-60' : ''}`} style={{ borderColor: border, background: bg }}>
+      {added && (
+        <button
+          type="button"
+          title={on ? `Bypass ${name} (${offHint})` : `Switch ${name} on`}
+          aria-pressed={on}
+          onClick={() => onToggle(!on)}
+          className={`absolute left-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded ${on ? 'text-black' : 'bg-panel-3 text-dim'}`}
+          style={on ? { background: color } : undefined}
+        >
+          <Power size={10} />
+        </button>
+      )}
+      <Icon size={20} style={{ color }} />
+      <div className="text-[10px] font-semibold uppercase leading-tight tracking-[0.1em]" style={{ color }}>
+        {name}
+      </div>
+      <div className="text-[10px] leading-tight text-muted">{added && !on ? <>Off · {offHint}</> : status}</div>
+      <button type="button" onClick={onOpen} className="h-6 rounded px-2 text-[11px] font-semibold text-black" style={{ background: color }}>
+        {added ? 'Open' : addLabel}
+      </button>
     </div>
   );
 }
