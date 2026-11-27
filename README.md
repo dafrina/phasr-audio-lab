@@ -324,7 +324,7 @@ is uploaded. Things that can lose work:
 | --- | --- | --- |
 | `npm test` | unit + integration tests (Vitest, Node): DSP, scheduling, persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
-| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs) | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound
