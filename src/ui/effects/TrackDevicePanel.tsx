@@ -192,10 +192,10 @@ function ToolCard({
           title={on ? `Bypass ${name} (${offHint})` : `Switch ${name} on`}
           aria-pressed={on}
           onClick={() => onToggle(!on)}
-          className={`absolute left-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded ${on ? 'text-black' : 'bg-panel-3 text-dim'}`}
+          className={`absolute left-1.5 top-1.5 flex h-[18px] w-[18px] items-center justify-center rounded ${on ? 'text-black' : 'bg-panel-3 text-dim'}`}
           style={on ? { background: color } : undefined}
         >
-          <Power size={10} />
+          <Power size={12} />
         </button>
       )}
       <Icon size={20} style={{ color }} />
