@@ -532,3 +532,34 @@ test('two tabs: the second is read-only; "Take over" moves ownership and keeps t
   await a.waitForTimeout(1600);
   expect((await stored(b)).tracks.length).toBe(newest.tracks.length);
 });
+
+test('an edit made while a save is under way is not reported as saved', async ({ page }) => {
+  await openApp(page);
+  const r = await page.evaluate(async () => {
+    const { session, projectStore } = (window as unknown as { __phasr: Phasr }).__phasr;
+    const saving = session.saveNow();
+    // (the edit lands while the save is writing)
+    projectStore.getState().commit('Rename', (p: any) => ({ ...p, name: 'edited during save' }));
+    await saving;
+    return session.usePersistStore.getState().status;
+  });
+  expect(r).toBe('dirty');
+  // and it does get saved
+  await expect.poll(() => persistStatus(page), { timeout: 5000 }).toBe('saved');
+  expect((await stored(page)).name).toBe('edited during save');
+});
+
+test('leaving the page (tab hidden / closed) saves pending edits at once', async ({ page }) => {
+  await openApp(page);
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => persistStatus(page)).toBe('saved');
+  await addTrack(page, 'TriOsc');
+  expect(await persistStatus(page)).toBe('dirty');
+  const n = (await project(page)).tracks.length;
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  // well before the 1.2 s autosave timer would have fired
+  await expect.poll(async () => (await stored(page)).tracks.length, { timeout: 600, intervals: [50] }).toBe(n);
+});

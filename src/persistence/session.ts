@@ -1,7 +1,8 @@
 /**
  * Project lifecycle: autosave, open/new/duplicate/delete, archive export and
  * import. The editor always works on one "current" project; every change is
- * autosaved shortly after it happens, so there is no unsaved state to lose.
+ * autosaved about a second after it happens, and at once when the page is
+ * hidden or closed. (A browser killed within that second loses the last edit.)
  */
 import { create } from 'zustand';
 import { engine } from '../audio/engine';
@@ -191,7 +192,9 @@ async function doSave(): Promise<void> {
     const missing = await persistAssets(p);
     await putProjectRecord(recordFor(p));
     remember(p.id);
-    setP({ status: again ? 'dirty' : 'saved', lastSavedAt: Date.now(), error: missing.length ? `Audio not available to save: ${missing.join(', ')}` : null });
+    // an edit made while this save was writing isn't in it (its autosave is pending): still unsaved
+    const behind = again || getProject() !== p;
+    setP({ status: behind ? 'dirty' : 'saved', lastSavedAt: Date.now(), error: missing.length ? `Audio not available to save: ${missing.join(', ')}` : null });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const quota = isQuotaError(e);
@@ -264,6 +267,15 @@ async function doInitPersistence(): Promise<void> {
   useProjectStore.subscribe((s, prev) => {
     if (s.project !== prev.project) scheduleAutosave();
   });
+  // leaving the page (tab hidden, switched away, closed): save pending edits now instead of in
+  // up to 1.2 s — a page being closed may not get that long
+  const flush = () => {
+    if (timer && !readOnly) void saveNow();
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush();
+  });
+  window.addEventListener('pagehide', flush);
   let last: string | null = null;
   try {
     last = localStorage.getItem(LAST_KEY);
