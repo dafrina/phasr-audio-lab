@@ -223,11 +223,6 @@ export const INSTRUMENTS: { [T in InstrumentType]: InstrumentDefinition<T> } = {
 
 export const INSTRUMENT_TYPES = Object.keys(INSTRUMENTS) as InstrumentType[];
 
-/** Look up the definition for a config with its type preserved. */
-export function instrumentDef<T extends InstrumentType>(type: T): InstrumentDefinition<T> {
-  return INSTRUMENTS[type] as InstrumentDefinition<T>;
-}
-
 export function isInstrumentType(v: unknown): v is InstrumentType {
   return typeof v === 'string' && v in INSTRUMENTS;
 }

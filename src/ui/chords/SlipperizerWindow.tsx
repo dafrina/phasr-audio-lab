@@ -4,18 +4,18 @@
  * Built for people who don't know music theory: chords are shown as pads
  * on the keys that trigger them, and everything can be auditioned by click.
  */
-import { useWindowZ } from '../common/windowStack';
-import { DanglingSlippers } from './DanglingSlippers';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Footprints, Power, Wand2, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import { bakeChords, chordToolActive } from '../../chords/expand';
-import { VIBES, chordAtSlot, defaultChordTool, keyName, noteName, vibeById, type ChordPattern, type ChordToolConfig } from '../../chords/theory';
+import { VIBES, chordAtSlot, keyName, noteName, vibeById, type ChordPattern, type ChordToolConfig } from '../../chords/theory';
 import { getProject, updateTrack, useProjectStore } from '../../state/projectStore';
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { Knob } from '../common/Knob';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
 import type { NumericParamSpec } from '../../synth/params';
+import { useWindowZ } from '../common/windowStack';
+import { DanglingSlippers } from './DanglingSlippers';
 
 const WIN_W = 940;
 const GOLD = '#d9b44a';
@@ -37,14 +37,6 @@ const PATTERNS: { id: ChordPattern; label: string; hint: string }[] = [
   { id: 'arp', label: 'Arp', hint: 'Chord notes one after another, up and down' },
 ];
 const STRUM_SPEC: NumericParamSpec = { label: 'Strum', min: 0, max: 1, default: 0, curve: 'linear', format: (v) => (v < 0.01 ? 'Off' : `${Math.round(v * 100)}%`) };
-
-/** Create the chord tool on a track (if needed) and open its window. */
-export function openSlipperizer(trackId: string): void {
-  const t = getProject().tracks.find((x) => x.id === trackId);
-  if (!t || t.kind !== 'instrument') return;
-  if (!t.chords) updateTrack(trackId, { chords: defaultChordTool() }, 'Add Gucci Slipper-izer');
-  useUiStore.getState().set({ chordsTrackId: trackId });
-}
 
 export function SlipperizerWindow({ trackId }: { trackId: string }) {
   const win = useWindowZ('chords');

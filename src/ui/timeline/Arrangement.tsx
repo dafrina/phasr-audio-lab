@@ -28,7 +28,7 @@ import {
   openClipEditor,
 } from '../actions';
 import { isMidiFileName } from '../../midi/smf';
-import { drawLanesDynamic, drawLanesStatic, drawRuler, laneValueToY, laneYToValue, type DrawState } from './draw';
+import { drawLanesDynamic, drawLanesStatic, drawRuler, drawRulerPlayhead, laneValueToY, laneYToValue, type DrawState } from './draw';
 import { EDGE_PX, HEADER_W, MAX_PX_PER_BEAT, MIN_PX_PER_BEAT, RULER_H, TRACK_H, tickToX, xToTick } from './layout';
 import { TrackHeader } from './TrackHeader';
 import { AddTrackRow } from './AddTrackRow';
@@ -126,6 +126,7 @@ export function Arrangement() {
   const dirty = useRef(true);
   /** offscreen cache of the static lane layer */
   const staticLayer = useRef<HTMLCanvasElement | null>(null);
+  const rulerLayer = useRef<HTMLCanvasElement | null>(null);
   const timeSel = useRef<{ start: number; end: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [dropHint, setDropHint] = useState(false);
@@ -204,8 +205,20 @@ export function Arrangement() {
       const rc = rulerCv.current;
       const lc = laneCv.current;
       if (rc) {
+        // the ruler is cached like the lanes: only the playhead marker is drawn every frame
+        const layer = (rulerLayer.current ??= document.createElement('canvas'));
+        if (staticDirty || layer.width !== Math.round(viewW * (window.devicePixelRatio || 1))) {
+          const sg = setupCanvas(layer, viewW, RULER_H);
+          if (sg) drawRuler(sg, viewW, RULER_H, st);
+        }
         const g = setupCanvas(rc, viewW, RULER_H);
-        if (g) drawRuler(g, viewW, RULER_H, st);
+        if (g) {
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          g.drawImage(layer, 0, 0);
+          const dpr = window.devicePixelRatio || 1;
+          g.setTransform(dpr, 0, 0, dpr, 0, 0);
+          drawRulerPlayhead(g, viewW, st);
+        }
       }
       if (lc) {
         const layer = (staticLayer.current ??= document.createElement('canvas'));

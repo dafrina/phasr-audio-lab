@@ -42,7 +42,10 @@ export function Meter({ source, orientation = 'vertical', width, height, showPea
     const hold = [0, 0];
     const holdT = [0, 0];
     let raf = 0;
+    /** what's on the canvas (bar and hold positions in px): a frame that would look the same isn't redrawn */
+    let drawn = '';
     const vertical = orientation === 'vertical';
+    const len = vertical ? height : width;
     const grad = vertical ? g.createLinearGradient(0, height, 0, 0) : g.createLinearGradient(0, 0, width, 0);
     grad.addColorStop(0, '#4ade80');
     grad.addColorStop(0.72, '#a3e635');
@@ -54,9 +57,6 @@ export function Meter({ source, orientation = 'vertical', width, height, showPea
       else if (source === 'input') recorder.readInputMeter(reading);
       else engine.readTrackMeter(source, reading);
       const peaks = [reading.peakL, reading.peakR];
-      g.clearRect(0, 0, width, height);
-      g.fillStyle = '#0a0a10';
-      g.fillRect(0, 0, width, height);
       for (let ch = 0; ch < 2; ch++) {
         const p = peaks[ch] as number;
         if (p >= 1 && !clipRef.current) {
@@ -70,6 +70,14 @@ export function Meter({ source, orientation = 'vertical', width, height, showPea
           hold[ch] = target;
           holdT[ch] = now;
         }
+      }
+      const key = `${Math.round((disp[0] as number) * len * 2)},${Math.round((disp[1] as number) * len * 2)},${Math.round((hold[0] as number) * len)},${Math.round((hold[1] as number) * len)}`;
+      if (key === drawn) return;
+      drawn = key;
+      g.clearRect(0, 0, width, height);
+      g.fillStyle = '#0a0a10';
+      g.fillRect(0, 0, width, height);
+      for (let ch = 0; ch < 2; ch++) {
         const d = disp[ch] as number;
         const h = hold[ch] as number;
         g.fillStyle = grad;

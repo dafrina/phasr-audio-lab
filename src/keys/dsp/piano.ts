@@ -418,6 +418,9 @@ class PianoVoice {
   readonly im = new Float64Array(MAX_RES);
   readonly a = new Float64Array(MAX_RES);
   readonly b = new Float64Array(MAX_RES);
+  /** frequency before bend / tension glide, and the per-sample decay radius: a retune only redoes the rotation */
+  readonly fb = new Float64Array(MAX_RES);
+  readonly rad = new Float64Array(MAX_RES);
   readonly gin = new Float64Array(MAX_RES);
   /**
    * Quadrature part of the excitation. A hammer launches a wave along a stiff
@@ -684,7 +687,7 @@ export class PianoEngine implements KeysEngine {
     const r = Math.pow(2, (clamp(value, -1, 1) * BEND_SEMITONES) / 12);
     if (r === this.bendRatio) return;
     this.bendRatio = r;
-    for (const v of this.voices) if (v.active) this.updateCoefs(v);
+    for (const v of this.voices) if (v.active) this.retune(v);
   }
 
   setSustain(on: boolean): void {
@@ -911,9 +914,26 @@ export class PianoEngine implements KeysEngine {
         }
       }
       sigma += damperS * (0.6 + 0.4 * Math.min(1, f / 600));
+      v.fb[r] = f;
       f *= this.bendRatio * (v.glide ? Math.pow(2, v.glide / 1200) : 1);
       if (f > nyq) f = nyq;
       const rad = Math.exp(-sigma / sr);
+      v.rad[r] = rad;
+      const w = (TWO_PI * f) / sr;
+      v.a[r] = rad * Math.cos(w);
+      v.b[r] = rad * Math.sin(w);
+    }
+  }
+
+  /** Pitch bend or the strike's tension glide moved: only the rotation changes (same result as updateCoefs). */
+  private retune(v: PianoVoice): void {
+    const ratio = this.bendRatio * (v.glide ? Math.pow(2, v.glide / 1200) : 1);
+    const sr = this.sr;
+    const nyq = sr * 0.47;
+    for (let r = 0; r < v.n; r++) {
+      let f = (v.fb[r] as number) * ratio;
+      if (f > nyq) f = nyq;
+      const rad = v.rad[r] as number;
       const w = (TWO_PI * f) / sr;
       v.a[r] = rad * Math.cos(w);
       v.b[r] = rad * Math.sin(w);
@@ -1103,7 +1123,7 @@ export class PianoEngine implements KeysEngine {
     // tension modulation settles: retune while the pitch glide is audible
     if (v.glide !== 0) {
       v.glide = v.glide > 0.05 ? v.glide * Math.exp(-n / (0.09 * this.sr)) : 0;
-      this.updateCoefs(v);
+      this.retune(v);
     }
     const A = this.bufA;
     const Bf = this.bufB;
@@ -1210,6 +1230,8 @@ export class PianoEngine implements KeysEngine {
         vim[k] = vim[last] as number;
         va[k] = va[last] as number;
         vb[k] = vb[last] as number;
+        v.fb[k] = v.fb[last] as number;
+        v.rad[k] = v.rad[last] as number;
         v.gin[k] = v.gin[last] as number;
         v.ginQ[k] = v.ginQ[last] as number;
         v.side[k] = v.side[last] as number;

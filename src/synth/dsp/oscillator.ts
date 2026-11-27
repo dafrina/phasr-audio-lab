@@ -150,6 +150,30 @@ export function previewSample(wf: number, t: number, pw: number, noise: Noise): 
  * waveform branch taken once per block instead of once per sample. Produces
  * exactly the same samples as calling oscSample() n times.
  */
+/**
+ * Band-limited (PolyBLEP) saw added straight into a stereo pair with gains:
+ * the same samples as renderOscBlock(WF_SAW, hq) followed by a mix pass, in
+ * one loop (unison stacks run many of these per voice).
+ */
+export function mixSawBlock(s: OscState, dt: number, outL: Float64Array, outR: Float64Array, gl: number, gr: number, n: number): void {
+  let t = s.phase;
+  for (let i = 0; i < n; i++) {
+    let v = 2 * t - 1;
+    if (t < dt) {
+      const x = t / dt;
+      v -= x + x - x * x - 1;
+    } else if (t > 1 - dt) {
+      const x = (t - 1) / dt;
+      v -= x * x + x + x + 1;
+    }
+    outL[i] = (outL[i] as number) + v * gl;
+    outR[i] = (outR[i] as number) + v * gr;
+    t += dt;
+    if (t >= 1) t -= 1;
+  }
+  s.phase = t;
+}
+
 export function renderOscBlock(s: OscState, wf: number, dt: number, hq: boolean, pw: number, out: Float64Array, n: number): void {
   let t = s.phase;
   switch (wf) {

@@ -161,10 +161,6 @@ export const KEYS_ENGINES: Record<KeysEngineType, { label: string; description: 
 
 export const KEYS_ENGINE_TYPES = Object.keys(KEYS_ENGINES) as KeysEngineType[];
 
-export function keysSpec(engine: KeysEngineType, key: string): KeysParamSpec | undefined {
-  return KEYS_ENGINES[engine].params.find((s) => s.key === key);
-}
-
 export function defaultKeysParams(engine: KeysEngineType): Record<string, number> {
   return Object.fromEntries(KEYS_ENGINES[engine].params.map((s) => [s.key, s.default]));
 }

@@ -4,7 +4,6 @@
  * automated / sidechained via right-click), drawbars for the organ and the
  * shared keyboard strip.
  */
-import { useWindowZ } from '../common/windowStack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Save, Trash2, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
@@ -18,6 +17,7 @@ import { Meter } from '../common/Meter';
 import { Section } from '../common/controls';
 import { FINE } from '../common/HSlider';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
+import { useWindowZ } from '../common/windowStack';
 
 type KeysConfig = Extract<InstrumentConfig, { type: 'keys' }>;
 

@@ -4,7 +4,7 @@ import { exportSongMidi } from '../actions';
 import { engine } from '../../audio/engine';
 import { exportRange, type ExportRangeMode } from '../../audio/exportPlan';
 import { renderProjectToWav, type ExportResult } from '../../audio/exportRender';
-import { MP3_BITRATES, type Mp3Bitrate } from '../../audio/mp3';
+import { MP3_BITRATES, type Mp3Bitrate } from '../../audio/mp3Format';
 import { encodeMp3Async, verifyMp3, type Mp3Verification } from '../../audio/mp3Export';
 import { formatSeconds } from '../../core/time';
 import { storageEstimate, type ProjectMeta } from '../../persistence/db';

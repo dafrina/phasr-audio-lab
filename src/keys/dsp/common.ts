@@ -193,17 +193,6 @@ export class ToneFilter {
   }
 }
 
-/**
- * Exponentially decaying complex resonator: z ← p·z + g·x with p = r·e^{iω}.
- * The imaginary part is a damped sinusoid; a unit impulse gives amplitude g.
- */
-export function resonatorCoefs(freq: number, t60: number, sampleRate: number, out: { a: number; b: number }): void {
-  const r = Math.exp(-LN_1000 / Math.max(1, t60 * sampleRate));
-  const w = (TWO_PI * freq) / sampleRate;
-  out.a = r * Math.cos(w);
-  out.b = r * Math.sin(w);
-}
-
 /** Equal-power pan gains for p in [-1, 1]. */
 export function panGains(p: number, out: { l: number; r: number }): void {
   const a = ((clamp(p, -1, 1) + 1) * Math.PI) / 4;
@@ -262,6 +251,7 @@ export class HeldIds {
 }
 
 /** delay lengths (ms) of the reverb network: mutually prime-ish so the echoes don't line up */
+const FWHT_SCALE = 1 / Math.sqrt(8);
 const FDN_MS = [29.7, 37.1, 41.1, 43.7, 53.3, 59.1, 67.3, 73.1];
 
 /**
@@ -349,25 +339,37 @@ export class FdnReverb {
       this.lp[i] = l;
       t[i] = l;
     }
+    const t0 = t[0] as number;
+    const t1 = t[1] as number;
+    const t2 = t[2] as number;
+    const t3 = t[3] as number;
+    const t4 = t[4] as number;
+    const t5 = t[5] as number;
+    const t6 = t[6] as number;
+    const t7 = t[7] as number;
     // output taps: even lines left, odd lines right
-    this.outL = ((t[0] as number) + (t[2] as number) + (t[4] as number) + (t[6] as number)) * 0.5;
-    this.outR = ((t[1] as number) + (t[3] as number) + (t[5] as number) + (t[7] as number)) * 0.5;
-    // fast 8-point Walsh–Hadamard transform (orthogonal after the 1/√8 scale)
-    for (let h = 1; h < 8; h <<= 1) {
-      for (let i = 0; i < 8; i += h << 1) {
-        for (let j = i; j < i + h; j++) {
-          const a = t[j] as number;
-          const b = t[j + h] as number;
-          t[j] = a + b;
-          t[j + h] = a - b;
-        }
-      }
-    }
-    const s = 1 / Math.sqrt(8);
-    for (let i = 0; i < 8; i++) {
-      const inj = i & 1 ? inR - inL * 0.3 : inL - inR * 0.3;
-      (this.lines[i] as DelayLine).write((t[i] as number) * s * (this.gain[i] as number) + (x * 0.6 + inj * 0.4) * 0.35);
-    }
+    this.outL = (t0 + t2 + t4 + t6) * 0.5;
+    this.outR = (t1 + t3 + t5 + t7) * 0.5;
+    // fast 8-point Walsh–Hadamard transform (orthogonal after the 1/√8 scale), unrolled:
+    // pairs 1 apart, then 2 apart, then 4 apart
+    const a0 = t0 + t1, a1 = t0 - t1, a2 = t2 + t3, a3 = t2 - t3;
+    const a4 = t4 + t5, a5 = t4 - t5, a6 = t6 + t7, a7 = t6 - t7;
+    const b0 = a0 + a2, b2 = a0 - a2, b1 = a1 + a3, b3 = a1 - a3;
+    const b4 = a4 + a6, b6 = a4 - a6, b5 = a5 + a7, b7 = a5 - a7;
+    const s = FWHT_SCALE;
+    const g = this.gain;
+    const lines = this.lines;
+    // input: even lines get mostly the left channel, odd lines mostly the right
+    const inE = (x * 0.6 + (inL - inR * 0.3) * 0.4) * 0.35;
+    const inO = (x * 0.6 + (inR - inL * 0.3) * 0.4) * 0.35;
+    (lines[0] as DelayLine).write((b0 + b4) * s * (g[0] as number) + inE);
+    (lines[1] as DelayLine).write((b1 + b5) * s * (g[1] as number) + inO);
+    (lines[2] as DelayLine).write((b2 + b6) * s * (g[2] as number) + inE);
+    (lines[3] as DelayLine).write((b3 + b7) * s * (g[3] as number) + inO);
+    (lines[4] as DelayLine).write((b0 - b4) * s * (g[4] as number) + inE);
+    (lines[5] as DelayLine).write((b1 - b5) * s * (g[5] as number) + inO);
+    (lines[6] as DelayLine).write((b2 - b6) * s * (g[6] as number) + inE);
+    (lines[7] as DelayLine).write((b3 - b7) * s * (g[7] as number) + inO);
   }
 
   /** Advance the free-running modulation by `n` samples without processing (engine asleep). */

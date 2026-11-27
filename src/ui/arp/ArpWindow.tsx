@@ -19,7 +19,7 @@ import { recorder } from '../../audio/recorder';
 import { useRecordingStore } from '../../state/recordingStore';
 import { midiNoteName } from '../../core/time';
 import { useWindowZ } from '../common/windowStack';
-import { ARP_DIRECTIONS, ARP_PRESETS, ARP_RATES, SEQ_STEPS, arpPreset, defaultArp, type ArpConfig, type ArpScale, type SeqStep } from '../../arp/arp';
+import { ARP_DIRECTIONS, ARP_PRESETS, ARP_RATES, SEQ_STEPS, arpPreset, type ArpConfig, type ArpScale, type SeqStep } from '../../arp/arp';
 import { PitchLane } from './PitchLane';
 import { arpActive, bakeArp } from '../../arp/expand';
 import { getProject, updateTrack, useProjectStore } from '../../state/projectStore';
@@ -39,14 +39,6 @@ const FLASH = '#a5f3fc';
 const GATE: NumericParamSpec = { label: 'Gate', min: 0.05, max: 1, default: 0.6, curve: 'linear', format: (v) => `${Math.round(v * 100)}%` };
 const SWING: NumericParamSpec = { label: 'Swing', min: 0, max: 0.75, default: 0, curve: 'linear', format: (v) => `${Math.round(v * 100)}%` };
 
-/** Create the tool on a track (if needed) and open its window. */
-export function openArp(trackId: string): void {
-  const t = getProject().tracks.find((x) => x.id === trackId);
-  if (!t || t.kind !== 'instrument') return;
-  if (!t.arp) updateTrack(trackId, { arp: defaultArp() }, 'Add Arp-Ape-ator');
-  useUiStore.getState().set({ arpTrackId: trackId });
-}
-
 export function ArpWindow({ trackId }: { trackId: string }) {
   const win = useWindowZ('arp');
   const track = useProjectStore((s) => s.project.tracks.find((t) => t.id === trackId));
@@ -56,7 +48,6 @@ export function ArpWindow({ trackId }: { trackId: string }) {
   const [pos, setPos] = useState(() => ({ x: Math.max(8, (window.innerWidth - WIN_W) / 2), y: Math.max(56, window.innerHeight - 600) }));
   const dragWin = useRef<{ dx: number; dy: number } | null>(null);
   const velDrag = useRef<number | null>(null);
-  const [playStep, setPlayStep] = useState(-1);
   const [apeHits] = useState<ApeHits>(() => new Set());
   /** step recording: the step the next key fills, and the key the take is relative to */
   const [stepRec, setStepRec] = useState<{ cursor: number; root: number | null } | null>(null);
@@ -77,23 +68,28 @@ export function ArpWindow({ trackId }: { trackId: string }) {
   }, [track, setUi]);
   useEffect(() => root.current?.focus(), [trackId]);
 
-  // the playing step (while the song runs)
+  // the playing step (sequencer, while the song runs): its playhead overlay is shown directly,
+  // so the window doesn't re-render on every step
   const cfgRef = useRef<ArpConfig | null>(null);
   cfgRef.current = track?.arp ?? null;
   useEffect(() => {
     let raf = 0;
+    let shown: HTMLElement | null = null;
+    const show = (step: number) => {
+      const el = step >= 0 ? root.current?.querySelector<HTMLElement>(`[data-step="${step}"] > [data-playhead]`) ?? null : null;
+      if (el === shown) return;
+      if (shown) shown.style.opacity = '0';
+      if (el) el.style.opacity = el.parentElement?.dataset.on === '1' ? '0.85' : '0.14';
+      shown = el;
+    };
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const t = engine.transport;
       const c = cfgRef.current;
-      if (!t || !c || !t.isPlaying()) {
-        setPlayStep((s) => (s === -1 ? s : -1));
-        return;
-      }
+      if (!t || !c || c.mode !== 'seq' || !t.isPlaying()) return show(-1);
       const st = Math.max(1, Math.round(c.rate * PPQ));
-      const len = Math.max(1, c.length);
-      const s = Math.floor(t.getTick() / st) % len;
-      setPlayStep((p) => (p === s ? p : s));
+      const len = Math.max(1, Math.min(SEQ_STEPS, c.length));
+      show(Math.floor(t.getTick() / st) % len);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -402,7 +398,6 @@ export function ArpWindow({ trackId }: { trackId: string }) {
             )}
             <StepGrid
               cfg={cfg}
-              playStep={playStep}
               setStep={setStep}
               velDrag={velDrag}
               trackId={trackId}
@@ -435,7 +430,6 @@ export function ArpWindow({ trackId }: { trackId: string }) {
 const ROW = 'grid gap-[3px]';
 function StepGrid({
   cfg,
-  playStep,
   setStep,
   velDrag,
   recCursor,
@@ -448,7 +442,6 @@ function StepGrid({
   onSteps: (fn: (steps: SeqStep[]) => SeqStep[]) => void;
   onScale: (s: ArpScale) => void;
   cfg: ArpConfig;
-  playStep: number;
   setStep: (i: number, part: Partial<SeqStep>, key: string) => void;
   velDrag: React.MutableRefObject<number | null>;
   /** step recording: the step the next key fills (a click moves it there instead of toggling) */
@@ -486,15 +479,17 @@ function StepGrid({
             key={i}
             type="button"
             data-step={i}
+            data-on={s.on ? '1' : '0'}
             onClick={() => (recCursor !== null ? onPickRecStep(i) : setStep(i, { on: !s.on }, 'on'))}
             className={`relative h-8 rounded text-[10px] font-semibold ${i >= cfg.length ? 'opacity-25' : ''} ${i % 4 === 0 ? 'ring-1 ring-line-2' : ''}`}
             style={{
               outline: recCursor === i ? `2px solid ${REC}` : undefined,
               outlineOffset: 1,
-              background: s.on ? (i === playStep ? '#ffffff' : CYAN) : i === playStep ? '#3a4a52' : 'var(--color-panel-3, #22222e)',
+              background: s.on ? CYAN : 'var(--color-panel-3, #22222e)',
               color: s.on ? '#000' : 'var(--color-dim, #666)',
             }}
           >
+            <span data-playhead className="pointer-events-none absolute inset-0 rounded bg-white" style={{ opacity: 0 }} />
             <span data-flash className="pointer-events-none absolute inset-0 rounded" style={{ background: FLASH, opacity: 0, boxShadow: `0 0 12px ${FLASH}` }} />
             <span className="relative">{i + 1}</span>
           </button>

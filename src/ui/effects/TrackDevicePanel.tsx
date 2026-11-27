@@ -1,10 +1,9 @@
 import { ArrowRight, AudioLines, Footprints, Music, Plus, Repeat2, Send } from 'lucide-react';
 import { arpActive } from '../../arp/expand';
-import { openArp } from '../arp/ArpWindow';
+import { openArp, openSlipperizer } from '../tools/open';
 import { SendKnobs } from '../mixer/Mixer';
 import { chordToolActive, chordToolAvailable } from '../../chords/expand';
 import { keyName, progressionOf, vibeById } from '../../chords/theory';
-import { openSlipperizer } from '../chords/SlipperizerWindow';
 import { INSTRUMENTS } from '../../instruments/definitions';
 import { INSTRUMENT_UI } from '../instruments';
 import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';

@@ -262,10 +262,6 @@ export function spiceChord(iv: readonly number[], sym: string): { intervals: num
   return { intervals: [...new Set(out)].sort((a, b) => a - b), sym: name };
 }
 
-export function spiceIntervals(iv: readonly number[]): number[] {
-  return spiceChord(iv, '').intervals;
-}
-
 const SHARP = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 const FLAT = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
 /** major keys that are written with flats */

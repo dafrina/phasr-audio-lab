@@ -222,6 +222,33 @@ from 1.25× to 8.2×), switched-off effects stop processing, and a Keyforge that
 Convolution reverb is now the dominant cost of the worst case; in a realtime context Chrome runs long convolution
 partitions on a background thread, and the live 8-track/32-effect test keeps pace with wall-clock time.
 
+**Keyforge engines** (`npm run bench`, Node, one track, × realtime; the output is bit-identical before and after):
+
+| Preset (load) | Before | After |
+| --- | --- | --- |
+| Concert Grand (6-note chord every 0.5 s) | 20.7× | 28.2× |
+| Felt Piano (same) | 26.7× | 34.8× |
+| Warm Pad (6-note chord every 1 s) | 18.7× | 18.8× |
+| Supersaw Lead / Classic Tine EP / Jazz Tonewheel / Trap 808 | | 26× / 118× / 55× / 412× |
+
+The piano's strike glide and pitch bend only re-rotate the resonators instead of recomputing every partial's decay,
+and the 8-line room reverb's Hadamard mix is unrolled.
+
+**App** (headless Chromium, 8 instrument tracks playing; main-thread busy time):
+
+| Scenario | Before | After |
+| --- | --- | --- |
+| Idle | 6.9 % | 2.7 % |
+| Playing, timeline | 16.2 % | 15.3 % |
+| Playing + Arp-Ape-ator (sequencer) | 29.9 % | 17.8 % |
+| Playing + Arp-Ape-ator (arp, gorilla drumming) | 30.2 % | 23.9 % |
+| Playing + Drum Rack pattern grid | 17.2 % | 15.4 % |
+| Startup JavaScript (gzip) | 296 kB | 200 kB |
+
+Step playheads move a single overlay instead of re-rendering their window, meters skip frames that would look the
+same, the ruler is cached like the lanes, the instrument / tool windows load on demand (prefetched when idle), and
+the MP3 encoder is no longer part of the startup bundle.
+
 ## Known limitations
 
 - Audio is not time-stretched: a BPM change moves audio clips but they keep their duration.

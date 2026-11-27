@@ -26,10 +26,6 @@ export function createNote(pitch: number, start: number, length: number, velocit
   };
 }
 
-export function sortNotes(notes: MidiNote[]): MidiNote[] {
-  return [...notes].sort((a, b) => a.start - b.start || a.pitch - b.pitch);
-}
-
 /**
  * Move a set of notes by (dTicks, dPitch). The whole group is clamped so no
  * note goes before tick 0 or outside the MIDI range, keeping the group's shape.

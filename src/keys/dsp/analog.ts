@@ -29,7 +29,7 @@ import {
   type KeysEngine,
 } from './common';
 import { Envelope, EnvelopeCoefs } from '../../synth/dsp/envelope';
-import { Noise, OscState, WF_SAW, WF_SQUARE, renderOscBlock } from '../../synth/dsp/oscillator';
+import { Noise, OscState, WF_SQUARE, mixSawBlock, renderOscBlock } from '../../synth/dsp/oscillator';
 import { FILTER_LP, Svf, SvfCoefs, svfBlock } from '../../synth/dsp/svf';
 import { allocateVoice } from '../../synth/dsp/voiceAllocator';
 
@@ -385,14 +385,7 @@ export class AnalogEngine implements KeysEngine {
       bL.fill(0, 0, n);
       bR.fill(0, 0, n);
       for (let i = 0; i < u; i++) {
-        renderOscBlock(v.oscs[i] as OscState, WF_SAW, Math.min(0.45, (freq * (this.ratio[i] as number)) / sr), true, 0.5, osc, n);
-        const gl = this.gL[i] as number;
-        const gr = this.gR[i] as number;
-        for (let j = 0; j < n; j++) {
-          const x = osc[j] as number;
-          bL[j] = (bL[j] as number) + x * gl;
-          bR[j] = (bR[j] as number) + x * gr;
-        }
+        mixSawBlock(v.oscs[i] as OscState, Math.min(0.45, (freq * (this.ratio[i] as number)) / sr), bL, bR, this.gL[i] as number, this.gR[i] as number, n);
       }
       if (subLevel > 0) {
         renderOscBlock(v.sub, WF_SQUARE, Math.min(0.45, (freq * 0.5) / sr), true, 0.5, osc, n);

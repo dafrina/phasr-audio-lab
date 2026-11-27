@@ -94,11 +94,6 @@ export function setFallbackLiveKeys(h: LiveKeyHandler | null): () => void {
   };
 }
 
-/** Whether some instrument window currently owns the keyboard. */
-export function liveKeysActive(): boolean {
-  return stack.length > 0;
-}
-
 /** Register a handler for the lifetime of the component; the latest callbacks are always used.
  * `owner`: the window (windowStack id) it belongs to, so the front window gets the keys. */
 export function useLiveKeys(handler: LiveKeyHandler, owner?: string): void {

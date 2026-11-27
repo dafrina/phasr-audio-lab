@@ -2,7 +2,6 @@
  * Sampler window: drop samples, see how they cover the keyboard (keys left
  * to right, velocity bottom to top), adjust zones, play.
  */
-import { useWindowZ } from '../common/windowStack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderOpen, Play, Trash2, Upload, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
@@ -16,6 +15,7 @@ import { uiToast, useUiStore } from '../../state/uiStore';
 import { AutoKnob } from '../common/AutoKnob';
 import { Meter } from '../common/Meter';
 import { KeyboardStrip, useComputerKeyboard } from '../synth/KeyboardStrip';
+import { useWindowZ } from '../common/windowStack';
 
 type SamplerConfig = Extract<InstrumentConfig, { type: 'sampler' }>;
 

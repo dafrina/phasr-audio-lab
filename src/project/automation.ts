@@ -102,10 +102,6 @@ export function sameTarget(a: AutomationTarget, b: AutomationTarget): boolean {
   return false;
 }
 
-export function targetKey(t: AutomationTarget): string {
-  return t.kind === 'track' ? `track:${t.param}` : t.kind === 'inst' ? `inst:${t.param}` : `fx:${t.slotId}:${t.param}`;
-}
-
 /** Info (label + spec) for a lane target on a track, or null if the target no longer exists. */
 export function targetInfo(track: Track, t: AutomationTarget): (AutoParamInfo & { fullLabel: string }) | null {
   if (t.kind === 'track') {

@@ -11,7 +11,7 @@ import { uiToast, useUiStore } from '../state/uiStore';
 import { padNote } from '../drums/kit';
 import { setFallbackLiveKeys } from './liveKeys';
 import { KEY_MAP } from './synth/KeyboardStrip';
-import { KEY_PADS } from './drums/DrumRackWindow';
+import { KEY_PADS } from './drums/padKeys';
 
 function selectedInstrument(): { trackId: string; drums: boolean } | null {
   const id = useUiStore.getState().selectedTrackId;

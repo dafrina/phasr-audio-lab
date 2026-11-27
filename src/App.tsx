@@ -1,5 +1,4 @@
-import { ArpWindow } from './ui/arp/ArpWindow';
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { startAudioBridge } from './audio/bridge';
 import { useTransportStore } from './state/transportStore';
 import { useUiStore } from './state/uiStore';
@@ -8,12 +7,11 @@ import { useSelectedTrackKeys } from './ui/selectedTrackKeys';
 import { useGlobalShortcuts } from './ui/shortcuts';
 import { Arrangement } from './ui/timeline/Arrangement';
 import { Toolbar } from './ui/toolbar/Toolbar';
-import { InstrumentEditor } from './ui/instruments';
+import { ArpWindow, InstrumentEditor, SlipperizerWindow, preloadWindows } from './ui/instruments';
 import { initPersistence } from './persistence/session';
 import { BusyOverlay } from './ui/project/ProjectUI';
 import { ShortcutHelp } from './ui/common/ShortcutHelp';
 import { BottomPanel } from './ui/editor/BottomPanel';
-import { SlipperizerWindow } from './ui/chords/SlipperizerWindow';
 
 function AudioUnlockBanner() {
   const status = useTransportStore((s) => s.engineStatus);
@@ -32,6 +30,7 @@ export default function App() {
   useEffect(() => {
     startAudioBridge();
     void initPersistence();
+    preloadWindows();
   }, []);
   const synthTrackId = useUiStore((s) => s.synthTrackId);
   const chordsTrackId = useUiStore((s) => s.chordsTrackId);
@@ -43,8 +42,10 @@ export default function App() {
       <Arrangement />
       <BottomPanel />
       {synthTrackId && <InstrumentEditor trackId={synthTrackId} />}
-      {chordsTrackId && <SlipperizerWindow trackId={chordsTrackId} />}
-      {arpTrackId && <ArpWindow trackId={arpTrackId} />}
+      <Suspense fallback={null}>
+        {chordsTrackId && <SlipperizerWindow trackId={chordsTrackId} />}
+        {arpTrackId && <ArpWindow trackId={arpTrackId} />}
+      </Suspense>
       <Toasts />
       <BusyOverlay />
       <ShortcutHelp />

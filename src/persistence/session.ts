@@ -116,10 +116,6 @@ export async function takeOver(): Promise<void> {
   }
 }
 
-export function isReadOnly(): boolean {
-  return readOnly;
-}
-
 function remember(id: string): void {
   try {
     localStorage.setItem(LAST_KEY, id);

@@ -94,6 +94,7 @@ function drawGrid(g: CanvasRenderingContext2D, width: number, height: number, s:
   }
 }
 
+/** The ruler without the playhead (cached by the arrangement; drawRulerPlayhead goes on top every frame). */
 export function drawRuler(g: CanvasRenderingContext2D, width: number, height: number, s: DrawState): void {
   g.fillStyle = '#101019';
   g.fillRect(0, 0, width, height);
@@ -133,21 +134,23 @@ export function drawRuler(g: CanvasRenderingContext2D, width: number, height: nu
     g.fillStyle = 'rgba(232,232,242,0.15)';
     g.fillRect(a, 0, b - a, height - 10);
   }
-  // playhead marker
-  const px = tickToX(s.playTick, s.pxPerBeat, s.scrollX);
-  if (px >= -6 && px <= width + 6) {
-    g.fillStyle = COL.playhead;
-    g.beginPath();
-    g.moveTo(px - 5, 0);
-    g.lineTo(px + 5, 0);
-    g.lineTo(px + 5, 6);
-    g.lineTo(px, 11);
-    g.lineTo(px - 5, 6);
-    g.closePath();
-    g.fill();
-  }
   g.fillStyle = '#262638';
   g.fillRect(0, height - 1, width, 1);
+}
+
+/** The playhead marker on the ruler. */
+export function drawRulerPlayhead(g: CanvasRenderingContext2D, width: number, s: DrawState): void {
+  const px = tickToX(s.playTick, s.pxPerBeat, s.scrollX);
+  if (px < -6 || px > width + 6) return;
+  g.fillStyle = COL.playhead;
+  g.beginPath();
+  g.moveTo(px - 5, 0);
+  g.lineTo(px + 5, 0);
+  g.lineTo(px + 5, 6);
+  g.lineTo(px, 11);
+  g.lineTo(px - 5, 6);
+  g.closePath();
+  g.fill();
 }
 
 function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -275,12 +278,6 @@ export function drawClip(g: CanvasRenderingContext2D, clip: Clip, trackIndex: nu
   g.strokeStyle = selected ? '#ffffff' : hexA(color, 0.9);
   g.stroke();
   g.lineWidth = 1;
-}
-
-/** Everything on the lanes (both layers). */
-export function drawLanes(g: CanvasRenderingContext2D, width: number, height: number, s: DrawState): void {
-  drawLanesStatic(g, width, height, s);
-  drawLanesDynamic(g, width, height, s);
 }
 
 /**

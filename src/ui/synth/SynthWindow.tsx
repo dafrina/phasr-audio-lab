@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useWindowZ } from '../common/windowStack';
 import { ChevronLeft, ChevronRight, Power, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import {
@@ -23,6 +22,7 @@ import { Meter } from '../common/Meter';
 import { Section, Segmented } from '../common/controls';
 import { KeyboardStrip, useComputerKeyboard } from './KeyboardStrip';
 import { EnvelopeGraph, WaveIcon, WaveformPreview } from './visuals';
+import { useWindowZ } from '../common/windowStack';
 
 const WIN_W = 1120;
 

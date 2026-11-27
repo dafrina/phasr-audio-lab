@@ -1,5 +1,8 @@
-/** Main-thread wrapper: run the MP3 encoder in a worker (falls back to this thread if workers fail). */
-import { encodeMp3, inspectMp3, type Mp3Bitrate, type Mp3Info } from './mp3';
+/**
+ * Main-thread wrapper: run the MP3 encoder in a worker (falls back to this
+ * thread if workers fail; only then is LAME loaded here, as its own chunk).
+ */
+import { inspectMp3, type Mp3Bitrate, type Mp3Info } from './mp3Format';
 import Mp3Worker from './mp3.worker.ts?worker';
 
 export async function encodeMp3Async(left: Float32Array, right: Float32Array, sampleRate: number, kbps: Mp3Bitrate, title: string, onProgress?: (f: number) => void): Promise<Uint8Array> {
@@ -9,7 +12,10 @@ export async function encodeMp3Async(left: Float32Array, right: Float32Array, sa
   } catch {
     worker = null;
   }
-  if (!worker) return encodeMp3(left, right, { sampleRate, kbps, title, onProgress });
+  if (!worker) {
+    const { encodeMp3 } = await import('./mp3');
+    return encodeMp3(left, right, { sampleRate, kbps, title, onProgress });
+  }
   const w = worker;
   return new Promise<Uint8Array>((resolve, reject) => {
     w.onmessage = (e: MessageEvent<{ type: 'progress'; value: number } | { type: 'done'; bytes: Uint8Array } | { type: 'error'; message: string }>) => {

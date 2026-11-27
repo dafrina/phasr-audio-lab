@@ -3,8 +3,8 @@
  * undo step (optionally coalesced). Components never mutate project objects.
  */
 import { create } from 'zustand';
-import { createProject, createTrack } from '../project/defaults';
-import { MAX_TRACKS, type Clip, type InstrumentConfig, type Project, type Track, type TrackKind } from '../project/types';
+import { createProject } from '../project/defaults';
+import type { Clip, InstrumentConfig, Project, Track } from '../project/types';
 import { createHistory, pushHistory, redoHistory, replacePresent, undoHistory, type History } from './history';
 import type { TriOscPatch } from '../synth/params';
 
@@ -66,15 +66,6 @@ export function updateProjectFields(label: string, fields: Partial<Project>, coa
   commit(label, (p) => ({ ...p, ...fields }), coalesce ? { coalesce } : {});
 }
 
-export function addTrack(kind: TrackKind, instrument?: InstrumentConfig): Track | null {
-  const p = getProject();
-  if (p.tracks.length >= MAX_TRACKS) return null;
-  const track = createTrack(kind, p.tracks.length, instrument);
-  // pick an unused color
-  commit('Add track', (prev) => ({ ...prev, tracks: [...prev.tracks, track] }));
-  return track;
-}
-
 export function removeTrack(trackId: string): void {
   commit('Delete track', (p) => {
     const clips: Record<string, Clip> = {};
@@ -93,18 +84,6 @@ export function updateTrack(trackId: string, fields: Partial<Track>, label = 'Ed
     (p) => ({ ...p, tracks: p.tracks.map((t) => (t.id === trackId ? { ...t, ...fields } : t)) }),
     opts,
   );
-}
-
-export function moveTrack(trackId: string, toIndex: number): void {
-  commit('Reorder tracks', (p) => {
-    const from = p.tracks.findIndex((t) => t.id === trackId);
-    if (from < 0) return p;
-    const tracks = [...p.tracks];
-    const [t] = tracks.splice(from, 1);
-    if (!t) return p;
-    tracks.splice(Math.max(0, Math.min(tracks.length, toIndex)), 0, t);
-    return { ...p, tracks };
-  });
 }
 
 export function setInstrumentPatch(trackId: string, patch: TriOscPatch, presetName: string, opts: CommitOptions = {}): void {
@@ -147,12 +126,3 @@ export function removeClips(ids: string[]): void {
   });
 }
 
-/** Replace one clip with others (used by split). */
-export function replaceClip(id: string, replacements: Clip[], label: string): void {
-  commit(label, (p) => {
-    const next = { ...p.clips };
-    delete next[id];
-    for (const c of replacements) next[c.id] = c;
-    return { ...p, clips: next };
-  });
-}

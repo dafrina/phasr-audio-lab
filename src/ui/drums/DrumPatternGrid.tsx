@@ -38,28 +38,38 @@ export function DrumPatternGrid({ trackId, pads, onPickPad }: { trackId: string;
   const bar = ticksPerBar(ts);
   const stepsPerBar = Math.max(1, Math.round(bar / STEP));
   const [page, setPage] = useState(0);
-  const [playStep, setPlayStep] = useState(-1);
   const clipRef = useRef<MidiClip | undefined>(clip);
   clipRef.current = clip;
+  /** the playhead: one column overlay moved with a transform (no re-render per step) */
+  const playhead = useRef<HTMLDivElement>(null);
 
   const cycle = clip ? (clip.loop && clip.loopLength > 0 ? clip.loopLength : clip.length) : bar;
   const bars = Math.max(1, Math.ceil(cycle / bar));
   const pg = Math.min(page, bars - 1);
+  const pageRef = useRef({ first: 0, n: 16 });
+  pageRef.current = { first: pg * Math.max(1, Math.round(bar / STEP)), n: Math.max(1, Math.round(bar / STEP)) };
 
   useEffect(() => {
     let raf = 0;
+    let shown = -2;
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const t = engine.transport;
       const c = clipRef.current;
-      if (!t || !c || !t.isPlaying()) {
-        setPlayStep((s) => (s === -1 ? s : -1));
-        return;
+      let k = -1;
+      if (t && c && t.isPlaying()) {
+        const cyc = c.loop && c.loopLength > 0 ? c.loopLength : c.length;
+        const rel = t.getTick() - c.start;
+        const s = rel >= 0 && rel < c.length ? Math.floor((rel % cyc) / STEP) : -1;
+        const { first, n } = pageRef.current;
+        k = s >= first && s < first + n ? s - first : -1;
       }
-      const cyc = c.loop && c.loopLength > 0 ? c.loopLength : c.length;
-      const rel = t.getTick() - c.start;
-      const s = rel >= 0 && rel < c.length ? Math.floor((rel % cyc) / STEP) : -1;
-      setPlayStep((p) => (p === s ? p : s));
+      if (k === shown) return;
+      shown = k;
+      const el = playhead.current;
+      if (!el) return;
+      el.style.opacity = k < 0 ? '0' : '1';
+      if (k >= 0) el.style.transform = `translateX(calc(${k} * (100% + 3px)))`;
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -147,7 +157,22 @@ export function DrumPatternGrid({ trackId, pads, onPickPad }: { trackId: string;
         </button>
         <span className="ml-auto text-[10px] text-dim">Click: hit · Shift-click: normal → accent → ghost · Right-click: roll ×2 ×3 ×4 · {clips.length > 1 ? 'select another clip on the timeline to edit it' : 'edits this clip'}</span>
       </div>
-      <div className="flex flex-col gap-[3px] rounded-md border border-line bg-panel-2 p-2" onContextMenu={(e) => e.preventDefault()}>
+      <div className="relative flex flex-col gap-[3px] rounded-md border border-line bg-panel-2 p-2" onContextMenu={(e) => e.preventDefault()}>
+        {/* playhead column over the step cells (8px padding + 96px name column + 3px gap) */}
+        <div
+          ref={playhead}
+          className="pointer-events-none absolute z-10 rounded"
+          style={{
+            top: 6,
+            bottom: 6,
+            left: 8 + 96 + 3,
+            width: `calc((100% - ${16 + 96 + 3}px - ${(stepsPerBar - 1) * 3}px) / ${stepsPerBar})`,
+            border: '1px solid rgba(255,255,255,0.85)',
+            background: 'rgba(251,146,60,0.12)',
+            opacity: 0,
+            willChange: 'transform',
+          }}
+        />
         {Array.from({ length: DRUM_PADS }, (_, pad) => (
           <div key={pad} className="grid gap-[3px]" style={cols}>
             <button
@@ -165,7 +190,6 @@ export function DrumPatternGrid({ trackId, pads, onPickPad }: { trackId: string;
               const step = first + k;
               const mine = cellNotes(clip, pad, step);
               const vel = mine[0]?.velocity ?? 0;
-              const isPlay = step === playStep;
               const beat = k % 4 === 0;
               return (
                 <button
@@ -178,9 +202,8 @@ export function DrumPatternGrid({ trackId, pads, onPickPad }: { trackId: string;
                   }}
                   className={`relative h-[18px] rounded ${beat ? 'ring-1 ring-line-2' : ''}`}
                   style={{
-                    background: mine.length ? ACCENT : isPlay ? '#3a3326' : k % 8 < 4 ? '#1d1d27' : '#24242f',
+                    background: mine.length ? ACCENT : k % 8 < 4 ? '#1d1d27' : '#24242f',
                     opacity: mine.length ? (vel <= VEL_GHOST ? 0.45 : vel >= VEL_ACCENT ? 1 : 0.8) : 1,
-                    outline: isPlay ? '1px solid #fff' : undefined,
                   }}
                   title={mine.length ? `${pads[pad]?.name}: ${vel >= VEL_ACCENT ? 'accent' : vel <= VEL_GHOST ? 'ghost' : 'hit'}${mine.length > 1 ? ` · roll ×${mine.length}` : ''}` : undefined}
                 >

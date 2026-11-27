@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useWindowZ } from '../common/windowStack';
 import { Drum, FolderOpen, RotateCcw, Send, SlidersHorizontal, Sparkles, Split, X } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import { DRUM_CHOKE_GROUPS, DRUM_MODELS, DRUM_STYLES, DRUM_PADS, DRUM_SPECS, DRUM_VOICES, FACTORY_KITS, defaultKit, padNote } from '../../drums/kit';
@@ -18,17 +17,12 @@ import { EFFECT_LABELS } from '../../audio/effects/specs';
 import { SEND_IDS, padChainId, sendLabel } from '../../project/types';
 import { openTrackDevices } from '../../state/uiStore';
 import { splitPadToTrack } from '../actions';
+import { useWindowZ } from '../common/windowStack';
+import { KEY_PADS } from './padKeys';
 
 
 type DrumConfig = Extract<InstrumentConfig, { type: 'drumrack' }>;
 
-/** Physical keys → pad index (bottom row Z X C V = pads 1-4, like hardware). */
-export const KEY_PADS: Record<string, number> = {
-  KeyZ: 0, KeyX: 1, KeyC: 2, KeyV: 3,
-  KeyA: 4, KeyS: 5, KeyD: 6, KeyF: 7,
-  KeyQ: 8, KeyW: 9, KeyE: 10, KeyR: 11,
-  Digit1: 12, Digit2: 13, Digit3: 14, Digit4: 15,
-};
 const KEY_LABEL = ['Z', 'X', 'C', 'V', 'A', 'S', 'D', 'F', 'Q', 'W', 'E', 'R', '1', '2', '3', '4'];
 const ACCENT = '#fb923c';
 
