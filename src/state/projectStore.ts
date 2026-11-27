@@ -24,6 +24,26 @@ interface ProjectStore {
   loadProject: (p: Project) => void;
 }
 
+/**
+ * Arm and monitor aren't part of undo (they're committed without history):
+ * an undo / redo keeps them as they are now — restoring an old snapshot would
+ * otherwise disarm the track and close its input. A track the undo brings back
+ * comes back unarmed (only one track can be armed).
+ */
+function keepUnundoable(next: Project, now: Project): Project {
+  const cur = new Map(now.tracks.map((t) => [t.id, t]));
+  let changed = false;
+  const tracks = next.tracks.map((t) => {
+    const c = cur.get(t.id);
+    const armed = c ? c.armed : false;
+    const monitor = c ? c.monitor : t.monitor;
+    if (t.armed === armed && t.monitor === monitor) return t;
+    changed = true;
+    return { ...t, armed, monitor };
+  });
+  return changed ? { ...next, tracks } : next;
+}
+
 export const useProjectStore = create<ProjectStore>((set, get) => {
   const initial = createProject();
   return {
@@ -40,12 +60,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => {
       set({ history: h, project: h.present });
     },
     undo: () => {
+      const now = get().history.present;
       const h = undoHistory(get().history);
-      set({ history: h, project: h.present });
+      const p = keepUnundoable(h.present, now);
+      set({ history: { ...h, present: p }, project: p });
     },
     redo: () => {
+      const now = get().history.present;
       const h = redoHistory(get().history);
-      set({ history: h, project: h.present });
+      const p = keepUnundoable(h.present, now);
+      set({ history: { ...h, present: p }, project: p });
     },
     loadProject: (p) => {
       const h = createHistory(p);

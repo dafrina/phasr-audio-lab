@@ -48,3 +48,25 @@ describe('clip editing commands', () => {
     expect(useProjectStore.getState().project.clips[m.id]?.trackId).toBe(m.trackId);
   });
 });
+
+describe('undo and the state that is not part of it', () => {
+  it('undo/redo keep arm and monitor as they are now (an undo must not disarm a track and close its input)', () => {
+    const st = useProjectStore.getState();
+    st.loadProject(createProject());
+    const [a, b] = useProjectStore.getState().project.tracks;
+    if (!a || !b) throw new Error();
+    const tracks = () => useProjectStore.getState().project.tracks;
+    st.commit('Rename', (p) => ({ ...p, tracks: p.tracks.map((t) => (t.id === a.id ? { ...t, name: 'Vox' } : t)) }));
+    // arm and monitor: not undoable
+    st.commit('Arm', (p) => ({ ...p, tracks: p.tracks.map((t) => ({ ...t, armed: t.id === a.id, monitor: t.id === a.id })) }), { skipHistory: true });
+    useProjectStore.getState().undo();
+    expect(tracks()[0]).toMatchObject({ name: a.name, armed: true, monitor: true });
+    useProjectStore.getState().redo();
+    expect(tracks()[0]).toMatchObject({ name: 'Vox', armed: true, monitor: true });
+    // a deleted armed track brought back by undo doesn't come back armed while another one is
+    st.commit('Delete', (p) => ({ ...p, tracks: p.tracks.filter((t) => t.id !== a.id) }));
+    st.commit('Arm', (p) => ({ ...p, tracks: p.tracks.map((t) => ({ ...t, armed: t.id === b.id })) }), { skipHistory: true });
+    useProjectStore.getState().undo();
+    expect(tracks().filter((t) => t.armed).map((t) => t.id)).toEqual([b.id]);
+  });
+});
