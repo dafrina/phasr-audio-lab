@@ -124,7 +124,7 @@ export function SynthWindow({ trackId }: { trackId: string }) {
     >
       {/* ---------- header ---------- */}
       <div
-        className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
+        className="flex h-[43px] shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('button,select,input')) return;
           (e.target as Element).setPointerCapture(e.pointerId);
@@ -147,7 +147,7 @@ export function SynthWindow({ trackId }: { trackId: string }) {
         </div>
         <div className="ml-4 flex items-center gap-1">
           <button type="button" title="Previous preset" onClick={() => step(-1)} className="flex h-6 w-6 items-center justify-center rounded bg-panel-3 hover:bg-line-2">
-            <ChevronLeft size={13} />
+            <ChevronLeft size={15} />
           </button>
           <select
             value={current ? current.name : ''}
@@ -177,15 +177,15 @@ export function SynthWindow({ trackId }: { trackId: string }) {
             )}
           </select>
           <button type="button" title="Next preset" onClick={() => step(1)} className="flex h-6 w-6 items-center justify-center rounded bg-panel-3 hover:bg-line-2">
-            <ChevronRight size={13} />
+            <ChevronRight size={15} />
           </button>
           {modified && <span className="px-1 text-[10px] text-warn" title="Patch differs from the saved preset">edited</span>}
           <button type="button" title="Save as user preset" onClick={savePreset} className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 text-[11px] hover:bg-line-2">
-            <Save size={12} /> Save
+            <Save size={14} /> Save
           </button>
           {current && !current.factory && (
             <button type="button" title="Delete this user preset" onClick={deleteUserPreset} className="flex h-6 w-6 items-center justify-center rounded bg-panel-3 text-muted hover:bg-line-2 hover:text-bad">
-              <Trash2 size={12} />
+              <Trash2 size={14} />
             </button>
           )}
           <button
@@ -195,7 +195,7 @@ export function SynthWindow({ trackId }: { trackId: string }) {
 
             className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 text-[11px] hover:bg-line-2"
           >
-            <RotateCcw size={12} /> Init
+            <RotateCcw size={14} /> Init
           </button>
         </div>
         <div className="ml-auto flex items-center gap-3">
@@ -212,7 +212,7 @@ export function SynthWindow({ trackId }: { trackId: string }) {
             3 → AM
           </button>
           <button type="button" title="Close (Esc)" onClick={close} className="flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-panel-3 hover:text-fg">
-            <X size={14} />
+            <X size={16} />
           </button>
         </div>
       </div>

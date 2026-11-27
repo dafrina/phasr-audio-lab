@@ -164,7 +164,7 @@ export function SamplerWindow({ trackId }: { trackId: string }) {
       className={`fixed z-40 flex flex-col overflow-hidden rounded-lg border bg-panel shadow-2xl shadow-black/70 outline-none ${dragOver ? 'border-sky-400' : 'border-line-2'}`}
     >
       <div
-        className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
+        className="flex h-[43px] shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('button,select,input')) return;
           (e.target as Element).setPointerCapture(e.pointerId);
@@ -186,7 +186,7 @@ export function SamplerWindow({ trackId }: { trackId: string }) {
           title="Bank name"
         />
         <button type="button" onClick={() => fileInput.current?.click()} disabled={busy} className="flex h-6 items-center gap-1 rounded bg-sky-500 px-2 text-[11px] font-semibold text-black hover:bg-sky-400 disabled:opacity-50">
-          <FolderOpen size={12} /> {busy ? 'Loading…' : 'Add samples…'}
+          <FolderOpen size={14} /> {busy ? 'Loading…' : 'Add samples…'}
         </button>
         <input
           ref={fileInput}
@@ -209,7 +209,7 @@ export function SamplerWindow({ trackId }: { trackId: string }) {
           Mapping: {cfg.autoMap ? 'Auto' : 'Manual'}
         </button>
         <button type="button" title="Close (Esc)" onClick={close} className="ml-auto flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-panel-3 hover:text-fg">
-          <X size={14} />
+          <X size={16} />
         </button>
       </div>
 
