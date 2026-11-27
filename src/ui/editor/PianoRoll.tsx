@@ -836,7 +836,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
       }
       return handled();
     }
-    if (!mod && k === 'q') {
+    if (!mod && e.shiftKey && k === 'q') {
       doQuantize();
       return handled();
     }
@@ -871,7 +871,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
         <div className="mx-1 h-4 w-px bg-line" />
         <button
           type="button"
-          title="Quantize selected notes (or all) to the snap grid (Q)"
+          title="Quantize selected notes (or all) to the snap grid (Shift+Q)"
           onClick={doQuantize}
           className="flex h-6 items-center gap-1 rounded bg-panel-3 px-2 hover:bg-line-2"
         >

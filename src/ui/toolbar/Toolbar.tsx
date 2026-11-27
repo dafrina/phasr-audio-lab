@@ -33,7 +33,7 @@ function AutomationModeButton() {
   const set = useUiStore((s) => s.set);
   return (
     <IconButton
-      title={on ? 'Automation mode ON (A): click on a track with a shown lane to add/move points; right-click or double-click deletes' : 'Automation mode (A): draw automation on tracks (choose a lane in the track header, or right-click a knob → Automate)'}
+      title={on ? 'Automation mode ON (Shift+A): click on a track with a shown lane to add/move points; right-click or double-click deletes' : 'Automation mode (Shift+A): draw automation on tracks (choose a lane in the track header, or right-click a knob → Automate)'}
       active={on}
       activeClass="bg-[#f472b6] text-black"
       onClick={() => set({ automationMode: !on })}
@@ -201,14 +201,14 @@ export function Toolbar() {
           </IconButton>
           <RecordControls />
           <IconButton
-            title="Loop playback over the loop region (drag in the ruler to set it)"
+            title="Loop playback over the loop region (Shift+L; drag in the ruler to set it)"
             active={project.loop.enabled}
             onClick={() => updateProjectFields('Toggle loop', { loop: { ...project.loop, enabled: !project.loop.enabled } })}
           >
             <Repeat size={14} />
           </IconButton>
           <IconButton
-            title="Metronome"
+            title="Metronome (Shift+M)"
             active={project.metronome}
             onClick={() => updateProjectFields('Toggle metronome', { metronome: !project.metronome })}
           >

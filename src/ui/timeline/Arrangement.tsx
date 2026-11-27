@@ -32,6 +32,7 @@ import { drawLanesDynamic, drawLanesStatic, drawRuler, drawRulerPlayhead, laneVa
 import { EDGE_PX, HEADER_W, MAX_PX_PER_BEAT, MIN_PX_PER_BEAT, RULER_H, TRACK_H, tickToX, xToTick } from './layout';
 import { TrackHeader } from './TrackHeader';
 import { AddTrackRow } from './AddTrackRow';
+import { setTimeSelection } from './timeSelection';
 import { INSTRUMENT_TYPES, INSTRUMENTS } from '../../instruments/definitions';
 import { ContextMenu, type MenuItem } from '../common/ContextMenu';
 
@@ -273,6 +274,7 @@ export function Arrangement() {
     const hit = hitClip(project, x, y, ui.pxPerBeat, ui.scrollX);
     const additive = e.ctrlKey || e.metaKey || e.shiftKey;
     timeSel.current = null;
+    setTimeSelection(null);
     if (hit) {
       const id = hit.clip.id;
       let sel = ui.selectedClipIds;
@@ -386,6 +388,7 @@ export function Arrangement() {
         const a = snapTick(d.startTick);
         const b = snapTick(tick);
         timeSel.current = a === b ? null : { start: Math.max(0, Math.min(a, b)), end: Math.max(a, b) };
+        setTimeSelection(timeSel.current);
         dirty.current = true;
       }
     }
@@ -438,7 +441,7 @@ export function Arrangement() {
         { label: hit.clip.kind === 'midi' ? 'Open in piano roll' : 'Open in editor', shortcut: 'Dbl-click', onClick: () => openClipEditor(hit.clip.id) },
         { label: 'Rename…', onClick: () => renameClip(hit.clip.id) },
         ...(hit.clip.kind === 'midi' ? [{ label: 'Export as MIDI file (.mid)', onClick: () => exportClipMidi(hit.clip.id) }] : []),
-        { label: 'Split at playhead', shortcut: 'S', onClick: splitSelectedAtPlayhead },
+        { label: 'Split at playhead', shortcut: 'Shift+S', onClick: splitSelectedAtPlayhead },
         { label: 'Duplicate', shortcut: 'Ctrl+D', onClick: duplicateSelectedClips },
         { label: hit.clip.loop ? 'Stop looping content' : 'Loop content', shortcut: 'Ctrl+L', onClick: toggleLoopSelectedClips },
         { label: 'Copy', shortcut: 'Ctrl+C', onClick: copySelectedClips },
@@ -460,7 +463,7 @@ export function Arrangement() {
       ];
       if (timeSel.current) {
         const sel = timeSel.current;
-        items.unshift({ label: 'Set loop to selection', shortcut: 'L', onClick: () => updateProjectFields('Set loop', { loop: { enabled: true, ...sel } }) });
+        items.unshift({ label: 'Set loop to selection', shortcut: 'Shift+L', onClick: () => updateProjectFields('Set loop', { loop: { enabled: true, ...sel } }) });
       }
     }
     setMenu({ x: e.clientX, y: e.clientY, items });

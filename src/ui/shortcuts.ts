@@ -2,6 +2,7 @@
  * Global keyboard shortcuts. Ignored while typing in text fields, and keys
  * claimed by an open instrument window (see liveKeys.ts) never reach this handler.
  */
+import { getTimeSelection } from './timeline/timeSelection';
 import { useEffect } from 'react';
 import { useProjectStore, updateProjectFields, getProject } from '../state/projectStore';
 import { toggleMixer, useUiStore } from '../state/uiStore';
@@ -88,6 +89,8 @@ export function useGlobalShortcuts(): void {
       if (isTypingTarget(e.target)) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      // song commands are Shift + letter, always (plain letters play notes; Ctrl/Cmd + letter edits)
+      const cmd = e.shiftKey && !mod && !e.altKey;
       // Inside an editor, only transport and undo/redo stay global.
       if (inOwnShortcutScope(e.target) && !(key === ' ' || key === 'enter' || (mod && (key === 'z' || key === 'y')))) return;
       if (e.repeat && (key === ' ' || key === 'r')) return;
@@ -134,22 +137,25 @@ export function useGlobalShortcuts(): void {
       } else if (key === 'delete' || key === 'backspace') {
         e.preventDefault();
         deleteSelection();
-      } else if (key === 's' && !mod) {
+      } else if (key === 's' && cmd) {
         splitSelectedAtPlayhead();
-      } else if (key === 'l' && !mod) {
+      } else if (key === 'l' && cmd) {
+        // with a time selection: loop it; otherwise loop on / off
         const p = getProject();
-        updateProjectFields('Toggle loop', { loop: { ...p.loop, enabled: !p.loop.enabled } });
-      } else if (key === 'm' && !mod) {
+        const sel = getTimeSelection();
+        if (sel && sel.end > sel.start) updateProjectFields('Set loop', { loop: { enabled: true, start: sel.start, end: sel.end } });
+        else updateProjectFields('Toggle loop', { loop: { ...p.loop, enabled: !p.loop.enabled } });
+      } else if (key === 'm' && cmd) {
         const p = getProject();
         updateProjectFields('Toggle metronome', { metronome: !p.metronome });
-      } else if (key === 'a' && !mod) {
+      } else if (key === 'a' && cmd) {
         const ui = useUiStore.getState();
         ui.set({ automationMode: !ui.automationMode });
       } else if (e.key === 'F9') {
         e.preventDefault();
         toggleMixer();
       }
-      if (key === 'r' && !mod && !e.repeat) void recorder.toggleRecord();
+      if (key === 'r' && cmd && !e.repeat) void recorder.toggleRecord();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

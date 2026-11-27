@@ -28,12 +28,12 @@ export function RecordControls() {
 
   const title =
     status === 'countIn'
-      ? 'Counting in… (click or R to cancel)'
+      ? 'Counting in… (click or Shift+R to cancel)'
       : status === 'recording'
-        ? 'Recording — click or press R to stop'
+        ? 'Recording — click or press Shift+R to stop'
         : armedTrackId
-          ? 'Record onto the armed track (R)'
-          : 'Record (R) — arm a track first (audio tracks record the input, instrument tracks record MIDI), or select one';
+          ? 'Record onto the armed track (Shift+R)'
+          : 'Record (Shift+R) — arm a track first (audio tracks record the input, instrument tracks record MIDI), or select one';
 
   return (
     <div ref={wrap} className="relative flex items-center">

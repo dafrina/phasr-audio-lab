@@ -59,7 +59,7 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   double-click any clip to open it in the resizable bottom editor. Piano roll: click (or press and hold ~150 ms) to add a
   note, a quick drag of more than 10 px on empty space selects, drag a note to move, drag the right
   edge to resize, right-click (or right-drag) to delete, Ctrl/Shift-drag marquee, Alt-drag duplicate, Ctrl+A/C/X/V/D,
-  arrows transpose/nudge, Q quantize (with strength), velocity lane painting, clip length/loop handle, Ctrl+wheel /
+  arrows transpose/nudge, Shift+Q quantize (with strength), velocity lane painting, clip length/loop handle, Ctrl+wheel /
   Alt+wheel zoom, key preview. Audio clips open a waveform editor (gain, fades, loop length, normalize, fit).
   Web MIDI input (toolbar keyboard button) plays the armed instrument track, else the open instrument window's track,
   else the selected instrument track.
@@ -96,7 +96,7 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   band-pass) with a live spectrum analyzer and the true response curve; drag nodes for frequency/gain, wheel for Q,
   double-click to add, right-click for type/slope/automate/remove.
 - **Automation:** right-click any automatable knob (all effect parameters backed by AudioParams, track volume and pan)
-  → *Automate*, or use the track header's Auto… menu. Press **A** for Automation mode to draw points on the track
+  → *Automate*, or use the track header's Auto… menu. Press **Shift+A** for Automation mode to draw points on the track
   (click add, drag move, right-click/double-click delete, Shift = no snap). Moving an automated knob writes automation
   at the playhead (recording a sweep while playing). Playback is sample-accurate via AudioParam ramps (frequencies
   ramp exponentially), across loop wraps and seeks.
@@ -150,7 +150,7 @@ allocation with click-free stealing, mono/legato/glide, sustain pedal, pitch ben
   (a new clip there) or onto empty timeline space (one new track per MIDI track; drums become a Drum Rack). Export the
   song (project menu), a clip (its context menu) or the open clip (piano roll's .mid button) as a Standard MIDI File (Slipper-izer and Arp-Ape-ator tracks export what you hear).
 - **Computer keyboard:** Z–M / Q–P play the instrument window in front (click a window to bring it forward) or, with none
-  open, the selected instrument track; Shift+letter still runs the shortcut.
+  open, the selected instrument track. Song commands are always Shift+letter, editing is Ctrl/Cmd+letter.
 - **MIDI recording:** arm an instrument track (R) and record: Web MIDI, the computer keys and the on-screen keyboard
   play the armed track and are written into a new clip ("Keys 3 take 1"). Notes land on the timeline position you were
   hearing (input timestamps are mapped through the context's output timestamp, so output latency is compensated),
@@ -293,11 +293,17 @@ the MP3 encoder is no longer part of the startup bundle.
 
 ## Keyboard
 
-Press **?** in the app for the full list. Space play/stop · Enter stop · Ctrl+S save · Ctrl+A select all · ←→ nudge · ↑↓ move to track · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+C / V copy/paste clips · Ctrl+D duplicate ·
-Delete remove · S split at playhead · L loop on/off · Ctrl+L loop clip content · M metronome · F9 mixer · R record · A automation mode ·
-Z–M / Q–P play the instrument window in front (or the selected instrument track), [ ] octave, Esc closes the window;
-Shift+letter keeps the shortcut.
-Piano roll focused: Delete, Ctrl+A/C/X/V/D, ↑↓ transpose (Shift = octave), ←→ nudge, Q quantize, Esc deselect. Shortcuts are ignored while typing in text fields.
+Press **?** in the app for the full list. One rule: **letters play notes, Shift + letter runs a song command,
+Ctrl/Cmd + letter edits.**
+
+- Song commands: Shift+S split at playhead · Shift+R record · Shift+L loop the time selection (or loop on/off) ·
+  Shift+M metronome · Shift+A automation mode · Shift+Q quantize (piano roll).
+- Editing: Ctrl+S save · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+A select all · Ctrl+C / V copy/paste · Ctrl+D duplicate ·
+  Ctrl+L loop clip content.
+- Everywhere: Space play/stop · Enter stop · Delete remove · ←→ nudge · ↑↓ move to track (piano roll: transpose, Shift =
+  octave) · F9 mixer · ? help · Esc closes a window / deselects.
+- Notes: Z–M / Q–P play the instrument window in front (or the selected instrument track), [ ] octave. Shortcuts are
+  ignored while typing in text fields.
 
 ## Third-party code
 
