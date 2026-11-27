@@ -31,6 +31,7 @@ import phaserWorkletUrl from './worklets/phaser.worklet.ts?worker&url';
 import roomWorkletUrl from './worklets/room.worklet.ts?worker&url';
 import satGainWorkletUrl from './worklets/satgain.worklet.ts?worker&url';
 import crushWorkletUrl from './worklets/crush.worklet.ts?worker&url';
+import limiterWorkletUrl from './worklets/limiter.worklet.ts?worker&url';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
 import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
 import { withToolsExpanded } from '../arp/expand';
@@ -76,6 +77,7 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
   await ctx.audioWorklet.addModule(roomWorkletUrl);
   await ctx.audioWorklet.addModule(satGainWorkletUrl);
   await ctx.audioWorklet.addModule(crushWorkletUrl);
+  await ctx.audioWorklet.addModule(limiterWorkletUrl);
 
   // master: insert effects → volume → (safety limiter) → output. The metronome is never exported.
   const masterFx = new EffectChain(ctx, false);

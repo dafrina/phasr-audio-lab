@@ -37,6 +37,8 @@ const WORKLET_SOURCES = [
   'src/audio/saturator/AutoGainCore.ts',
   'src/audio/worklets/crush.worklet.ts',
   'src/audio/saturator/CrushCore.ts',
+  'src/audio/worklets/limiter.worklet.ts',
+  'src/audio/limiter/LimiterCore.ts',
 ];
 const FORBIDDEN = ['structuredClone(', 'setTimeout(', 'setInterval(', 'fetch(', 'requestAnimationFrame(', 'document.', 'window.', 'localStorage'];
 

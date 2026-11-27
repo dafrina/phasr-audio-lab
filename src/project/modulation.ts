@@ -115,6 +115,9 @@ export function modulatableEffectParams(track: Track, slotId: string, any = fals
     }
     case 'compressor':
       return [{ key: 'threshold', label: 'Thresh', depth: dbDepth(30, -12) }];
+    case 'limiter':
+      // drive in dB: a kick can push the level into the limiter (or pull it back)
+      return [{ key: 'drive', label: 'Drive', depth: dbDepth(24, -6) }];
     case 'delay':
       return [
         wetParam(),

@@ -17,6 +17,7 @@ import phaserWorkletUrl from './worklets/phaser.worklet.ts?worker&url';
 import roomWorkletUrl from './worklets/room.worklet.ts?worker&url';
 import satGainWorkletUrl from './worklets/satgain.worklet.ts?worker&url';
 import crushWorkletUrl from './worklets/crush.worklet.ts?worker&url';
+import limiterWorkletUrl from './worklets/limiter.worklet.ts?worker&url';
 import { ModulationRouter } from './modulation';
 import { DrumRackInstrument } from './drumRack';
 import { AssetRegistry, type LoadedAsset } from './assets';
@@ -96,6 +97,7 @@ export class AudioEngine {
       await ctx.audioWorklet.addModule(roomWorkletUrl);
       await ctx.audioWorklet.addModule(satGainWorkletUrl);
       await ctx.audioWorklet.addModule(crushWorkletUrl);
+      await ctx.audioWorklet.addModule(limiterWorkletUrl);
       this.ctx = ctx;
       this.master = buildMaster(ctx);
       this.transport = new Transport({

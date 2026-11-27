@@ -10,6 +10,8 @@ import {
   PHASER_SPECS,
   PHASER_STAGE_CHOICES,
   COMP_SPECS,
+  LIMITER_LOOKAHEADS,
+  LIMITER_SPECS,
   DELAY_DIVISIONS,
   DELAY_SPECS,
   EFFECT_LABELS,
@@ -43,6 +45,7 @@ const TYPE_COLOR: Record<EffectSlot['type'], string> = {
   autofilter: '#e879f9',
   phaser: '#34d399',
   compressor: '#facc15',
+  limiter: '#f59e0b',
   saturator: '#fb7185',
   utility: '#94a3b8',
   delay: '#4ade80',
@@ -150,6 +153,7 @@ export function EffectDevice({ trackId, slot, index, count }: { trackId: string;
             </div>
           </>
         )}
+        {slot.type === 'limiter' && <LimiterBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'utility' && <UtilityBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'saturator' && <SaturatorBody trackId={trackId} slot={slot} color={color} set={set} />}
         {slot.type === 'delay' && <DelayBody trackId={trackId} slot={slot} color={color} set={set} />}
@@ -493,6 +497,42 @@ function AutoFilterBody({ trackId, slot, color, set }: { trackId: string; slot: 
   );
 }
 
+/** Limiter: gain reduction, Drive / Ceiling / Release and the lookahead. */
+function LimiterBody({ trackId, slot, color, set }: { trackId: string; slot: Extract<EffectSlot, { type: 'limiter' }>; color: string; set: (p: Partial<EffectSlot['params']>, k: string) => void }) {
+  const p = slot.params;
+  const knob = (key: 'drive' | 'ceiling' | 'release', title: string) => (
+    <div title={title}>
+      <AutoKnob trackId={trackId} target={{ kind: 'fx', slotId: slot.id, param: key }} spec={LIMITER_SPECS[key]} value={p[key]} color={color} onChange={(v) => set({ [key]: v }, key)} />
+    </div>
+  );
+  return (
+    <>
+      <GainReduction trackId={trackId} slotId={slot.id} />
+      <div className="flex justify-between">
+        {knob('drive', 'Input gain into the limiter: more drive = louder, with more gain reduction')}
+        {knob('ceiling', 'The highest sample the limiter lets out (dBFS)')}
+        {knob('release', 'How fast the gain recovers after a peak (95 % of the reduction within this time). Short = louder but can distort bass; long = smoother')}
+      </div>
+      <div className="flex items-center gap-1 text-[10px]" title="Lookahead: the limiter sees peaks this early and ramps the gain down over this time. Longer = cleaner on bass, more delay (the track plays this much later while the limiter is on)">
+        <span className="text-muted">Lookahead</span>
+        <div className="inline-flex overflow-hidden rounded border border-line">
+          {LIMITER_LOOKAHEADS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => set({ lookahead: o.value }, 'lookahead')}
+              className={`px-1.5 py-0.5 ${p.lookahead === o.value ? 'font-semibold text-black' : 'bg-panel-3 text-muted hover:text-fg'}`}
+              style={p.lookahead === o.value ? { background: color } : undefined}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function PhaserBody({ trackId, slot, color, set }: { trackId: string; slot: Extract<EffectSlot, { type: 'phaser' }>; color: string; set: (p: Partial<EffectSlot['params']>, k: string) => void }) {
   const p = slot.params;
   const knob = (key: 'center' | 'depth' | 'feedback' | 'mix', k: string) => (
@@ -684,17 +724,21 @@ function EqCurve({ params, color }: { params: EqParams; color: string }) {
   );
 }
 
-/** Live gain-reduction bar read from the running DynamicsCompressorNode. */
+/** Live gain-reduction bar: the compressor's DynamicsCompressorNode or the limiter's worklet. */
 function GainReduction({ trackId, slotId }: { trackId: string; slotId: string }) {
   const bar = useRef<HTMLDivElement>(null);
   const label = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     let raf = 0;
+    let shown = '';
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const r = Math.min(0, engine.compressorReduction(trackId, slotId));
+      const text = `${r.toFixed(1)} dB`;
+      if (text === shown) return; // the same as last frame: no DOM work
+      shown = text;
       if (bar.current) bar.current.style.width = `${Math.min(100, (-r / 24) * 100)}%`;
-      if (label.current) label.current.textContent = `${r.toFixed(1)} dB`;
+      if (label.current) label.current.textContent = text;
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);

@@ -5,7 +5,7 @@
  * busy score: chords past the polyphony limit (voice steals), sustain, bends.
  *
  * Findings (see README › Performance): the effect cores (phaser, Lo-Fi, auto
- * gain, modulation source) allocate nothing. The instrument cores and Reverb
+ * gain, modulation source, limiter) allocate nothing. The instrument cores and Reverb
  * Lite allocate no buffers or objects of their own, but V8 boxes floating-point
  * values passed to (or returned from) functions it does not inline, e.g. the
  * two samples handed to FdnReverb.process() on every frame (exactly 32 B per
@@ -25,6 +25,7 @@ import { PhaserCore } from '../src/audio/phaser/PhaserCore';
 import { ModSourceCore } from '../src/audio/modsource/ModSourceCore';
 import { CrushCore } from '../src/audio/saturator/CrushCore';
 import { AutoGainCore } from '../src/audio/saturator/AutoGainCore';
+import { LimiterCore } from '../src/audio/limiter/LimiterCore';
 import { FACTORY_PRESETS } from '../src/synth/presets';
 
 const SR = 48000;
@@ -107,18 +108,21 @@ describe('DSP allocation per block', () => {
     check('room', await bytesPerBlock((b) => (fill(b), room.process(x, x, l, r, p))), 6500);
   });
 
-  it('effect cores that allocate nothing: phaser, Lo-Fi, auto gain, modulation source', async () => {
+  it('effect cores that allocate nothing: phaser, Lo-Fi, auto gain, modulation source, limiter', async () => {
     const phaser = new PhaserCore(SR, 8);
     const pp = { rate: 0.7, depth: 0.8, center: 900, shift: 0.1, feedback: 0.6, stereo: 0.5 };
     const crush = new CrushCore(SR);
     const gain = new AutoGainCore(SR);
     const mod = new ModSourceCore(SR, { mode: 'audio', attack: 0.005, release: 0.1, threshold: -30, hold: 0.02, invert: false });
+    const lim = new LimiterCore(SR);
     const out = new Float32Array(B);
     // (sampling at 32 B: a few bytes per block is sampling noise, one object per block is ≥ 16)
     check('phaser', await bytesPerBlock((b) => (fill(b), phaser.process(x, x, l, r, pp))), 8);
     check('crush', await bytesPerBlock((b) => (fill(b), crush.process(x, x, l, r, 4 + (b % 8), 8000 + (b % 7) * 3000))), 8);
     check('autogain', await bytesPerBlock((b) => (fill(b), gain.process(x, x, x, x, l, r, true, 1))), 8);
     check('modsource', await bytesPerBlock((b) => (fill(b), mod.process(b * B, x, x, out))), 8);
+    // (a 4× hot signal: the limiter works on every block)
+    check('limiter', await bytesPerBlock((b) => (fill(b), lim.process(x, x, l, r, B, 0.25, 0.05))), 8);
   });
 
   it('the measurement sees a single small allocation per block', async () => {

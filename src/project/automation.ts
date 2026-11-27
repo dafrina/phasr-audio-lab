@@ -11,6 +11,7 @@ import { createId } from '../core/ids';
 import {
   AUTOFILTER_SPECS, CHORUS_SPECS, PHASER_SPECS, ROOM_SPECS, SATURATOR_SPECS, UTILITY_SPECS,
   COMP_SPECS,
+  LIMITER_SPECS,
   DELAY_SPECS,
   EFFECT_LABELS,
   EQ_SPECS,
@@ -76,6 +77,8 @@ export function automatableParams(slot: EffectSlot, any = false): AutoParamInfo[
     }
     case 'compressor':
       return (['threshold', 'ratio', 'attack', 'release', 'makeup'] as const).map((k) => ({ key: k, label: COMP_SPECS[k].label, spec: COMP_SPECS[k] }));
+    case 'limiter':
+      return (['drive', 'ceiling', 'release'] as const).map((k) => ({ key: k, label: LIMITER_SPECS[k].label, spec: LIMITER_SPECS[k] }));
     case 'delay': {
       const keys = slot.params.sync && !any ? (['feedback', 'mix'] as const) : (['time', 'feedback', 'mix'] as const);
       return keys.map((k) => ({ key: k, label: DELAY_SPECS[k].label, spec: DELAY_SPECS[k] }));

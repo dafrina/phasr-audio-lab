@@ -7,7 +7,7 @@
  * All parameter changes use setTargetAtTime smoothing to avoid zipper noise.
  */
 import { dbToGain } from '../../core/ids';
-import type { AutoFilterMode, AutoFilterParams, PhaserParams, RoomParams, SaturatorMode, SaturatorParams, UtilityParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
+import type { AutoFilterMode, AutoFilterParams, PhaserParams, RoomParams, SaturatorMode, SaturatorParams, UtilityParams, ChorusParams, CompressorParams, DelayParams, EffectSlot, EffectType, EqParams, LimiterParams, PeqBand, PeqParams, ReverbParams } from '../../project/types';
 import { parseBandKey } from '../../project/automation';
 import { generateImpulse } from './impulse';
 import { SAT_RANGE, saturatorCurve, saturatorGain } from '../saturator/shapes';
@@ -632,6 +632,92 @@ class CompressorUnit extends BaseUnit {
     super.dispose();
     this.comp.disconnect();
     this.makeup.disconnect();
+  }
+}
+
+/**
+ * Limiter: drive → (sidechain duck on the drive) → the phasr-limiter worklet
+ * (LimiterCore: lookahead brickwall, the ceiling is never passed). The audio
+ * is delayed by the lookahead while the limiter is on; switched off, the
+ * bypass passes the input untouched (so the timing moves by the lookahead).
+ * In the realtime context the worklet reports its gain reduction for the meter.
+ */
+class LimiterUnit extends BaseUnit {
+  readonly type = 'limiter' as const;
+  private readonly pre: GainNode;
+  private readonly duck: GainNode;
+  private readonly node: AudioWorkletNode;
+  private gr = 0;
+
+  constructor(ctx: BaseAudioContext, id: string) {
+    super(ctx, id);
+    this.pre = new GainNode(ctx);
+    this.duck = new GainNode(ctx, { gain: 1 });
+    const realtime = typeof AudioContext !== 'undefined' && ctx instanceof AudioContext;
+    this.node = new AudioWorkletNode(ctx, 'phasr-limiter', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: 'explicit',
+      channelInterpretation: 'speakers',
+      processorOptions: { meter: realtime },
+    });
+    if (realtime) this.node.port.onmessage = (e: MessageEvent<number>) => (this.gr = e.data);
+    this.src.connect(this.pre);
+    this.pre.connect(this.duck);
+    this.duck.connect(this.node);
+    this.node.connect(this.wet);
+  }
+
+  private param(name: 'ceiling' | 'release' | 'lookahead'): AudioParam {
+    return this.node.parameters.get(name) as AudioParam;
+  }
+
+  update(slot: EffectSlot, _bpm: number, auto: ReadonlySet<string> = NONE): void {
+    if (slot.type !== 'limiter') return;
+    const p: LimiterParams = slot.params;
+    const im = !this.initialized;
+    if (!auto.has('drive')) setParam(this.pre.gain, dbToGain(p.drive), this.ctx, im);
+    if (!auto.has('ceiling')) setParam(this.param('ceiling'), p.ceiling, this.ctx, im);
+    if (!auto.has('release')) setParam(this.param('release'), p.release, this.ctx, im);
+    // a choice, not a sweep: set at once (a change restarts the limiter)
+    const la = this.param('lookahead');
+    if (la.value !== p.lookahead) {
+      la.cancelScheduledValues(0);
+      la.value = p.lookahead;
+    }
+    this.setEnabled(slot.enabled);
+    this.initialized = true;
+  }
+
+  automationParams(key: string): ParamTarget[] {
+    switch (key) {
+      case 'drive':
+        return [{ param: this.pre.gain, map: (v) => dbToGain(v) }];
+      case 'ceiling':
+        return [{ param: this.param('ceiling'), map: (v) => Math.min(0, v) }];
+      case 'release':
+        return [{ param: this.param('release'), map: ident, exp: true }];
+      default:
+        return [];
+    }
+  }
+
+  override modulationInputs(key: string): ModInput[] {
+    return key === 'drive' ? [{ param: this.duck.gain, scale: wetDuckScale }] : [];
+  }
+
+  /** Current gain reduction in dB (≤ 0), for the UI meter (realtime only). */
+  reduction(): number {
+    return this.gr;
+  }
+
+  override dispose(): void {
+    super.dispose();
+    this.node.port.onmessage = null;
+    this.node.port.postMessage({ type: 'dispose' });
+    for (const n of [this.pre, this.duck, this.node]) n.disconnect();
   }
 }
 
@@ -1642,6 +1728,9 @@ export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: n
     case 'compressor':
       unit = new CompressorUnit(ctx, slot.id);
       break;
+    case 'limiter':
+      unit = new LimiterUnit(ctx, slot.id);
+      break;
     case 'delay':
       unit = new DelayUnit(ctx, slot.id);
       break;
@@ -1662,6 +1751,7 @@ export function createEffectUnit(ctx: BaseAudioContext, slot: EffectSlot, bpm: n
   return unit;
 }
 
+/** A unit with a gain-reduction meter (compressor, limiter). */
 export function isCompressorUnit(u: EffectUnit): u is EffectUnit & { reduction(): number } {
-  return u.type === 'compressor';
+  return u.type === 'compressor' || u.type === 'limiter';
 }

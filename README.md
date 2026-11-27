@@ -70,7 +70,12 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
   Web MIDI input (toolbar keyboard button) plays the armed instrument track, else the open instrument window's track,
   else the selected instrument track.
 - **Milestone 4 (multitrack mixing): done.** Up to 4 insert effects per track — EQ-3 (low shelf / peaking mid / high
-  shelf), Spectra EQ (below), Compressor (threshold/ratio/attack/release/makeup + live gain-reduction meter), Delay (time
+  shelf), Spectra EQ (below), Compressor (threshold/ratio/attack/release/makeup + live gain-reduction meter), **Limiter**
+  (lookahead brickwall in an AudioWorklet: drive, ceiling, release, lookahead 1.5 / 3 / 6 ms, gain-reduction meter;
+  no output sample ever exceeds the ceiling — the gain ramps down over the lookahead before a peak arrives, so fast
+  transients are caught without overshoot or clipping; release = 95 % of the reduction recovered; drive, ceiling and
+  release can be automated, drive sidechained; presets Master Safety, Loud Master, Transparent, Brickwall Smash, Drum
+  Bus Catch), Delay (time
   or tempo-synced division, feedback with damping, equal-power mix), **Reverb Pro** (convolution with a generated stereo
   room impulse shaped by decay, size, damping and early reflections, plus pre-delay, low / high cut and width on the
   tail, and a room view drawn from that impulse: floor plan with the early-reflection paths, the impulse's spectrogram
@@ -257,7 +262,7 @@ Convolution reverb is now the dominant cost of the worst case; in a realtime con
 partitions on a background thread, and the live 8-track/32-effect test keeps pace with wall-clock time.
 
 **Effects** (offline render in headless Chromium, CPU per instance per audio second, 48 kHz): Spectra EQ 0.07 %,
-Utility 0.16 %, EQ-3 / Delay 0.22 %, Compressor 0.25 %, Auto-Filter 0.29 %, Chorus 0.32 %, Phaser 0.35 %, Saturator
+Utility 0.16 %, EQ-3 / Delay 0.22 %, Compressor 0.25 %, Limiter 0.31 % (allocates nothing on the audio thread), Auto-Filter 0.29 %, Chorus 0.32 %, Phaser 0.35 %, Saturator
 1.1–1.5 % (4× oversampling; 2.5 % with split, emphasis, bias and Lo-Fi all on), Reverb Lite 0.80 % (any
 decay), Reverb Pro 3.9 % at 2.2 s and 9.4 % at 6 s of decay. Idle (8 silent instrument tracks, live context):
 4.5 % of the audio thread with no effects, 25.6 % with a Reverb Pro on each, 5.6 % with a Reverb Lite on each.
@@ -350,7 +355,13 @@ change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium i
   Synth notes that are sounding at the moment of an edit are released (not re-triggered), so a held note may cut short once.
 - MIDI recording bakes the sustain pedal into note lengths (there are no CC lanes) and doesn't record pitch bend.
   With the loop on, passes are merged into one clip.
-- The master limiter is a hard-knee `DynamicsCompressorNode` (safety only, not a brickwall).
+- The master's always-on safety limiter (the shield button) is still a hard-knee `DynamicsCompressorNode` just under
+  0 dBFS — a last resort, not a brickwall; for a brickwall put the Limiter effect last on the master (the default
+  master sound is unchanged). The Limiter catches sample peaks: between samples the reconstructed waveform can
+  overshoot slightly (no true-peak / oversampled detection), so keep the ceiling at −1 dB for lossy exports.
+- The Limiter delays its track by the lookahead (1.5–6 ms; there is no automatic delay compensation between tracks)
+  and its bypass passes the input undelayed, so switching it shifts that track by the lookahead; changing the
+  lookahead while playing restarts it (a short gap).
 - The compressor is the browser's `DynamicsCompressorNode`; its built-in automatic makeup gain is cancelled so the
   Makeup knob is literal (residual error < ~1.5 dB around the fixed 6 dB knee).
 - Master and send-channel effects can't be automated or sidechained yet.

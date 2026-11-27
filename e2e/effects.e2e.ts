@@ -8,6 +8,8 @@
  *  - effects that should change the sound do (a broken unit that passes the
  *    input through untouched is caught)
  *
+ * The Limiter's ceiling and release are checked on their own (fast transients).
+ *
  * Plus behaviour checks that need the real engine: a MIDI sidechain ducks
  * the target at the trigger, removing the route removes the duck, and
  * effect automation reaches the effect during an export.
@@ -39,7 +41,7 @@ test('every effect preset: finite, sane gain, no DC, falls silent, exact bypass'
     const load = (u: string): Promise<any> => import(/* @vite-ignore */ u);
     const { createEffectUnit } = w.__phasr;
     const specs = await load('/src/audio/effects/specs.ts');
-    const urls = await Promise.all(['phaser', 'room', 'satgain', 'crush'].map(async (n) => (await import(/* @vite-ignore */ `/src/audio/worklets/${n}.worklet.ts?worker&url`)).default as string));
+    const urls = await Promise.all(['phaser', 'room', 'satgain', 'crush', 'limiter'].map(async (n) => (await import(/* @vite-ignore */ `/src/audio/worklets/${n}.worklet.ts?worker&url`)).default as string));
     const SR = 48000;
     const BURST = 0.6;
     // input: 0.6 s of noise + a 220 Hz tone at about −12 dBFS, then silence for the tail
@@ -130,6 +132,86 @@ test('every effect preset: finite, sane gain, no DC, falls silent, exact bypass'
   for (const r of results.filter((x) => !['Flat', 'Unity', 'Clean (empty)'].includes(x.preset))) {
     expect(r.changedDb, `${r.type} / ${r.preset}: no audible effect`).toBeGreaterThan(-40);
   }
+});
+
+/**
+ * The Limiter in the real worklet (the code playback and export run): fast
+ * transients — hard-edged full-scale bursts, single-sample spikes up to +18 dB
+ * over the ceiling, a hot sweep — never put a sample above the ceiling, and the
+ * gain reduction recovers within the release time.
+ */
+test('limiter: no sample above the ceiling on fast transients; the gain recovers within the release time', async ({ page }) => {
+  await boot(page);
+  const r = await page.evaluate(async () => {
+    const { createEffectUnit } = (window as unknown as { __phasr: Record<string, any> }).__phasr;
+    const load = (u: string): Promise<any> => import(/* @vite-ignore */ u);
+    const specs = await load('/src/audio/effects/specs.ts');
+    const url = (await load('/src/audio/worklets/limiter.worklet.ts?worker&url')).default as string;
+    const SR = 48000;
+    const render = async (params: Record<string, number>, fill: (i: number, ch: number) => number, seconds: number) => {
+      const n = Math.round(seconds * SR);
+      const ctx = new OfflineAudioContext(2, n, SR);
+      await ctx.audioWorklet.addModule(url);
+      const buf = new AudioBuffer({ length: n, sampleRate: SR, numberOfChannels: 2 });
+      for (let ch = 0; ch < 2; ch++) {
+        const d = buf.getChannelData(ch);
+        for (let i = 0; i < n; i++) d[i] = fill(i, ch);
+      }
+      const src = new AudioBufferSourceNode(ctx, { buffer: buf });
+      const slot = { ...specs.createEffectSlot('limiter'), params: { ...specs.defaultParams('limiter'), ...params } };
+      const unit = createEffectUnit(ctx, slot, 120);
+      src.connect(unit.input);
+      unit.output.connect(ctx.destination);
+      src.start();
+      const out = await ctx.startRendering();
+      unit.dispose();
+      return { out: [out.getChannelData(0), out.getChannelData(1)], buf };
+    };
+    // 1. transients, every lookahead, 6 dB of drive into a −3 dB ceiling
+    let s = 0x9e3779b9;
+    const rnd = () => {
+      s ^= s << 13;
+      s ^= s >>> 17;
+      s ^= s << 5;
+      return (s >>> 0) / 4294967296;
+    };
+    const spikes = new Map<number, number>();
+    for (let k = 0; k < 300; k++) spikes.set(Math.floor(rnd() * 2 * SR) * 2 + (k % 2), (rnd() < 0.5 ? -1 : 1) * (1 + rnd() * 3));
+    const transient = (i: number, ch: number) => {
+      const t = i / SR;
+      let x = t % 0.25 > 0.1 && t % 0.25 < 0.12 ? (Math.floor(t * 2000) % 2 ? 1 : -1) : 0;
+      x += t > 0.5 ? 0.9 * Math.sin(2 * Math.PI * (60 + 4000 * t) * t) : 0;
+      return spikes.get(i * 2 + ch) ?? (ch ? -0.7 * x : x);
+    };
+    const peaks: { lookahead: number; peakDb: number }[] = [];
+    for (const lookahead of [1.5, 3, 6]) {
+      const { out } = await render({ drive: 6, ceiling: -3, release: 0.05, lookahead }, transient, 2);
+      let p = 0;
+      for (const c of out) for (let i = 0; i < c.length; i++) p = Math.max(p, Math.abs(c[i] as number));
+      peaks.push({ lookahead, peakDb: 20 * Math.log10(p) });
+    }
+    // 2. release: 0.3 s of a level that needs 12 dB of reduction, then one that needs none
+    const release = 0.1;
+    const loud = Math.round(0.3 * SR);
+    const { out } = await render({ drive: 0, ceiling: -12, release, lookahead: 3 }, (i) => (i < loud ? 1 : 0.1), 1);
+    const d = Math.round(0.003 * SR);
+    const gain = (i: number) => (out[0]![i] as number) / (i - d < loud ? 1 : 0.1);
+    const db = (g: number) => 20 * Math.log10(g);
+    const peakGr = db(gain(loud + d - 1));
+    const start = loud + 2 * d;
+    const left = (t: number) => db(gain(start + Math.round(t * SR))) / peakGr;
+    return { peaks, peakGr, third: left(release / 3), full: left(release) };
+  });
+  test.info().annotations.push({ type: 'limiter', description: `peaks ${r.peaks.map((p) => `${p.lookahead} ms ${p.peakDb.toFixed(4)} dB`).join(', ')} · GR ${r.peakGr.toFixed(2)} dB · left after release/3 ${(r.third * 100).toFixed(1)} %, after release ${(r.full * 100).toFixed(1)} %` });
+  for (const p of r.peaks) {
+    // never above the −3 dB ceiling (float32 rounding aside) — and it did limit (the input peaks at +18 dB over it)
+    expect(p.peakDb, `lookahead ${p.lookahead} ms`).toBeLessThanOrEqual(-3 + 1e-5);
+    expect(p.peakDb, `lookahead ${p.lookahead} ms`).toBeGreaterThan(-3.1);
+  }
+  expect(r.peakGr).toBeCloseTo(-12, 1);
+  expect(r.third).toBeGreaterThan(0.15);
+  expect(r.third).toBeLessThan(0.4);
+  expect(r.full).toBeLessThan(0.05);
 });
 
 test('a MIDI sidechain ducks its target on the trigger; removing the route removes the duck', async ({ page }) => {

@@ -151,7 +151,7 @@ export type InstrumentConfig =
   | { type: 'keys'; engine: KeysEngineType; params: Record<string, number>; presetName: string }
   | { type: 'sampler'; zones: SamplerZone[]; params: SamplerParams; autoMap: boolean; presetName: string };
 
-export type EffectType = 'utility' | 'eq' | 'peq' | 'compressor' | 'saturator' | 'delay' | 'reverb' | 'room' | 'chorus' | 'autofilter' | 'phaser';
+export type EffectType = 'utility' | 'eq' | 'peq' | 'compressor' | 'limiter' | 'saturator' | 'delay' | 'reverb' | 'room' | 'chorus' | 'autofilter' | 'phaser';
 
 /** Phaser: swept all-pass stages with feedback, mixed with the dry signal for moving notches. */
 export interface PhaserParams {
@@ -206,6 +206,17 @@ export interface CompressorParams {
   attack: number;
   release: number;
   makeup: number;
+}
+/** Limiter: lookahead brickwall (sample peaks never exceed the ceiling). */
+export interface LimiterParams {
+  /** input gain into the limiter, dB */
+  drive: number;
+  /** highest output sample, dBFS */
+  ceiling: number;
+  /** seconds for the gain to recover (95 % of the reduction, in dB) */
+  release: number;
+  /** ms the limiter looks ahead (and delays the audio): one of LIMITER_LOOKAHEADS */
+  lookahead: number;
 }
 export interface DelayParams {
   time: number;
@@ -330,6 +341,7 @@ export interface RoomParams {
 export type EffectSlot =
   | { id: string; enabled: boolean; type: 'eq'; params: EqParams }
   | { id: string; enabled: boolean; type: 'compressor'; params: CompressorParams }
+  | { id: string; enabled: boolean; type: 'limiter'; params: LimiterParams }
   | { id: string; enabled: boolean; type: 'delay'; params: DelayParams }
   | { id: string; enabled: boolean; type: 'reverb'; params: ReverbParams }
   | { id: string; enabled: boolean; type: 'room'; params: RoomParams }

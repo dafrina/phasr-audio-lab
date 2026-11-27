@@ -6,6 +6,7 @@
 import { createId } from '../../core/ids';
 import type {
   CompressorParams,
+  LimiterParams,
   DelayParams,
   EffectSlot,
   EffectType,
@@ -27,7 +28,7 @@ import type {
 } from '../../project/types';
 import type { NumericParamSpec } from '../../synth/params';
 
-export const EFFECT_TYPES: EffectType[] = ['utility', 'eq', 'peq', 'compressor', 'saturator', 'autofilter', 'delay', 'chorus', 'phaser', 'room', 'reverb'];
+export const EFFECT_TYPES: EffectType[] = ['utility', 'eq', 'peq', 'compressor', 'limiter', 'saturator', 'autofilter', 'delay', 'chorus', 'phaser', 'room', 'reverb'];
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
   eq: 'EQ-3',
@@ -36,6 +37,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   autofilter: 'Auto-Filter',
   phaser: 'Phaser',
   compressor: 'Compressor',
+  limiter: 'Limiter',
   saturator: 'Saturator',
   utility: 'Utility',
   delay: 'Delay',
@@ -48,6 +50,7 @@ export const EFFECT_BLURBS: Partial<Record<EffectType, string>> = {
   reverb: 'Convolution reverb: a dense, natural room rendered from a generated impulse response, with room size, damping, early reflections, tail EQ and width — the rich one, heavier on CPU (grows with decay)',
   room: 'Algorithmic room (feedback delay network): light on CPU at any decay, decay and tone can be automated and sidechained',
   utility: 'Gain, balance, stereo width (mono … extra wide) and polarity: gain staging anywhere in a chain, nearly free',
+  limiter: 'Lookahead brickwall limiter: drive the level up, no sample ever passes the ceiling; the gain ramps down before a peak arrives (the audio is delayed by the lookahead)',
   saturator: 'Drive into a waveshaper (tape, tube, overdrive, hard clip, wave folder) for warmth, grit or fuzz; auto gain keeps the level',
 };
 
@@ -70,6 +73,19 @@ export const COMP_SPECS = {
   release: { label: 'Release', min: 0.02, max: 1, default: 0.15, curve: 'exp', format: ms },
   makeup: { label: 'Makeup', min: 0, max: 24, default: 0, curve: 'linear', format: db },
 } satisfies Record<keyof CompressorParams, NumericParamSpec>;
+
+export const LIMITER_SPECS = {
+  drive: { label: 'Drive', min: 0, max: 24, default: 0, curve: 'linear', format: db },
+  ceiling: { label: 'Ceiling', min: -24, max: 0, default: -1, step: 0.1, curve: 'linear', format: db },
+  release: { label: 'Release', min: 0.005, max: 1, default: 0.1, curve: 'exp', format: ms },
+} satisfies Record<Exclude<keyof LimiterParams, 'lookahead'>, NumericParamSpec>;
+
+/** Lookahead choices (ms): longer = a gentler attack ramp (less distortion on bass), more delay. */
+export const LIMITER_LOOKAHEADS: { value: number; label: string }[] = [
+  { value: 1.5, label: '1.5 ms' },
+  { value: 3, label: '3 ms' },
+  { value: 6, label: '6 ms' },
+];
 
 export const DELAY_SPECS = {
   time: { label: 'Time', min: 0.01, max: 2, default: 0.375, curve: 'exp', format: ms },
@@ -269,6 +285,7 @@ export function mixGains(mix: number): { dry: number; wet: number } {
 export function defaultParams(type: 'eq'): EqParams;
 export function defaultParams(type: 'peq'): PeqParams;
 export function defaultParams(type: 'compressor'): CompressorParams;
+export function defaultParams(type: 'limiter'): LimiterParams;
 export function defaultParams(type: 'delay'): DelayParams;
 export function defaultParams(type: 'reverb'): ReverbParams;
 export function defaultParams(type: 'room'): RoomParams;
@@ -286,6 +303,8 @@ export function defaultParams(type: EffectType): EffectSlot['params'] {
       return defaultPeqParams();
     case 'compressor':
       return { threshold: -18, ratio: 4, attack: 0.01, release: 0.15, makeup: 0 };
+    case 'limiter':
+      return { drive: 0, ceiling: -1, release: 0.1, lookahead: 3 };
     case 'delay':
       return { time: 0.375, feedback: 0.35, mix: 0.3, sync: true, division: 0.75 };
     case 'reverb':
@@ -314,6 +333,8 @@ export function createEffectSlot(type: EffectType): EffectSlot {
       return { id, type, enabled: true, params: defaultParams('peq') };
     case 'compressor':
       return { id, type, enabled: true, params: defaultParams('compressor') };
+    case 'limiter':
+      return { id, type, enabled: true, params: defaultParams('limiter') };
     case 'delay':
       return { id, type, enabled: true, params: defaultParams('delay') };
     case 'reverb':
@@ -391,6 +412,21 @@ export function sanitizeEffect(input: unknown): EffectSlot | null {
           makeup: clampSpec(COMP_SPECS.makeup, p.makeup),
         },
       };
+    case 'limiter': {
+      const la = typeof p.lookahead === 'number' && Number.isFinite(p.lookahead) ? p.lookahead : 3;
+      const near = LIMITER_LOOKAHEADS.reduce((a, b) => (Math.abs(b.value - la) < Math.abs(a.value - la) ? b : a));
+      return {
+        id,
+        enabled,
+        type: 'limiter',
+        params: {
+          drive: clampSpec(LIMITER_SPECS.drive, p.drive),
+          ceiling: clampSpec(LIMITER_SPECS.ceiling, p.ceiling),
+          release: clampSpec(LIMITER_SPECS.release, p.release),
+          lookahead: near.value,
+        },
+      };
+    }
     case 'delay': {
       const div = typeof p.division === 'number' && DELAY_DIVISIONS.some((d) => Math.abs(d.value - (p.division as number)) < 1e-6) ? p.division : 0.75;
       return {
@@ -542,6 +578,8 @@ export function effectTailSeconds(slot: EffectSlot, bpm: number): number {
       return slot.params.preDelay + slot.params.decay + 0.05;
     case 'compressor':
       return slot.params.release;
+    case 'limiter':
+      return slot.params.lookahead / 1000; // the delay; the release only changes the level
     case 'phaser':
       return 0.05 + Math.abs(slot.params.feedback) * 0.2;
     case 'chorus': {
@@ -624,6 +662,11 @@ export const FACTORY_EFFECT_PRESETS: EffectPreset[] = [
   { name: 'Gentle Glue', type: 'compressor', factory: true, params: { threshold: -14, ratio: 2, attack: 0.03, release: 0.25, makeup: 2 } },
   { name: 'Punchy Drums', type: 'compressor', factory: true, params: { threshold: -22, ratio: 5, attack: 0.012, release: 0.09, makeup: 6 } },
   { name: 'Squash', type: 'compressor', factory: true, params: { threshold: -36, ratio: 14, attack: 0.002, release: 0.2, makeup: 12 } },
+  { name: 'Master Safety', type: 'limiter', factory: true, params: { drive: 0, ceiling: -1, release: 0.1, lookahead: 3 } },
+  { name: 'Loud Master', type: 'limiter', factory: true, params: { drive: 6, ceiling: -0.3, release: 0.08, lookahead: 3 } },
+  { name: 'Transparent', type: 'limiter', factory: true, params: { drive: 3, ceiling: -1, release: 0.3, lookahead: 6 } },
+  { name: 'Brickwall Smash', type: 'limiter', factory: true, params: { drive: 14, ceiling: -0.3, release: 0.03, lookahead: 1.5 } },
+  { name: 'Drum Bus Catch', type: 'limiter', factory: true, params: { drive: 4, ceiling: -6, release: 0.04, lookahead: 1.5 } },
   { name: 'Dotted Eighth', type: 'delay', factory: true, params: { time: 0.375, feedback: 0.4, mix: 0.3, sync: true, division: 0.75 } },
   { name: 'Slapback', type: 'delay', factory: true, params: { time: 0.09, feedback: 0.1, mix: 0.3, sync: false, division: 0.25 } },
   { name: 'Quarter Echo', type: 'delay', factory: true, params: { time: 0.5, feedback: 0.55, mix: 0.35, sync: true, division: 1 } },

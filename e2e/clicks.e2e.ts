@@ -22,7 +22,7 @@ test('switching every effect off and on again is click-free', async ({ page }) =
     const { createEffectUnit } = (window as unknown as { __phasr: Record<string, any> }).__phasr;
     const load = (u: string): Promise<any> => import(/* @vite-ignore */ u);
     const specs = await load('/src/audio/effects/specs.ts');
-    const urls = await Promise.all(['phaser', 'room', 'satgain', 'crush'].map(async (n) => (await load(`/src/audio/worklets/${n}.worklet.ts?worker&url`)).default as string));
+    const urls = await Promise.all(['phaser', 'room', 'satgain', 'crush', 'limiter'].map(async (n) => (await load(`/src/audio/worklets/${n}.worklet.ts?worker&url`)).default as string));
     const SR = 48000;
     const step = (x: Float32Array, a: number, b: number) => {
       let m = 0;
