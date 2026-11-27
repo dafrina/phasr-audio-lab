@@ -94,7 +94,7 @@ export function AddTrackRow({ count }: { count: number }) {
   };
 
   return (
-    <div className="flex justify-center pb-4 pt-8">
+    <div className="flex justify-center pb-8 pt-12">
       <button
         ref={btn}
         type="button"
