@@ -10,15 +10,10 @@ import { describe, expect, it } from 'vitest';
 import { TriOscSynth } from '../src/synth/dsp/TriOscSynth';
 import { defaultPatch, sanitizePatch } from '../src/synth/params';
 
+import { maxStep } from './clickMetric';
+
 const SR = 48000;
 const BLOCK = 128;
-
-/** largest |x[n] − x[n−1]| between two times (seconds) */
-export function maxStep(x: Float32Array, from: number, to: number): number {
-  let m = 0;
-  for (let i = Math.max(1, Math.round(from * SR)); i < Math.min(x.length, Math.round(to * SR)); i++) m = Math.max(m, Math.abs((x[i] as number) - (x[i - 1] as number)));
-  return m;
-}
 
 /** step around `at` relative to the steady signal just before and after it */
 function clickRatio(x: Float32Array, at: number, win = 0.03): number {
