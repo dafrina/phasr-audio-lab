@@ -110,3 +110,57 @@ test('removing a volume automation lane during playback returns the fader to its
   expect(r.again).toBeLessThan(0.01);
   expect(r.off).toBeCloseTo(1, 2);
 });
+
+/**
+ * Drum pad sends follow the track fader: also when the fader is automated or
+ * ducked by a sidechain (the README: pad sends go "after the pad's EQ, then
+ * the track fader and mute"). They used to keep sending at the static level.
+ */
+test('drum pad sends follow the track volume automation and sidechain ducking', async ({ page }) => {
+  await openApp(page);
+  const r = await page.evaluate(async () => {
+    const { TrackChannel } = (window as unknown as { __phasr: Record<string, any> }).__phasr;
+    const load = (u: string): Promise<any> => import(/* @vite-ignore */ u);
+    const { DrumRackInstrument } = await load('/src/audio/drumRack.ts');
+    const { defaultKit } = await load('/src/drums/kit.ts');
+    const SR = 48000;
+    const run = async (how: 'plain' | 'automated' | 'ducked') => {
+      const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.round(0.3 * SR), sampleRate: SR });
+      const dc = new AudioBuffer({ length: SR, numberOfChannels: 1, sampleRate: SR });
+      dc.getChannelData(0).fill(1);
+      // left = the track's own output, right = Send A
+      const merger = new ChannelMergerNode(ctx, { numberOfInputs: 2 });
+      merger.connect(ctx.destination);
+      const dry = new GainNode(ctx);
+      dry.connect(merger, 0, 0);
+      const sendA = new GainNode(ctx);
+      sendA.connect(merger, 0, 1);
+      const kit = defaultKit();
+      kit.pads[0] = { ...kit.pads[0], source: { kind: 'sample', assetId: 'dc' }, gain: 0, pan: 0, sends: [1, 0] };
+      const volLane = { id: 'l', target: { kind: 'track', param: 'volumeDb' }, enabled: true, points: [{ id: 'p', tick: 0, value: -60 }] };
+      const track = { id: 'd', kind: 'instrument', name: 'Drums', color: '#fff', volumeDb: 0, pan: 0, mute: false, solo: false, effects: [], modulations: [], sends: [0, 0], automation: how === 'automated' ? [volLane] : [], instrument: { type: 'drumrack', kit, presetName: 'x' } };
+      const ch = new TrackChannel(ctx, track, dry, false);
+      ch.update(track, true, true);
+      ch.setSends(track.sends, [sendA, new GainNode(ctx)], true);
+      const rack = new DrumRackInstrument(ctx, kit, (id: string) => (id === 'dc' ? dc : undefined));
+      ch.attachInstrument(rack, 'drumrack');
+      const vol = { kind: 'track', param: 'volumeDb' };
+      // what the transport does for the lane, and a full-depth −60 dB "Duck from" route at its peak
+      if (how === 'automated') for (const t of ch.automationParams(vol)) t.param.setValueAtTime(t.map(-60), 0);
+      if (how === 'ducked') for (const m of ch.modulationInputs(vol)) m.param.value = 1 + m.scale(-60);
+      rack.play(0, 0.01, 1);
+      const out = await ctx.startRendering();
+      const i = Math.round(0.1 * SR);
+      return { dry: Math.abs(out.getChannelData(0)[i] as number), send: Math.abs(out.getChannelData(1)[i] as number) };
+    };
+    return { plain: await run('plain'), automated: await run('automated'), ducked: await run('ducked') };
+  });
+  // both paths carry the pad normally …
+  expect(r.plain.dry).toBeGreaterThan(0.3);
+  expect(r.plain.send).toBeGreaterThan(0.3);
+  // … and both fall silent with the fader automated down or ducked
+  for (const k of ['automated', 'ducked'] as const) {
+    expect(r[k].dry, k).toBeLessThan(0.003);
+    expect(r[k].send, k).toBeLessThan(0.003);
+  }
+});

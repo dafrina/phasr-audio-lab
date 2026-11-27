@@ -65,8 +65,13 @@ export class TrackChannel {
   private readonly realtime: boolean;
   /** post-fader send taps to the send channels (created on first use) */
   private readonly sendTaps: (GainNode | null)[] = [];
-  /** an instrument's own sends (drum pads) → track fader level → mute → send channels */
+  /**
+   * an instrument's own sends (drum pads) → track fader level → the track's sidechain duck →
+   * mute → send channels. The fader and duck stages follow the track's (automated / ducked)
+   * level: see automationParams and modulationInputs.
+   */
   private readonly instSendVol: GainNode[] = [];
+  private readonly instSendDuck: GainNode[] = [];
   private readonly instSendGate: GainNode[] = [];
   private instSendDest: (AudioNode | null)[] = [];
 
@@ -90,9 +95,12 @@ export class TrackChannel {
     this.gate.connect(this.meter.input);
     for (let k = 0; k < 2; k++) {
       const v = new GainNode(ctx, { gain: dbToGainFader(track.volumeDb) });
+      const d = new GainNode(ctx, { gain: 1 });
       const g = new GainNode(ctx, { gain: 1 });
-      v.connect(g);
+      v.connect(d);
+      d.connect(g);
       this.instSendVol.push(v);
+      this.instSendDuck.push(d);
       this.instSendGate.push(g);
     }
   }
@@ -115,7 +123,8 @@ export class TrackChannel {
       this.gate.gain.setTargetAtTime(gate, t, PARAM_SMOOTH);
     }
     for (let k = 0; k < this.instSendVol.length; k++) {
-      (this.instSendVol[k] as GainNode).gain.setTargetAtTime(vol, t, immediate ? 0.0001 : PARAM_SMOOTH);
+      // (an automated fader drives these too — see automationParams)
+      if (!autoVol) (this.instSendVol[k] as GainNode).gain.setTargetAtTime(vol, t, immediate ? 0.0001 : PARAM_SMOOTH);
       (this.instSendGate[k] as GainNode).gain.setTargetAtTime(gate, t, immediate ? 0.0001 : PARAM_SMOOTH);
     }
   }
@@ -128,8 +137,10 @@ export class TrackChannel {
   /** AudioParams a modulation route adds its signal to. */
   modulationInputs(target: AutomationTarget): ModInput[] {
     if (target.kind === 'track') {
+      // gain = 1 + env·(10^(d/20) − 1); the instrument's own sends (drum pads) duck with the track
+      const duck = (d: number) => dbToGain(d) - 1;
       return target.param === 'volumeDb'
-        ? [{ param: this.duck.gain, scale: (d) => dbToGain(d) - 1 }] // gain = 1 + env·(10^(d/20) − 1)
+        ? [this.duck, ...this.instSendDuck].map((n) => ({ param: n.gain, scale: duck }))
         : [{ param: this.panner.pan, scale: (d) => d }];
     }
     // instrument parameters are driven through the instrument itself, not AudioParams
@@ -140,8 +151,9 @@ export class TrackChannel {
   /** AudioParams driven by an automation lane target. */
   automationParams(target: AutomationTarget): ParamTarget[] {
     if (target.kind === 'track') {
+      // (the fader level of the instrument's own sends — drum pads — follows the lane too)
       return target.param === 'volumeDb'
-        ? [{ param: this.volume.gain, map: dbToGainFader }]
+        ? [this.volume, ...this.instSendVol].map((n) => ({ param: n.gain, map: dbToGainFader }))
         : [{ param: this.panner.pan, map: (v) => Math.max(-1, Math.min(1, v)) }];
     }
     if (target.kind === 'inst') return [];
@@ -325,7 +337,7 @@ export class TrackChannel {
 
   dispose(): void {
     for (const t of this.sendTaps) t?.disconnect();
-    for (const n of [...this.instSendVol, ...this.instSendGate]) n.disconnect();
+    for (const n of [...this.instSendVol, ...this.instSendDuck, ...this.instSendGate]) n.disconnect();
     this.stopSources(this.ctx.currentTime);
     this.instrument?.dispose();
     this.instrument = null;
