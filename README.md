@@ -332,7 +332,9 @@ change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium i
 
 ## Known limitations
 
-- Audio is not time-stretched: a BPM change moves audio clips but they keep their duration.
+- Audio is not time-stretched: after a BPM change audio clips keep their position and length in beats, while
+  their audio plays at its own speed — a faster tempo cuts a clip's audio shorter, a slower one leaves silence
+  after the audio ends (trim or extend the clip, or loop it, to match).
 - Notes that began before the play position are not "chased" (they don't sound mid-note on start/seek).
 - Rescheduling after an edit during playback restarts in-progress audio clips at the correct offset, with a 4 ms de-click fade.
   Synth notes that are sounding at the moment of an edit are released (not re-triggered), so a held note may cut short once.

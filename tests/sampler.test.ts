@@ -40,11 +40,14 @@ describe('Sampler: pitch detection', () => {
       }
     }
   });
-  it('gives up on noise', () => {
-    let s = 1;
-    const x = Float32Array.from({ length: 20000 }, () => ((s = (s * 16807) % 2147483647) / 2147483647) * 2 - 1);
-    const p = detectPitch(x, 44100);
-    expect(p === null || p.confidence < 0.7).toBe(true);
+  it('gives up on noise (never confident enough for the Sampler to take a root from it)', () => {
+    for (const seed of [1, 7, 42, 99, 12345]) {
+      let s = seed;
+      const x = Float32Array.from({ length: 20000 }, () => ((s = (s * 16807) % 2147483647) / 2147483647) * 2 - 1);
+      const p = detectPitch(x, 44100);
+      // the Sampler window takes a detected root above confidence 0.5
+      expect(p === null || p.confidence <= 0.5, `seed ${seed}: ${p?.confidence}`).toBe(true);
+    }
   });
   it('measures loudness for layer ordering', () => {
     const a = tone(220);

@@ -11,7 +11,7 @@
  *  6 Audio      a generated loop: source offset, fades, gain, a trimmed second clip that overlaps
  *  7 Chords     Gucci Slipper-izer on an electric piano
  *  8 Pad        Keyforge Analog pad (built-in delay / space) with Reverb Lite
- *  9 Muted      a loud track that is muted (must not be heard)
+ *  9 Muted      a loud track that is muted, sends up (must not be heard, also not via its sends)
  * 10 Drive      TriOsc lead → Utility → Saturator (split, emphasis, Lo-Fi) → Phaser
  * 11 Organ      tonewheel organ ducked by the kick (MIDI sidechain) and an auto-filter swept by the drums' audio
  * 12 Arp        TriOsc through the arpeggiator (up-down, 2 octaves), chorus + delay
@@ -250,6 +250,8 @@ export function buildGoldenProject(): Project {
   const muted = add(9, 'Muted', 'instrument', triosc('Detuned Saw'));
   muted.mute = true;
   muted.volumeDb = 0;
+  // sends up: muting must silence what it sends to the send channels too
+  muted.sends = [0.8, 0.8];
   midi(muted, 'gold-c-muted', 0, GOLDEN_BARS * BAR, [{ pitch: 84, start: 0, length: GOLDEN_BARS * BAR, velocity: 127 }]);
 
   // 10 Drive chain

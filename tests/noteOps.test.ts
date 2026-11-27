@@ -9,6 +9,7 @@ import {
   pasteNotes,
   quantizeNotes,
   resizeNotesTo,
+  MIN_NOTE_TICKS,
   scaleVelocity,
   setVelocity,
   setVelocityFrom,
@@ -23,7 +24,7 @@ describe('note operations', () => {
     const x = createNote(200, -5, 1, 300);
     expect(x.pitch).toBe(127);
     expect(x.start).toBe(0);
-    expect(x.length).toBeGreaterThanOrEqual(10);
+    expect(x.length).toBe(MIN_NOTE_TICKS); // (exactly the minimum, not just "at least 10")
     expect(x.velocity).toBe(127);
   });
 

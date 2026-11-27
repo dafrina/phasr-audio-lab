@@ -57,10 +57,19 @@ describe('automation point editing', () => {
     lane = l2;
     expect(lane.points.map((p) => p.tick)).toEqual([0, 1920]);
     expect(lane.points[1]?.value).toBe(24); // clamped to spec max
+    const first = lane.points[0]!.id;
     lane = movePoint(lane, id, -100, -3, SPEC);
     expect(lane.points.find((p) => p.id === id)).toMatchObject({ tick: 0, value: -3 });
+    // two points on one tick: the moved one comes last (a step: the value at that tick is the last point's)
+    expect(lane.points.map((p) => p.id)).toEqual([first, id]);
+    expect(valueAt(lane.points, 0)).toBe(-3);
+    // moved past another point: the order follows the ticks
+    const [l3, late] = addPoint(lane, 3840, 5, SPEC);
+    lane = movePoint(l3, late, 960, 5, SPEC);
+    lane = movePoint(lane, id, 1920, 1, SPEC);
+    expect(lane.points.map((p) => [p.tick, p.id])).toEqual([[0, first], [960, late], [1920, id]]);
     lane = deletePoint(lane, id);
-    expect(lane.points).toHaveLength(1);
+    expect(lane.points.map((p) => p.id)).toEqual([first, late]);
   });
 
   it('writes a knob sweep while playing as a clean curve', () => {
