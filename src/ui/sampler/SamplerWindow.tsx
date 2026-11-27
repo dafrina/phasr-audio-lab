@@ -9,7 +9,7 @@ import { createId } from '../../core/ids';
 import { midiNoteName } from '../../core/time';
 import { SAMPLER_SPECS } from '../../instruments/definitions';
 import type { InstrumentConfig } from '../../project/types';
-import { detectPitch, loudnessDb, mapZones, noteFromName, uncoveredKeys, type SamplerParams, type SamplerZone } from '../../sampler/zones';
+import { auditionVelocity, detectPitch, loudnessDb, mapZones, noteFromName, uncoveredKeys, type SamplerParams, type SamplerZone } from '../../sampler/zones';
 import { useProjectStore } from '../../state/projectStore';
 import { uiToast, useUiStore } from '../../state/uiStore';
 import { AutoKnob } from '../common/AutoKnob';
@@ -133,7 +133,8 @@ export function SamplerWindow({ trackId }: { trackId: string }) {
       return { ...c, autoMap: false, zones: c.zones.map((z) => { const e = m.find((x) => x.id === z.id); return e ? { ...z, lo: e.keyLo, hi: e.keyHi, velLo: e.vLo, velHi: e.vHi } : z; }) };
     });
   const audition = (z: SamplerZone) => {
-    const id = engine.previewNoteOn(trackId, z.root - Math.round(cfg.params.transpose), 0.85);
+    // at a velocity inside the sample's own layer (a fixed loud one would always pick the loudest layer)
+    const id = engine.previewNoteOn(trackId, z.root - Math.round(cfg.params.transpose), auditionVelocity(cfg, z.id));
     if (id !== null) setTimeout(() => engine.previewNoteOff(trackId, id), 700);
   };
 

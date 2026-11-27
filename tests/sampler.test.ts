@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SAMPLER_PARAMS, detectPitch, loudnessDb, mapZones, noteFromName, playbackRate, sanitizeZone, uncoveredKeys, zoneFor, type SamplerZone } from '../src/sampler/zones';
+import { DEFAULT_SAMPLER_PARAMS, auditionVelocity, detectPitch, loudnessDb, mapZones, noteFromName, playbackRate, sanitizeZone, uncoveredKeys, zoneFor, type SamplerZone } from '../src/sampler/zones';
 
 const zone = (id: string, root: number, o: Partial<SamplerZone> = {}): SamplerZone => ({ id, assetId: `a_${id}`, name: id, root, lo: 0, hi: 127, velLo: 1, velHi: 127, tune: 0, gain: 0, loudness: -20, ...o });
 
@@ -61,6 +61,24 @@ describe('Sampler: mapping and extrapolation', () => {
     expect([byRoot(60)?.keyLo, byRoot(60)?.keyHi]).toEqual([55, 66]);
     expect([byRoot(72)?.keyLo, byRoot(72)?.keyHi]).toEqual([67, 127]);
     expect(uncoveredKeys(m)).toEqual([]);
+  });
+
+  it('an uncovered velocity falls back to the zone on the right key, however far the velocity is (not a zone a key away)', () => {
+    // manual: a soft C4 (velocities 1–20) and an F#4 zone covering 61–72 at every velocity
+    const m = mapZones({
+      autoMap: false,
+      params: DEFAULT_SAMPLER_PARAMS,
+      zones: [zone('c4soft', 60, { lo: 60, hi: 60, velLo: 1, velHi: 20 }), zone('fs4', 66, { lo: 61, hi: 72, velLo: 1, velHi: 127 })],
+    });
+    expect(zoneFor(m, 60, 127)?.id).toBe('c4soft');
+    expect(zoneFor(m, 60, 10)?.id).toBe('c4soft');
+    expect(zoneFor(m, 61, 127)?.id).toBe('fs4');
+  });
+
+  it('auditioning a sample plays it at a velocity inside its own layer', () => {
+    const cfg = { autoMap: true, params: DEFAULT_SAMPLER_PARAMS, zones: [zone('ff', 60, { loudness: -6 }), zone('pp', 60, { loudness: -30 }), zone('mf', 60, { loudness: -15 })] };
+    const m = mapZones(cfg);
+    for (const id of ['pp', 'mf', 'ff']) expect(zoneFor(m, 60, Math.round(auditionVelocity(cfg, id) * 127))?.id).toBe(id);
   });
 
   it('samples sharing a root become velocity layers, quiet to loud', () => {

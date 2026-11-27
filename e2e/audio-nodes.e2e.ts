@@ -217,3 +217,28 @@ test('drum rack: chokes fade from the current level, Decay "Full" keeps long sam
   // the cancelled hit didn't choke the open one
   for (const v of r.cancelled) expect(v).toBeCloseTo(1, 2);
 });
+
+/** Sampler panic (project switch, panic button) silences every voice, also ones already releasing. */
+test('sampler panic silences voices whose release is already scheduled', async ({ page }) => {
+  await openApp(page);
+  const r = await page.evaluate(async () => {
+    const load = (u: string): Promise<any> => import(/* @vite-ignore */ u);
+    const { SamplerInstrument } = await load('/src/audio/samplerNode.ts');
+    const { DEFAULT_SAMPLER_PARAMS } = await load('/src/sampler/zones.ts');
+    const SR = 48000;
+    const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: SR, sampleRate: SR });
+    const dc = new AudioBuffer({ length: 4 * SR, numberOfChannels: 1, sampleRate: SR });
+    dc.getChannelData(0).fill(1);
+    const zone = { id: 'z', assetId: 'dc', name: 'dc', root: 60, lo: 0, hi: 127, velLo: 1, velHi: 127, tune: 0, gain: 0, loudness: -20 };
+    const cfg = { type: 'sampler', zones: [zone], params: { ...DEFAULT_SAMPLER_PARAMS, attack: 0.001, release: 3, velSens: 0 }, autoMap: true, presetName: 'x' };
+    const s = new SamplerInstrument(ctx, cfg, (id: string) => (id === 'dc' ? dc : undefined));
+    s.output.connect(ctx.destination);
+    s.noteOn(1, 60, 1, 0);
+    s.noteOff(1, 0.5); // a long release is already scheduled …
+    s.panic(); // … then panic
+    const out = (await ctx.startRendering()).getChannelData(0);
+    return { at01: Math.abs(out[Math.round(0.1 * SR)] as number), at06: Math.abs(out[Math.round(0.6 * SR)] as number), active: s.activeVoices() };
+  });
+  expect(r.at01).toBeLessThan(0.001);
+  expect(r.at06).toBeLessThan(0.001);
+});

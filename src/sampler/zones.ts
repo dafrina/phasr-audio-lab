@@ -208,7 +208,7 @@ export function mapZones(cfg: SamplerConfigData): MappedZone[] {
   roots.forEach((root, i) => {
     const prev = roots[i - 1];
     const next = roots[i + 1];
-    // split halfway; on an odd gap the extra key goes to the upper sample (pitching down sounds better)
+    // split halfway; a key exactly halfway between two roots goes to the lower sample (pitched up)
     const keyLo = prev === undefined ? 0 : Math.floor((prev + root) / 2) + 1;
     const keyHi = next === undefined ? 127 : Math.floor((root + next) / 2);
     const layers = cfg.zones.filter((z) => z.root === root).sort((a, b) => a.loudness - b.loudness || a.id.localeCompare(b.id));
@@ -232,14 +232,21 @@ export function zoneFor(mapped: readonly MappedZone[], note: number, velocity127
   for (const z of mapped) {
     const keyDist = note < z.keyLo ? z.keyLo - note : note > z.keyHi ? note - z.keyHi : 0;
     const velDist = velocity127 < z.vLo ? z.vLo - velocity127 : velocity127 > z.vHi ? velocity127 - z.vHi : 0;
-    // inside both ranges wins; then fewest keys away (pitch-shift less), then velocity, then closest root
-    const score = keyDist * 1000 + velDist * 10 + Math.abs(note - z.root) * 0.01;
+    // inside both ranges wins; then fewest keys away (pitch-shift less) — whatever the velocity
+    // distance (at most 126 · 10) — then velocity, then closest root
+    const score = keyDist * 1e6 + velDist * 10 + Math.abs(note - z.root) * 0.01;
     if (score < bestScore) {
       bestScore = score;
       best = z;
     }
   }
   return best;
+}
+
+/** Velocity (0..1) to audition a zone with: the middle of its own velocity layer. */
+export function auditionVelocity(cfg: SamplerConfigData, zoneId: string): number {
+  const z = mapZones(cfg).find((m) => m.id === zoneId);
+  return z ? (z.vLo + z.vHi) / 2 / 127 : 0.85;
 }
 
 /** Playback rate for a note on a zone (equal temperament around the root). */

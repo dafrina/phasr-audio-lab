@@ -289,7 +289,20 @@ export class SamplerInstrument implements InstrumentNode {
 
   panic(): void {
     const t = this.ctx.currentTime;
-    for (const v of this.voices.values()) this.releaseVoice(v, t, 0.01);
+    for (const v of this.voices.values()) {
+      // every voice, also ones already releasing (releaseVoice skips those: their release would ring on)
+      const g = v.gain.gain as AudioParam & { cancelAndHoldAtTime?: (t: number) => AudioParam };
+      if (typeof g.cancelAndHoldAtTime === 'function') g.cancelAndHoldAtTime(t);
+      else g.cancelScheduledValues(t);
+      g.setTargetAtTime(0, t, 0.01 / 6.9);
+      try {
+        v.src.stop(t + 0.05);
+      } catch {
+        // already stopped
+      }
+      v.released = true;
+      v.end = Math.min(v.end, t + 0.05);
+    }
     this.voices.clear();
     this.pedalHeld.clear();
     this.pedal = false;
