@@ -46,13 +46,15 @@ async function boot(page: Page) {
 const fineDiff = (a: Render, b: Render) => Math.max(0, ...a.fine.map((v, i) => (Math.max(v, b.fine[i] ?? -200) > -90 ? Math.abs(v - (b.fine[i] ?? -200)) : 0)));
 
 /** build (or take) the golden project in the page, register its generated audio, render it offline */
-async function render(page: Page, opts: { fromStore?: boolean; drop?: string } = {}): Promise<Render> {
-  return page.evaluate(async ({ fromStore, drop, GOLDEN }) => {
+async function render(page: Page, opts: { fromStore?: boolean; drop?: string; solo?: string[]; muteAllBut?: string[] } = {}): Promise<Render> {
+  return page.evaluate(async ({ fromStore, drop, solo, muteAllBut, GOLDEN }) => {
     const w = window as unknown as { __phasr: Record<string, any> };
     const { engine, projectStore, renderProjectToWav } = w.__phasr;
     const g = await import(GOLDEN);
     let project = fromStore ? projectStore.getState().project : g.buildGoldenProject();
     if (drop) project = { ...project, tracks: project.tracks.filter((t: { id: string }) => t.id !== drop) };
+    if (solo) project = { ...project, tracks: project.tracks.map((t: { id: string }) => (solo.includes(t.id) ? { ...t, solo: true } : t)) };
+    if (muteAllBut) project = { ...project, tracks: project.tracks.map((t: { id: string }) => (muteAllBut.includes(t.id) ? t : { ...t, mute: true })) };
     for (const a of g.goldenAssets()) if (!engine.assets.has(a.ref.id)) await engine.assets.decodeBytes(engine.ctx, a.bytes.slice(0), a.ref.name, a.mime, a.ref.id);
     const r = await renderProjectToWav(project, engine.assets, { sampleRate: 48000, range: 'song', tail: true, format: 'pcm16' });
     const chans: Float32Array[] = [r.audio.left, r.audio.right];
@@ -128,6 +130,21 @@ test.describe.serial('golden project', () => {
     const without = await render(page, { drop: 'gold-t9' });
     expect(without.frames).toBe(first.frames);
     expect(fineDiff(without, first)).toBeLessThan(0.001);
+  });
+
+  test('solo: soloing tracks sounds exactly like muting all the others, sends included', async ({ page }) => {
+    await boot(page);
+    // Drums (Send A 0.25) and Drive (Send B 0.3): solo must keep their sends and silence everyone else's
+    const both = ['gold-t1', 'gold-t10'];
+    const soloed = await render(page, { solo: both });
+    const others = await render(page, { muteAllBut: both });
+    expect(soloed.frames).toBe(others.frames);
+    // (the same as two renders of one project: float rounding only — renders aren't bit-identical)
+    expect(others.maxDiffToPrevious, 'solo vs mute-the-rest').not.toBeNull();
+    expect(others.maxDiffToPrevious!, `solo and mute-the-rest differ by up to ${others.maxDiffToPrevious}`).toBeLessThan(1e-6);
+    expect(fineDiff(soloed, others)).toBeLessThan(0.001);
+    // and it is really only those two: clearly quieter than the whole song
+    expect(soloed.rmsDb[0]).toBeLessThan(first.rmsDb[0] - 1);
   });
 
   test('save → reload → reopen gives the identical render', async ({ page }) => {
