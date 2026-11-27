@@ -20,6 +20,7 @@ import {
   getAsset,
   getProjectRecord,
   hasAsset,
+  isQuotaError,
   listAssetIds,
   listProjectRecords,
   openDb,
@@ -63,6 +64,8 @@ const stored = new Set<string>();
 
 let readOnly = false;
 let releaseLock: (() => void) | null = null;
+/** the project whose lock this tab holds right now */
+let lockedId: string | null = null;
 const READONLY_MSG = 'This project is open in another tab. Changes here are not saved — use “Take over” to edit it here.';
 
 function lockName(id: string): string {
@@ -71,21 +74,31 @@ function lockName(id: string): string {
 
 /** Hold the project's lock for as long as it is open here. Resolves true if acquired. */
 function acquireLock(id: string, steal = false): Promise<boolean> {
+  // already ours (reopening the same project): keep it. Releasing and asking again would race
+  // the release — the lock still looks taken, and this tab would lock itself out.
+  if (!steal && lockedId === id && releaseLock) return Promise.resolve(true);
   releaseLock?.();
   releaseLock = null;
+  lockedId = null;
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
   if (!locks) return Promise.resolve(true); // no Web Locks: single-tab behaviour
   return new Promise<boolean>((acquired) => {
+    let release: (() => void) | null = null;
     locks
       .request(lockName(id), steal ? { steal: true } : { ifAvailable: true }, async (lock) => {
         if (!lock) {
           acquired(false);
           return;
         }
+        lockedId = id;
         acquired(true);
-        await new Promise<void>((done) => (releaseLock = done));
+        await new Promise<void>((done) => (releaseLock = release = done));
       })
       .catch(() => {
+        if (releaseLock === release) {
+          releaseLock = null;
+          lockedId = null;
+        }
         // our lock was stolen by another tab that chose "Take over"
         if (getProject().id === id && !readOnly) {
           readOnly = true;
@@ -105,15 +118,28 @@ function applyLockResult(acquired: boolean): void {
   }
 }
 
-/** Claim the open project in this tab (the other tab becomes read-only). */
+/**
+ * Claim the open project in this tab (the other tab becomes read-only). The
+ * other tab may have saved since this one opened the project read-only, so
+ * this tab continues from the newest stored version — writing its own stale
+ * copy would overwrite that work. (Its read-only edits were never saved.)
+ */
 export async function takeOver(): Promise<void> {
-  const ok = await acquireLock(getProject().id, true);
-  readOnly = !ok;
-  if (ok) {
-    setP({ status: 'dirty', error: null });
-    await saveNow();
-    uiToast('info', 'This tab now owns the project; changes are saved again.');
+  const id = getProject().id;
+  if (!(await acquireLock(id, true))) return;
+  if (await getProjectRecord(id).catch(() => null)) {
+    // (a read-only tab never schedules saves, but make sure its copy can't be written on the way)
+    if (timer) clearTimeout(timer);
+    timer = null;
+    readOnly = false;
+    if (await openProject(id, { quiet: true })) uiToast('info', 'This tab now owns the project, at its latest saved version; changes are saved again.');
+    return;
   }
+  // nothing stored yet: this tab's copy is all there is
+  readOnly = false;
+  setP({ status: 'dirty', error: null });
+  await saveNow();
+  uiToast('info', 'This tab now owns the project; changes are saved again.');
 }
 
 function remember(id: string): void {
@@ -168,7 +194,7 @@ async function doSave(): Promise<void> {
     setP({ status: again ? 'dirty' : 'saved', lastSavedAt: Date.now(), error: missing.length ? `Audio not available to save: ${missing.join(', ')}` : null });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const quota = /quota/i.test(msg);
+    const quota = isQuotaError(e);
     setP({ status: 'error', error: quota ? 'Browser storage is full. Free space, delete old projects, or export an archive.' : `Saving failed: ${msg}` });
     uiToast('error', quota ? 'Could not save: browser storage is full. Export an archive to keep your work.' : `Could not save the project: ${msg}`);
   }

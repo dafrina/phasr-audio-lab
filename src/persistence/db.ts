@@ -79,12 +79,33 @@ async function store(name: string, mode: IDBTransactionMode): Promise<IDBObjectS
   return db.transaction(name, mode).objectStore(name);
 }
 
+/**
+ * Run one write and wait until its transaction has *committed*. A request's
+ * success only means it was queued: a full disk (quota) is reported as the
+ * transaction aborting afterwards, and then nothing was stored.
+ */
+async function write(name: string, op: (s: IDBObjectStore) => IDBRequest): Promise<void> {
+  const s = await store(name, 'readwrite');
+  const tx = s.transaction;
+  const committed = new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new DOMException('The write was aborted before it was stored.', 'AbortError'));
+  });
+  await Promise.all([req(op(s)), committed]);
+}
+
+/** Is this the browser saying storage is full? (By name: the message text differs between browsers.) */
+export function isQuotaError(e: unknown): boolean {
+  if (typeof DOMException !== 'undefined' && e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22)) return true;
+  return /quota/i.test(e instanceof Error ? e.message : String(e));
+}
+
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
 
 export async function putProjectRecord(rec: ProjectRecord): Promise<void> {
-  await req((await store(PROJECTS, 'readwrite')).put(rec));
+  await write(PROJECTS, (s) => s.put(rec));
 }
 
 export async function getProjectRecord(id: string): Promise<ProjectRecord | null> {
@@ -92,7 +113,7 @@ export async function getProjectRecord(id: string): Promise<ProjectRecord | null
 }
 
 export async function deleteProjectRecord(id: string): Promise<void> {
-  await req((await store(PROJECTS, 'readwrite')).delete(id));
+  await write(PROJECTS, (s) => s.delete(id));
 }
 
 export async function listProjectRecords(): Promise<ProjectMeta[]> {
@@ -143,10 +164,10 @@ export async function putAsset(a: StoredAsset): Promise<void> {
     await w.write(a.bytes);
     await w.close();
     const rec: AssetRecord = { id: a.id, mime: a.mime, size: a.bytes.byteLength, backend: 'opfs' };
-    await req((await store(ASSETS, 'readwrite')).put(rec));
+    await write(ASSETS, (s) => s.put(rec));
   } else {
     const rec: AssetRecord = { id: a.id, mime: a.mime, size: a.bytes.byteLength, backend: 'indexeddb', bytes: a.bytes };
-    await req((await store(ASSETS, 'readwrite')).put(rec));
+    await write(ASSETS, (s) => s.put(rec));
   }
 }
 
@@ -170,7 +191,7 @@ export async function deleteAsset(id: string): Promise<void> {
     const dir = await opfs();
     await dir?.removeEntry(id).catch(() => undefined);
   }
-  await req((await store(ASSETS, 'readwrite')).delete(id));
+  await write(ASSETS, (s) => s.delete(id));
 }
 
 export async function listAssetIds(): Promise<string[]> {

@@ -309,7 +309,8 @@ the MP3 encoder is no longer part of the startup bundle.
 Projects and audio live in the browser's IndexedDB for this site (and a few preferences in `localStorage`); nothing
 is uploaded. Things that can lose work:
 
-- **Eviction.** The app doesn't request persistent storage (`navigator.storage.persist()`), so the browser may
+- **Eviction.** The app asks for persistent storage (`navigator.storage.persist()`) at startup, but browsers decide
+  silently (Chrome by site engagement, Firefox may ask, Safari doesn't grant it), and without it the browser may
   clear the data under disk pressure; Safari can also delete a site's storage after 7 days of use without visiting it. Clearing
   site data, private windows and some privacy extensions remove it too.
 - **Quota.** Recordings are stored as float WAV (≈ 23 MB per stereo minute at 48 kHz). When storage is full, saving
@@ -323,7 +324,7 @@ is uploaded. Things that can lose work:
 | --- | --- | --- |
 | `npm test` | unit + integration tests (Vitest, Node): DSP, scheduling, persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
-| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound
