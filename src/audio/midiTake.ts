@@ -8,7 +8,8 @@
  *    pedal is down keeps sounding until the pedal comes up (or the same pitch
  *    is struck again).
  *  - With the loop on, positions wrap: every pass is merged into one clip
- *    (a note held across the loop end is cut at the loop end).
+ *    (a note held across the loop end is cut at the loop end). Recording can
+ *    start mid-loop: later passes fill in the part before the start point.
  *
  * Pure and deterministic (unit tested); the recorder feeds it.
  */
@@ -43,14 +44,23 @@ export class MidiTake {
   }
 
   private clampTick(tick: number): number {
-    return Math.max(this.startTick, Math.round(tick));
+    const t = Math.round(tick);
+    // With the loop on, the transport reports wrapped positions: a tick inside the loop
+    // but before the record start is a later pass, not an early note. (Count-in notes
+    // never arrive below the start: the transport holds its position until playback
+    // begins.)
+    if (this.loop && t >= this.loop.start && t < this.loop.end) return t;
+    return Math.max(this.startTick, t);
   }
 
   /** end a note, handling loop wrap-around and the minimum length */
   private close(n: LiveNote, tick: number): void {
     let end = Math.round(tick);
-    if (end <= n.start && this.loop && n.start >= this.loop.start && n.start < this.loop.end) end = this.loop.end;
+    const inLoop = this.loop && n.start >= this.loop.start && n.start < this.loop.end;
+    if (end <= n.start && inLoop) end = this.loop!.end;
     n.end = Math.max(end, n.start + MIN_LENGTH);
+    // the minimum length never carries a note past the loop end (that would grow the clip by a bar)
+    if (inLoop) n.end = Math.min(n.end, this.loop!.end);
   }
 
   noteOn(key: number, pitch: number, velocity: number, tick: number): void {

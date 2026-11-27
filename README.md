@@ -13,6 +13,7 @@ React + TypeScript (strict) + Vite + Zustand + Tailwind; audio via Web Audio API
 npm install
 npm run dev        # http://localhost:5173
 npm test           # unit tests (Vitest, Node)
+npm run test:e2e   # browser tests (Playwright + Chromium, e2e/): renders, effects, recording, cleanup
 npm run typecheck
 npm run build
 ```
