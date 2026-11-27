@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { duplicateClip, moveClip, setClipLoop, splitClip, trimClipEnd, trimClipStart } from '../src/project/clipOps';
 import { createAudioClip, createMidiClip, createProject } from '../src/project/defaults';
+import { audioSourcePosition, collectClipNotes } from '../src/audio/scheduling';
+import { ticksToSeconds } from '../src/core/time';
 import { migrateProject, ProjectFormatError } from '../src/project/migrations';
 import { PROJECT_SCHEMA_VERSION, type AudioClip, type MidiClip } from '../src/project/types';
 import { createHistory, pushHistory, redoHistory, undoHistory } from '../src/state/history';
@@ -42,6 +44,46 @@ describe('clip positioning and trimming', () => {
     expect(t.start).toBe(480);
     expect(t.notes).toHaveLength(1);
     expect(t.notes[0]?.start).toBe(480);
+  });
+
+  // what a looped clip plays on the timeline, by the scheduler's own rules
+  const heard = (c: MidiClip, from: number, to: number) => collectClipNotes(c, from, to, Infinity).map((e) => [e.onTick, e.note.pitch, e.offTick]);
+
+  it('trimming the start of a looped MIDI clip keeps every repeat where it was (shorter and longer)', () => {
+    // 4 bars long, a 1-bar loop: kick on beat 1, snare on beat 3
+    const c: MidiClip = {
+      ...createMidiClip('t1', 3840, 4 * 3840),
+      loop: true,
+      loopLength: 3840,
+      notes: [
+        { id: 'k', pitch: 36, start: 0, length: 240, velocity: 100 },
+        { id: 's', pitch: 38, start: 1920, length: 240, velocity: 100 },
+      ],
+    };
+    const end = c.start + c.length;
+    const before = heard(c, 0, end);
+    // trimmed half a beat in: everything after the new start plays as before
+    const shorter = trimClipStart(c, c.start + 480, BPM) as MidiClip;
+    expect([shorter.start, shorter.length, shorter.loopLength]).toEqual([c.start + 480, c.length - 480, 3840]);
+    expect(heard(shorter, 0, end)).toEqual(before.filter(([on]) => (on as number) >= c.start + 480));
+    // extended half a bar to the left: the pattern continues backwards
+    const longer = trimClipStart(c, c.start - 1920, BPM) as MidiClip;
+    expect(heard(longer, 0, end)).toEqual([[1920, 38, 2160], ...before]);
+    // a note crossing the new loop seam keeps its start and is cut at the seam (no extra hit)
+    const tail: MidiClip = { ...c, notes: [{ id: 'p', pitch: 60, start: 3000, length: 600, velocity: 100 }] };
+    const t2 = trimClipStart(tail, tail.start + 3200, BPM) as MidiClip;
+    expect(heard(t2, 0, end).map(([on, p]) => [on, p])).toEqual(heard(tail, tail.start + 3200, end).map(([on, p]) => [on, p]));
+  });
+
+  it('trimming the start of a looped audio clip keeps the loop region and what plays where', () => {
+    const c: AudioClip = { ...createAudioClip('t1', 'a', 'x', 3840, 4 * 3840), loop: true, loopSeconds: 2, sourceOffset: 0.5, loopStartPhase: 0 };
+    const src = (clip: AudioClip, tick: number) => audioSourcePosition(clip, ticksToSeconds(tick - clip.start, BPM));
+    for (const newStart of [3840 + 960, 3840 - 1920 /* left, past the source start */]) {
+      const t = trimClipStart(c, newStart, BPM) as AudioClip;
+      expect(t.start).toBe(newStart);
+      expect([t.sourceOffset, t.loopSeconds]).toEqual([0.5, 2]);
+      for (const tick of [Math.max(newStart, 3840), 7000, 9999, 15000]) expect(src(t, tick)).toBeCloseTo(src(c, tick < 3840 ? tick + 3840 * 2 : tick), 9);
+    }
   });
 
   it('splits audio clips with continuous source offsets', () => {

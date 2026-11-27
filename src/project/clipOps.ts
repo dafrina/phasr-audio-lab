@@ -1,7 +1,8 @@
 /**
- * Pure, non-destructive clip editing operations. They return new clip objects
- * and never touch source audio; trimming an audio clip only changes which
- * region of its asset is played.
+ * Pure clip editing operations. They return new clip objects and never touch
+ * source audio; trimming an audio clip only changes which region of its asset
+ * is played. (MIDI notes a trim or split cuts off a non-looped clip are
+ * removed from it — they don't come back when the edge is dragged out again.)
  */
 import { createId } from '../core/ids';
 import { secondsToTicks, ticksToSeconds } from '../core/time';
@@ -25,13 +26,33 @@ export function audioAvailableTicks(clip: AudioClip, assetDurationSec: number, b
 
 /**
  * Move the left edge of a clip to `newStart` (ticks), keeping the right edge
- * fixed. For audio clips the source offset shifts so the audio stays aligned
- * to the timeline; it is clamped at the start of the asset.
+ * fixed and everything that plays where it was on the timeline. For audio
+ * clips the source offset shifts with it (clamped at the start of the asset).
+ * A looping clip's content repeats, so its loop is rotated instead: the
+ * repeats stay put, and the edge can also move left past the first repeat.
  */
 export function trimClipStart(clip: Clip, newStart: number, bpm: number): Clip {
   const end = clipEnd(clip);
   let start = Math.min(Math.round(newStart), end - MIN_CLIP_TICKS);
   start = Math.max(0, start);
+  if (clip.kind === 'audio' && clip.loop && clip.loopSeconds > 0) {
+    // the loop region in the source stays; only the phase within it moves (as in splitClip)
+    const L = clip.loopSeconds;
+    const phase = (((clip.loopStartPhase + ticksToSeconds(start - clip.start, bpm)) % L) + L) % L;
+    return { ...clip, start, length: end - start, loopStartPhase: phase };
+  }
+  if (clip.kind === 'midi' && clip.loop && clip.loopLength > 0) {
+    const L = clip.loopLength;
+    const rot = ((((start - clip.start) % L) + L) % L) | 0;
+    const notes = clip.notes.map((n) => {
+      if (n.start >= L) return n; // past the loop: never plays, keep it as it is
+      const s = (n.start - rot + L) % L;
+      // it played up to the old loop seam; a note now crossing the new seam is cut there
+      // (splitting it would add a hit at every repeat)
+      return { ...n, start: s, length: Math.max(1, Math.min(n.length, L - n.start, L - s)) };
+    });
+    return { ...clip, start, length: end - start, notes };
+  }
   if (clip.kind === 'audio') {
     let delta = start - clip.start;
     let offset = clip.sourceOffset + ticksToSeconds(delta, bpm);
