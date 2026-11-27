@@ -318,22 +318,36 @@ export function stepNotes(cfg: ArpConfig, held: readonly HeldNote[], absStep: nu
   }
   // sequencer: the pattern is locked to the song grid
   const len = Math.max(1, Math.min(SEQ_STEPS, cfg.length));
+  const at = (abs: number) => cfg.steps[((abs % len) + len) % len];
   const i = ((absStep % len) + len) % len;
   const st = cfg.steps[i];
-  if (!st || !st.on) return [];
-  if (st.prob < 1 && hash01(absStep, 4243) >= st.prob) return [];
-  // how far a tie carries this note (into following tied steps)
-  let span = 1;
-  for (let k = i, guard = 0; guard < len - 1; guard++) {
-    const cur = cfg.steps[k];
-    const nx = cfg.steps[(k + 1) % len];
-    if (!cur?.tie || !nx?.on) break;
-    span++;
-    k = (k + 1) % len;
+  /** whether the step at `abs` sounds on its own: on, and its chance roll (fixed per grid position) passes */
+  const sounds = (abs: number) => {
+    const x = at(abs);
+    return !!x?.on && (x.prob >= 1 || hash01(abs, 4243) < x.prob);
+  };
+  if (!st || !sounds(absStep)) return [];
+  // Ties. Steps joined by tie flags form a chain that plays as ONE note: it starts at the first step
+  // of the chain that actually sounds (on, chance passed, keys already held) and holds to the
+  // chain's end; the later steps are continuations and don't strike (their own pitch, velocity and
+  // chance don't apply). A chain whose first step is skipped is picked up by the next step. Chains
+  // wrap across the pattern end; a pattern tied all the way round starts again at step 1 each cycle.
+  const ring = len > 1 && cfg.steps.slice(0, len).every((x) => x.on && x.tie);
+  const tiesInto = (abs: number) => {
+    const p = at(abs - 1);
+    return len > 1 && !!p?.on && p.tie && !!at(abs)?.on;
+  };
+  // walk back through the chain (not past the press of the keys, nor past step 1 of a full ring)
+  const back = Math.min(sinceChange, len - 1, ring ? i : len - 1);
+  for (let d = 1; d <= back && tiesInto(absStep - d + 1); d++) {
+    if (sounds(absStep - d)) return []; // an earlier step of this chain is already sounding
   }
-  const prev = cfg.steps[(i - 1 + len) % len];
-  // a step that a tie runs into doesn't strike again
-  if (prev?.on && prev.tie && len > 1) return [];
+  // how far the note holds: through the following tied steps (a full ring: to the end of the cycle)
+  let span = 1;
+  for (let k = absStep, guard = 0; guard < len - 1; guard++, k++) {
+    if (!tiesInto(k + 1) || (ring && ((k + 1) % len + len) % len === 0)) break;
+    span++;
+  }
   const vel = (h: HeldNote) => Math.max(1, Math.min(127, Math.round(h.velocity * (0.35 + 0.65 * st.vel) * (st.accent ? 1.25 : 1))));
   const r = Math.max(1, Math.min(4, st.ratchet));
   const out: ArpNote[] = [];
@@ -341,7 +355,12 @@ export function stepNotes(cfg: ArpConfig, held: readonly HeldNote[], absStep: nu
     const pitch = h.pitch + st.transpose;
     if (pitch < 0 || pitch > 127) continue;
     if (r > 1) {
-      for (let k = 0; k < r; k++) out.push({ pitch, offset: swing + (k * stepTicks) / r, length: Math.max(1, (stepTicks / r) * Math.min(0.9, cfg.gate)), velocity: Math.max(1, vel(h) - k * 6) });
+      const hit = (stepTicks / r) * Math.min(0.9, cfg.gate);
+      for (let k = 0; k < r; k++) {
+        // a tied roll: the last hit holds through the chain
+        const length = k === r - 1 && span > 1 ? stepTicks * (span - 1) + hit : hit;
+        out.push({ pitch, offset: swing + (k * stepTicks) / r, length: Math.max(1, length), velocity: Math.max(1, vel(h) - k * 6) });
+      }
       continue;
     }
     // slide: overlap the next step a little (mono synths glide); tie: one long note

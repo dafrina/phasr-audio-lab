@@ -137,3 +137,118 @@ describe('melody lane scales', () => {
     expect(stepNotes({ ...a, scale: 'minor' }, held, 0, 0, 240)).toEqual(stepNotes(a, held, 0, 0, 240));
   });
 });
+
+describe('ties and probability', () => {
+  const ST = 240;
+  const held: HeldNote[] = [{ pitch: 60, velocity: 100, order: 1 }];
+  /** a sequencer with `n` steps, all off unless given */
+  const seq = (n: number, steps: Record<number, Partial<ReturnType<typeof defaultStep>>>): ArpConfig => {
+    const base = defaultArp();
+    return { ...base, mode: 'seq', gate: 0.5, length: n, steps: base.steps.map((_, i) => ({ ...defaultStep(false), ...(steps[i] ? { on: true, ...steps[i] } : {}) })) };
+  };
+  /** notes per step for steps 0 … count−1 (held from step 0, as playback does) */
+  const play = (cfg: ArpConfig, count: number, from = 0) => Array.from({ length: count }, (_, k) => stepNotes(cfg, held, from + k, k, ST));
+
+  it('a tie joins steps into one note; the continuation does not strike', () => {
+    const out = play(seq(4, { 0: { tie: true }, 1: {} }), 2);
+    expect(out[0]).toHaveLength(1);
+    expect(out[0]![0]!.length).toBe(ST + ST * 0.5);
+    expect(out[1]).toHaveLength(0);
+  });
+
+  it('a skipped first step (chance 0) does not silence the tied step after it: that step strikes', () => {
+    const out = play(seq(4, { 0: { tie: true, prob: 0 }, 1: {} }), 2);
+    expect(out[0]).toHaveLength(0);
+    expect(out[1]).toHaveLength(1);
+  });
+
+  it('a skipped head hands the chain to the next step, which holds the rest', () => {
+    const out = play(seq(4, { 0: { tie: true, prob: 0 }, 1: { tie: true }, 2: {} }), 3);
+    expect(out[0]).toHaveLength(0);
+    expect(out[1]).toHaveLength(1);
+    expect(out[1]![0]!.length).toBe(ST + ST * 0.5);
+    expect(out[2]).toHaveLength(0);
+  });
+
+  it('chance 0.5 on the head: deterministic, and the next step strikes exactly when the head did not', () => {
+    const cfg = seq(2, { 0: { tie: true, prob: 0.5 }, 1: {} });
+    const a = play(cfg, 64);
+    const b = play(cfg, 64);
+    expect(a).toEqual(b);
+    let heads = 0;
+    for (let s = 0; s < 64; s += 2) {
+      const head = a[s]!.length > 0;
+      if (head) heads++;
+      expect(a[s + 1]!.length > 0, `cycle at step ${s}`).toBe(!head);
+    }
+    expect(heads).toBeGreaterThan(8);
+    expect(heads).toBeLessThan(24);
+  });
+
+  it('several ties in a row make one note across all of them', () => {
+    const out = play(seq(8, { 0: { tie: true }, 1: { tie: true }, 2: { tie: true }, 3: {} }), 4);
+    expect(out[0]![0]!.length).toBe(3 * ST + ST * 0.5);
+    expect(out.slice(1).every((o) => o.length === 0)).toBe(true);
+  });
+
+  it('a tie into a disabled step ends there; the step after strikes normally', () => {
+    const out = play(seq(4, { 0: { tie: true }, 2: {} }), 3);
+    expect(out[0]![0]!.length).toBe(ST * 0.5);
+    expect(out[2]).toHaveLength(1);
+  });
+
+  it('a tie wraps across the pattern end, but not into the time before the keys were held', () => {
+    const cfg = seq(4, { 0: {}, 3: { tie: true } });
+    // first step of the song: nothing played before it, so it strikes
+    expect(stepNotes(cfg, held, 0, 0, ST)).toHaveLength(1);
+    const out = play(cfg, 8);
+    expect(out[3]![0]!.length).toBe(ST + ST * 0.5);
+    // step 0 of the second cycle continues the wrapped tie
+    expect(out[4]).toHaveLength(0);
+  });
+
+  it('a pattern tied all the way round re-strikes at step 1 each cycle', () => {
+    const cfg = seq(4, { 0: { tie: true }, 1: { tie: true }, 2: { tie: true }, 3: { tie: true } });
+    const out = play(cfg, 12);
+    for (const s of [0, 4, 8]) {
+      expect(out[s], `step ${s}`).toHaveLength(1);
+      expect(out[s]![0]!.length).toBe(3 * ST + ST * 0.5);
+    }
+    for (const s of [1, 2, 3, 5, 6, 7, 9, 10, 11]) expect(out[s], `step ${s}`).toHaveLength(0);
+  });
+
+  it('slide on a tied step overlaps past the end of the chain', () => {
+    const out = play(seq(4, { 0: { tie: true, slide: true }, 1: {}, 2: {} }), 3);
+    expect(out[0]![0]!.length).toBeCloseTo(2 * ST * 1.15);
+    expect(out[1]).toHaveLength(0);
+    expect(out[2]).toHaveLength(1);
+  });
+
+  it('a rolled step that is tied holds its last hit through the chain (no silent gap)', () => {
+    const out = play(seq(4, { 0: { tie: true, ratchet: 2 }, 1: {} }), 2);
+    expect(out[0]).toHaveLength(2);
+    const last = out[0]![1]!;
+    expect(last.offset + last.length).toBeGreaterThan(ST * 1.4);
+    expect(out[1]).toHaveLength(0);
+  });
+
+  it('the continuation keeps the first note’s pitch (its own transpose does not apply)', () => {
+    const out = play(seq(4, { 0: { tie: true, transpose: 7 }, 1: { transpose: -5 } }), 2);
+    expect(out[0]![0]!.pitch).toBe(67);
+    expect(out[1]).toHaveLength(0);
+  });
+
+  it('live playback and clip expansion agree on every note of a tie / chance pattern', async () => {
+    const cfg: ArpConfig = { ...seq(8, { 0: { tie: true, prob: 0.5 }, 1: { tie: true }, 2: {}, 4: { ratchet: 3, tie: true }, 5: { transpose: 5 }, 6: { prob: 0.4 }, 7: { tie: true } }), rate: 0.25 };
+    const PPQ = 960;
+    const st = Math.round(cfg.rate * PPQ);
+    const steps = 64;
+    // clip expansion
+    const fromClip = expandHeld(cfg, [{ pitch: 60, start: 0, length: steps * st, velocity: 100 }], 0, steps * st, PPQ).map((n) => `${n.pitch}@${n.start}`);
+    // live: the same steps on a free clock (as LiveArp schedules them: one call per step, since = steps since the press)
+    const live: string[] = [];
+    for (let s = 0; s < steps; s++) for (const e of stepNotes(cfg, [{ pitch: 60, velocity: 100, order: 1 }], s, s, st)) live.push(`${e.pitch}@${s * st + e.offset}`);
+    expect(live).toEqual(fromClip);
+    expect(live.length).toBeGreaterThan(20);
+  });
+});
