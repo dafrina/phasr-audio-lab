@@ -38,9 +38,13 @@ import { ContextMenu, type MenuItem } from '../common/ContextMenu';
 
 type Zone = 'body' | 'start' | 'end';
 
+/** a press on a clip only becomes a drag after the pointer moves this far (a click changes nothing) */
+const DRAG_PX = 3;
+
 type Drag =
-  | { mode: 'move'; key: string; startX: number; startTrack: number; origs: Clip[]; primary: Clip; last: string }
-  | { mode: 'trim-start' | 'trim-end'; key: string; orig: Clip; last: string }
+  // `started`: past DRAG_PX; `copy`: Alt — the copies are made when the drag starts
+  | { mode: 'move'; key: string; startX: number; startY: number; startTrack: number; origs: Clip[]; primary: Clip; last: string; started: boolean; copy: boolean }
+  | { mode: 'trim-start' | 'trim-end'; key: string; startX: number; orig: Clip; last: string; started: boolean }
   | { mode: 'select'; startTick: number; startX: number; moved: boolean }
   | { mode: 'ruler'; startTick: number; startX: number; moved: boolean; key: string }
   | { mode: 'loop-edge'; edge: 'start' | 'end'; key: string }
@@ -284,20 +288,12 @@ export function Arrangement() {
       const key = `drag-${Date.now()}`;
       if (hit.zone === 'body') {
         let origs = sel.map((s) => project.clips[s]).filter((c): c is Clip => !!c);
-        let primary = hit.clip;
-        if (e.altKey) {
-          // Alt-drag duplicates the selection and drags the copies
-          const copies = origs.map((c) => duplicateClip(c, c.start));
-          upsertClips(copies, 'Duplicate', { coalesce: key });
-          const map = new Map(origs.map((c, i) => [c.id, copies[i] as Clip]));
-          primary = map.get(primary.id) ?? primary;
-          origs = copies;
-          ui.set({ selectedClipIds: copies.map((c) => c.id) });
-        }
+        const primary = hit.clip;
         if (!origs.some((c) => c.id === primary.id)) origs = [primary];
-        drag.current = { mode: 'move', key, startX: x, startTrack: Math.floor(y / TRACK_H), origs, primary, last: '' };
+        // (Alt-drag duplicates: the copies are made once the drag really starts — see onLaneMove)
+        drag.current = { mode: 'move', key, startX: x, startY: y, startTrack: Math.floor(y / TRACK_H), origs, primary, last: '0:0', started: false, copy: e.altKey };
       } else {
-        drag.current = { mode: hit.zone === 'start' ? 'trim-start' : 'trim-end', key, orig: hit.clip, last: '' };
+        drag.current = { mode: hit.zone === 'start' ? 'trim-start' : 'trim-end', key, startX: x, orig: hit.clip, last: `${hit.clip.start}:${hit.clip.length}`, started: false };
       }
     } else if (additive) {
       // Ctrl/Shift-drag on empty space: box-select clips
@@ -350,6 +346,20 @@ export function Arrangement() {
     }
     const bypass = e.shiftKey && d.mode !== 'select';
     const tick = xToTick(x, ui.pxPerBeat, ui.scrollX);
+    if ((d.mode === 'move' || d.mode === 'trim-start' || d.mode === 'trim-end') && !d.started) {
+      // a click (or a hand wobbling a pixel) is not a drag: nothing moves, snaps or gets copied
+      if (Math.abs(x - d.startX) <= DRAG_PX && (d.mode !== 'move' || Math.abs(y - d.startY) <= DRAG_PX)) return;
+      d.started = true;
+      if (d.mode === 'move' && d.copy) {
+        // Alt-drag duplicates the selection and drags the copies
+        const copies = d.origs.map((c) => duplicateClip(c, c.start));
+        upsertClips(copies, 'Duplicate', { coalesce: d.key });
+        const map = new Map(d.origs.map((c, i) => [c.id, copies[i] as Clip]));
+        d.primary = map.get(d.primary.id) ?? d.primary;
+        d.origs = copies;
+        ui.set({ selectedClipIds: copies.map((c) => c.id) });
+      }
+    }
     if (d.mode === 'move') {
       e.currentTarget.style.cursor = 'grabbing';
       const dTick = tick - xToTick(d.startX, ui.pxPerBeat, ui.scrollX);

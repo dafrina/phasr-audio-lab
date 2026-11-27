@@ -563,3 +563,48 @@ test('leaving the page (tab hidden / closed) saves pending edits at once', async
   // well before the 1.2 s autosave timer would have fired
   await expect.poll(async () => (await stored(page)).tracks.length, { timeout: 600, intervals: [50] }).toBe(n);
 });
+
+test('arrangement: a click on a clip changes nothing (no undo step, no snap); Alt+click adds no hidden copy; Alt+drag duplicates', async ({ page }) => {
+  await openApp(page);
+  const clipId = await newClipOnTrack(page, 1);
+  await page.keyboard.press('Escape');
+  // put the clip slightly off the grid (as a recording started mid-beat would)
+  await page.evaluate((id) => {
+    const st = (window as unknown as { __phasr: Phasr }).__phasr.projectStore.getState();
+    st.commit('off-grid', (p: any) => ({ ...p, clips: { ...p.clips, [id]: { ...p.clips[id], start: 965 } } }));
+  }, clipId);
+  const steps = () => page.evaluate(() => (window as unknown as { __phasr: Phasr }).__phasr.projectStore.getState().history.past.length as number);
+  const u = await ui(page);
+  const xAt = (tick: number) => (tick / PPQ) * u.pxPerBeat - u.scrollX;
+  const lanes = page.getByTestId('lanes');
+  const box = (await lanes.boundingBox())!;
+  const p0 = { x: box.x + xAt(965 + PPQ), y: box.y + 78 + 50 };
+  const before = await project(page);
+  const n0 = await steps();
+
+  // a click, with the hand wobbling a pixel
+  await page.mouse.move(p0.x, p0.y);
+  await page.mouse.down();
+  await page.mouse.move(p0.x + 1, p0.y, { steps: 2 });
+  await page.mouse.up();
+  expect((await project(page)).clips[clipId].start).toBe(965);
+  expect(await steps()).toBe(n0);
+
+  // Alt+click: no copy left on top of the clip
+  await page.keyboard.down('Alt');
+  await page.mouse.click(p0.x, p0.y);
+  await page.keyboard.up('Alt');
+  expect(Object.keys((await project(page)).clips)).toEqual(Object.keys(before.clips));
+  expect(await steps()).toBe(n0);
+
+  // Alt+drag one bar to the right: a copy there (a dragged clip snaps to the grid), the original stays
+  await page.keyboard.down('Alt');
+  await page.mouse.move(p0.x, p0.y);
+  await page.mouse.down();
+  await page.mouse.move(p0.x + 4 * u.pxPerBeat, p0.y, { steps: 10 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  const clips = Object.values((await project(page)).clips) as any[];
+  expect(clips.map((c) => c.start).sort((a, b) => a - b)).toEqual([965, 5 * PPQ]);
+  expect(await steps()).toBe(n0 + 1);
+});
