@@ -332,6 +332,9 @@ change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium i
 
 ## Known limitations
 
+- Drum Rack pads sit on consecutive notes from 36: kick / rim / snare / clap (36–39) match General MIDI, the rest
+  don't (hats are 41 / 43, GM has 42 / 46). A drum MIDI file exported to (or imported from) other software plays
+  those pads as other drums.
 - Audio is not time-stretched: after a BPM change audio clips keep their position and length in beats, while
   their audio plays at its own speed — a faster tempo cuts a clip's audio shorter, a slower one leaves silence
   after the audio ends (trim or extend the clip, or loop it, to match).

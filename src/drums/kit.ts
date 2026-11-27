@@ -73,7 +73,11 @@ function pad(name: string, source: DrumPadSource, o: Partial<DrumPad> = {}): Dru
   return { name, source, gain: 0, pan: 0, tune: 0, decay: 4, choke: 0, eq: null, sends: [0, 0], ...o };
 }
 
-/** GM-flavoured layout: kick on 36, snare on 38, hats 42/46 sharing a choke group. */
+/**
+ * Pads on consecutive notes from 36: kick 36, rim 37, snare 38 and clap 39 match General MIDI;
+ * from 40 on the order is this app's own (closed hat 41 and open hat 43 share a choke group —
+ * GM has them on 42 / 46). MIDI exported to other software maps those pads differently.
+ */
 function kit(variant: 'electro' | 'punchy' | 'lofi'): DrumKit {
   const v = { electro: 0.5, punchy: 0.7, lofi: 0.3 }[variant];
   const pads: DrumPad[] = [
