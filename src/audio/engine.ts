@@ -24,7 +24,7 @@ import { AssetRegistry, type LoadedAsset } from './assets';
 import { StereoMeter, type MeterReading } from './meter';
 import { TrackChannel, dbToGainFader } from './trackChannel';
 import { Transport } from './transport';
-import { PeqUnit, isCompressorUnit } from './effects/units';
+import { PeqUnit, createSafetyLimiter, isCompressorUnit } from './effects/units';
 import { automatedInstKeys, liveLanes, valueAt } from '../project/automation';
 import { chordToolActive } from '../chords/expand';
 import { withToolsExpanded } from '../arp/expand';
@@ -45,7 +45,7 @@ interface MasterBus {
   /** master insert effects, before the fader */
   fx: EffectChain;
   gain: GainNode;
-  limiter: DynamicsCompressorNode;
+  limiter: { input: DynamicsCompressorNode; output: GainNode };
   out: GainNode;
   meter: StereoMeter;
   metronome: GainNode;
@@ -444,15 +444,15 @@ function buildMaster(ctx: AudioContext): MasterBus {
   const input = new GainNode(ctx);
   const fx = new EffectChain(ctx, true);
   const gain = new GainNode(ctx);
-  // Safety limiter: a fast, hard-knee compressor just under 0 dBFS.
-  const limiter = new DynamicsCompressorNode(ctx, { threshold: -1, knee: 0, ratio: 20, attack: 0.002, release: 0.12 });
+  // Safety limiter: a fast, hard-knee compressor just under 0 dBFS (transparent below it).
+  const limiter = createSafetyLimiter(ctx);
   const out = new GainNode(ctx);
   const meter = new StereoMeter(ctx, true);
   const metronome = new GainNode(ctx, { gain: 0.8 });
   input.connect(fx.input);
   fx.output.connect(gain);
-  gain.connect(limiter);
-  limiter.connect(out);
+  gain.connect(limiter.input);
+  limiter.output.connect(out);
   out.connect(ctx.destination);
   out.connect(meter.input);
   metronome.connect(ctx.destination); // metronome bypasses the master (and export)
@@ -462,7 +462,7 @@ function buildMaster(ctx: AudioContext): MasterBus {
 function setLimiter(m: MasterBus, on: boolean): void {
   if (m.limiterOn === on) return;
   m.gain.disconnect();
-  if (on) m.gain.connect(m.limiter);
+  if (on) m.gain.connect(m.limiter.input);
   else m.gain.connect(m.out);
   m.limiterOn = on;
 }

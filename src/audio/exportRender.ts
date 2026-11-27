@@ -35,6 +35,7 @@ import limiterWorkletUrl from './worklets/limiter.worklet.ts?worker&url';
 import trioscWorkletUrl from './worklets/triosc.worklet.ts?worker&url';
 import keysWorkletUrl from './worklets/keys.worklet.ts?worker&url';
 import { withToolsExpanded } from '../arp/expand';
+import { createSafetyLimiter } from './effects/units';
 
 export interface ExportOptions {
   sampleRate: number;
@@ -86,9 +87,9 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
   const masterGain = new GainNode(ctx, { gain: dbToGainFader(project.master.volumeDb) });
   masterFx.output.connect(masterGain);
   if (project.master.limiter) {
-    const lim = new DynamicsCompressorNode(ctx, { threshold: -1, knee: 0, ratio: 20, attack: 0.002, release: 0.12 });
-    masterGain.connect(lim);
-    lim.connect(ctx.destination);
+    const lim = createSafetyLimiter(ctx);
+    masterGain.connect(lim.input);
+    lim.output.connect(ctx.destination);
   } else {
     masterGain.connect(ctx.destination);
   }

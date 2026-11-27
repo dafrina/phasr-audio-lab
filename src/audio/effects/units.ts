@@ -227,6 +227,21 @@ export function autoMakeupCompensationDb(threshold: number, ratio: number): numb
   return 0.6 * fullRangeGainDb;
 }
 
+/** The master's safety limiter (playback and export): hard knee, just under 0 dBFS. */
+export const SAFETY_LIMITER = { threshold: -1, knee: 0, ratio: 20, attack: 0.002, release: 0.12 } as const;
+
+/**
+ * The master's safety limiter: SAFETY_LIMITER's DynamicsCompressorNode and a
+ * gain cancelling the node's automatic makeup (+0.57 dB at these settings —
+ * exact for a hard knee), so it changes nothing below its threshold.
+ */
+export function createSafetyLimiter(ctx: BaseAudioContext): { input: DynamicsCompressorNode; output: GainNode } {
+  const input = new DynamicsCompressorNode(ctx, SAFETY_LIMITER);
+  const output = new GainNode(ctx, { gain: dbToGain(autoMakeupCompensationDb(SAFETY_LIMITER.threshold, SAFETY_LIMITER.ratio)) });
+  input.connect(output);
+  return { input, output };
+}
+
 /**
  * Utility: gain → per-channel polarity → mid/side width matrix → balance.
  * Four gains do the width (L' = M + w·S, R' = M − w·S, folded into

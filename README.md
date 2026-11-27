@@ -356,8 +356,9 @@ change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium i
 - MIDI recording bakes the sustain pedal into note lengths (there are no CC lanes) and doesn't record pitch bend.
   With the loop on, passes are merged into one clip.
 - The master's always-on safety limiter (the shield button) is still a hard-knee `DynamicsCompressorNode` just under
-  0 dBFS — a last resort, not a brickwall; for a brickwall put the Limiter effect last on the master (the default
-  master sound is unchanged). The Limiter catches sample peaks: between samples the reconstructed waveform can
+  0 dBFS — a last resort, not a brickwall; for a brickwall put the Limiter effect last on the master. The node's
+  automatic makeup gain is cancelled, so it changes nothing below −1 dBFS (it used to lift the whole master by
+  0.57 dB, which also put a master Limiter 0.57 dB over its ceiling). The Limiter catches sample peaks: between samples the reconstructed waveform can
   overshoot slightly (no true-peak / oversampled detection), so keep the ceiling at −1 dB for lossy exports.
 - The Limiter delays its track by the lookahead (1.5–6 ms; there is no automatic delay compensation between tracks)
   and its bypass passes the input undelayed, so switching it shifts that track by the lookahead; changing the

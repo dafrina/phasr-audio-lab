@@ -242,3 +242,57 @@ test('sampler panic silences voices whose release is already scheduled', async (
   expect(r.at01).toBeLessThan(0.001);
   expect(r.at06).toBeLessThan(0.001);
 });
+
+/**
+ * The master's safety limiter only acts on peaks above −1 dBFS: below that the
+ * master sounds the same with it on or off — in the export and live. (Chrome's
+ * DynamicsCompressorNode adds an automatic makeup gain, +0.57 dB at the
+ * limiter's settings, unless it is cancelled; it also lifted any Limiter
+ * effect on the master above its ceiling.)
+ */
+test('the master safety limiter is transparent below its threshold, in the export and live', async ({ page }) => {
+  await openApp(page);
+  const r = await page.evaluate(async () => {
+    const { renderProjectToWav, engine, projectStore } = (window as unknown as { __phasr: Record<string, any> }).__phasr;
+    const load = (u: string): Promise<any> => import(/* @vite-ignore */ u);
+    const { createProject, createTrack, createMidiClip } = await load('/src/project/defaults.ts');
+    const defs = await load('/src/instruments/definitions.ts');
+    const p = createProject('Quiet tone');
+    const t = createTrack('instrument', 0, defs.INSTRUMENTS.triosc.createConfig());
+    t.volumeDb = -12;
+    const c = createMidiClip(t.id, 0, 3840);
+    c.notes = [{ id: 'a', pitch: 57, start: 0, length: 3840, velocity: 100 }];
+    const song = (limiter: boolean) => ({ ...p, master: { ...p.master, volumeDb: 0, limiter }, tracks: [t], clips: { [c.id]: c }, loop: { enabled: true, start: 0, end: 3840 } });
+    const level = async (limiter: boolean) => {
+      const out = await renderProjectToWav(song(limiter), engine.assets, { sampleRate: 48000, range: 'song', tail: false, format: 'float32' });
+      let pk = 0;
+      let e = 0;
+      for (const ch of [out.audio.left, out.audio.right]) for (let i = 24000; i < 72000; i++) {
+        pk = Math.max(pk, Math.abs(ch[i]));
+        e += ch[i] * ch[i];
+      }
+      return { peakDb: 20 * Math.log10(pk), rmsDb: 10 * Math.log10(e / 96000) };
+    };
+    const on = await level(true);
+    const off = await level(false);
+    // live: the master meter, with the limiter on and off
+    const live = async (limiter: boolean) => {
+      projectStore.getState().loadProject(song(limiter));
+      engine.transport.play({ fromTick: 0 });
+      await new Promise((res) => setTimeout(res, 500));
+      let pk = 0;
+      for (let k = 0; k < 10; k++) {
+        await new Promise((res) => setTimeout(res, 40));
+        const m = engine.readMasterMeter({ peakL: 0, peakR: 0 });
+        pk = Math.max(pk, m.peakL, m.peakR);
+      }
+      engine.transport.stop();
+      return 20 * Math.log10(pk);
+    };
+    return { on, off, liveOn: await live(true), liveOff: await live(false) };
+  });
+  test.info().annotations.push({ type: 'safety limiter', description: JSON.stringify(r) });
+  expect(r.on.peakDb).toBeLessThan(-6); // well below the threshold
+  expect(Math.abs(r.on.rmsDb - r.off.rmsDb), `export: limiter on ${r.on.rmsDb.toFixed(3)} dB vs off ${r.off.rmsDb.toFixed(3)} dB`).toBeLessThan(0.02);
+  expect(Math.abs(r.liveOn - r.liveOff), `live: limiter on ${r.liveOn.toFixed(3)} dB vs off ${r.liveOff.toFixed(3)} dB`).toBeLessThan(0.05);
+});
