@@ -16,7 +16,7 @@ import { PPQ, ticksPerBar, ticksPerBeatUnit } from '../core/time';
 import type { Project } from '../project/types';
 import type { SynthEvent } from '../synth/dsp/TriOscCore';
 import { SchedulerClock } from './clock';
-import { planWindow, tickAtTime, toParamSegments, type Anchor, type Cursor, type WindowPlan } from './scheduling';
+import { inOrder, planWindow, tickAtTime, toParamSegments, type Anchor, type Cursor, type WindowPlan } from './scheduling';
 import { targetInfo } from '../project/automation';
 import type { TrackChannel } from './trackChannel';
 
@@ -65,6 +65,8 @@ export class Transport {
   private readonly clicks = new Set<OscillatorNode>();
   /** AudioParams that currently carry scheduled automation (cancelled on reschedule/stop) */
   private readonly automatedParams = new Set<AudioParam>();
+  /** time of the last automation event scheduled on each AudioParam (later windows never go before it) */
+  private readonly autoLastTime = new Map<AudioParam, number>();
   /** last scheduled automation event per instrument-param lane (ramps start there) */
   private readonly instAutoLast = new Map<string, { time: number; value: number }>();
   private readonly listeners = new Set<(s: TransportSnapshot) => void>();
@@ -229,6 +231,7 @@ export class Transport {
     // freeze automated params at their current curve value; new events replace the rest
     for (const p of this.automatedParams) holdParam(p, time);
     this.automatedParams.clear();
+    this.autoLastTime.clear();
     if (includeClicks) {
       for (const c of this.clicks) {
         try {
@@ -343,7 +346,9 @@ export class Transport {
       const targets = this.host.channel(a.trackId)?.automationParams(a.target) ?? [];
       for (const t of targets) {
         this.automatedParams.add(t.param);
-        for (const e of a.events) {
+        const ordered = inOrder(a.events, this.autoLastTime.get(t.param) ?? -Infinity);
+        this.autoLastTime.set(t.param, ordered.lastTime);
+        for (const e of ordered.events) {
           const v = t.map(e.value);
           if (e.kind === 'set') t.param.setValueAtTime(v, e.time);
           else if (t.exp && v > 0) t.param.exponentialRampToValueAtTime(v, e.time);

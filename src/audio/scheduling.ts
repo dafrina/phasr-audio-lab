@@ -98,7 +98,10 @@ export function collectClipNotes(clip: MidiClip, segStart: number, segEnd: numbe
   const lo = Math.max(segStart, clipStart);
   const hi = Math.min(segEnd, clipEndTick);
   const firstCycle = Math.floor((lo - clipStart) / cycle);
-  const lastCycle = Math.floor((hi - 1e-9 - clipStart) / cycle);
+  // (no epsilon here: a note a hair before `hi` belongs to this window, and the per-note check
+  // below drops anything at or after `hi`; an epsilon could make a loop repeat's first note miss
+  // both this window and the next)
+  const lastCycle = Math.floor((hi - clipStart) / cycle);
   for (let c = Math.max(0, firstCycle); c <= lastCycle; c++) {
     const base = clipStart + c * cycle;
     for (const note of clip.notes) {
@@ -345,6 +348,26 @@ export function planWindow(ctx: PlanContext, cursor: Cursor, windowEndTime: numb
  * previous event, so the caller passes the last event of the lane (across
  * scheduler passes) and gets the new last one back.
  */
+/**
+ * Keep a lane's events in time order across scheduler windows. Each window
+ * computes times from its own segment origin, so the same musical position
+ * can come out a hair (~1e-15 s) earlier in a later window. Web Audio sorts
+ * parameter events by time, so such an event would jump ahead of one already
+ * scheduled — e.g. the second point of a step (two points on one tick) landing
+ * before the first, leaving the old value in place. Clamping to the previous
+ * event's time keeps the order; events at the same time apply in the order
+ * given, which is the step.
+ */
+export function inOrder<E extends { time: number }>(events: readonly E[], lastTime: number): { events: E[]; lastTime: number } {
+  let t0 = lastTime;
+  const out = events.map((e) => {
+    const time = Math.max(e.time, t0);
+    t0 = time;
+    return time === e.time ? e : { ...e, time };
+  });
+  return { events: out, lastTime: t0 };
+}
+
 export function toParamSegments(
   key: string,
   events: AutomationEvent[],
@@ -353,7 +376,7 @@ export function toParamSegments(
 ): { segments: { type: 'param'; time: number; key: string; fromValue: number; toTime: number; toValue: number; exp: boolean }[]; last: { time: number; value: number } | null } {
   const segments: { type: 'param'; time: number; key: string; fromValue: number; toTime: number; toValue: number; exp: boolean }[] = [];
   let prev = last;
-  for (const e of events) {
+  for (const e of inOrder(events, last?.time ?? -Infinity).events) {
     if (e.kind === 'set' || !prev) segments.push({ type: 'param', time: e.time, key, fromValue: e.value, toTime: e.time, toValue: e.value, exp });
     else segments.push({ type: 'param', time: prev.time, key, fromValue: prev.value, toTime: e.time, toValue: e.value, exp });
     prev = { time: e.time, value: e.value };

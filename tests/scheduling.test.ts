@@ -5,8 +5,12 @@ import {
   collectClipNotes,
   computeSegments,
   metronomeTicks,
+  inOrder,
+  planWindow,
   segmentTime,
   tickAtTime,
+  toParamSegments,
+  type Cursor,
   type Segment,
 } from '../src/audio/scheduling';
 import { createAudioClip, createMidiClip } from '../src/project/defaults';
@@ -151,5 +155,71 @@ describe('metronome and playhead', () => {
     expect(tickAtTime(anchors, 2.25, BPM)).toBeCloseTo(480, 6);
     // before the first anchor (count-in / start latency) the position holds
     expect(tickAtTime(anchors, 0.5, BPM)).toBe(0);
+  });
+});
+
+describe('transport edge cases', () => {
+  /** run the transport's windows over `seconds`; returns every planned note as "pitch@onTime" */
+  function run(clips: MidiClip[], loop: { enabled: boolean; start: number; end: number }, seconds: number, step = 0.025, ahead = 0.15, start = 0) {
+    const ctx = { bpm: BPM, loop, beatTicks: 960, barTicks: 3840, metronome: false, tracks: [{ id: 't1', kind: 'instrument' as const }], clips };
+    const out: string[] = [];
+    let cursor: Cursor = { tick: start, time: 0, fresh: true };
+    for (let now = 0; now < seconds; now += step) {
+      const plan = planWindow(ctx, cursor, now + ahead);
+      for (const n of plan.notes) if (n.onTime < seconds) out.push(`${n.pitch}@${n.onTime.toFixed(6)}`);
+      cursor = plan.next;
+    }
+    return out;
+  }
+
+  it('a note exactly on a window boundary is scheduled once', () => {
+    // 1 tick = 1/1920 s: with 0.0625 s steps and no lookahead overlap, window edges land on ticks 120, 240, …
+    const clip = clipWithNotes(0, 3840, [
+      [60, 120, 60],
+      [61, 240, 60],
+      [62, 480, 60],
+    ]);
+    const notes = run([clip], noLoop, 0.5, 0.0625, 0.0625);
+    expect(notes).toEqual(['60@0.062500', '61@0.125000', '62@0.250000']);
+  });
+
+  it('a note on the loop start plays every pass; a note on the loop end never does inside the loop', () => {
+    const clip = clipWithNotes(0, 7680, [
+      [60, 960, 100],
+      [72, 1920, 100],
+    ]);
+    const loop = { enabled: true, start: 960, end: 1920 };
+    const notes = run([clip], loop, 2.0, 0.025, 0.15, 960);
+    // one pass = 960 ticks = 0.5 s
+    expect(notes).toEqual(['60@0.000000', '60@0.500000', '60@1.000000', '60@1.500000']);
+  });
+
+  it('a very short loop (one 1/16 step) repeats for many passes, none skipped or doubled', () => {
+    const clip = clipWithNotes(0, 3840, [[60, 0, 100]]);
+    const loop = { enabled: true, start: 0, end: 240 };
+    const notes = run([clip], loop, 5.0);
+    // 240 ticks = 0.125 s → 40 passes in 5 s
+    expect(notes).toHaveLength(40);
+    expect(new Set(notes).size).toBe(40);
+    notes.forEach((n, k) => expect(Number(n.split('@')[1])).toBeCloseTo(k * 0.125, 6));
+  });
+
+  it('a looping clip’s repeat whose first note sits a hair before a window end is not lost', () => {
+    // the window end lands 5e-10 ticks after the repeat's first note: it belongs to that window
+    const clip = clipWithNotes(0, 3840, [[60, 0, 100]], 960);
+    const seg: Segment = { startTick: 900, endTick: 960 + 5e-10, startTime: 0, hardEndTick: Infinity, fresh: false };
+    const a = collectClipNotes(clip, seg.startTick, seg.endTick, Infinity).map((e) => e.onTick);
+    const b = collectClipNotes(clip, seg.endTick, 1100, Infinity).map((e) => e.onTick);
+    expect([...a, ...b]).toEqual([960]);
+  });
+
+  it('automation events that drift a hair earlier in a later window keep their order (a step stays a step)', () => {
+    // window 1 scheduled the ramp to −10 at t = 2; window 2 computes the step's second point at 2 − 3e-15
+    const first = inOrder([{ kind: 'ramp' as const, time: 2, value: -10 }], -Infinity);
+    const second = inOrder([{ kind: 'ramp' as const, time: 2 - 3e-15, value: -14 }], first.lastTime);
+    expect(second.events[0]!.time).toBe(2);
+    // instrument parameters (explicit segments) get the same treatment
+    const seg = toParamSegments('cutoff', [{ kind: 'ramp', time: 2 - 3e-15, value: 500 }], { time: 2, value: 900 }, false);
+    expect(seg.segments[0]!.toTime).toBeGreaterThanOrEqual(seg.segments[0]!.time);
   });
 });
