@@ -7,7 +7,7 @@ import { useSelectedTrackKeys } from './ui/selectedTrackKeys';
 import { useGlobalShortcuts } from './ui/shortcuts';
 import { Arrangement } from './ui/timeline/Arrangement';
 import { Toolbar } from './ui/toolbar/Toolbar';
-import { ArpWindow, InstrumentEditor, SlipperizerWindow, preloadWindows } from './ui/instruments';
+import { AnalyzerWindow, ArpWindow, InstrumentEditor, SlipperizerWindow, preloadWindows } from './ui/instruments';
 import { initPersistence } from './persistence/session';
 import { BusyOverlay } from './ui/project/ProjectUI';
 import { ShortcutHelp } from './ui/common/ShortcutHelp';
@@ -35,6 +35,7 @@ export default function App() {
   const synthTrackId = useUiStore((s) => s.synthTrackId);
   const chordsTrackId = useUiStore((s) => s.chordsTrackId);
   const arpTrackId = useUiStore((s) => s.arpTrackId);
+  const analyzerTrackId = useUiStore((s) => s.analyzerTrackId);
   return (
     <div className="relative flex h-full flex-col">
       <Toolbar />
@@ -45,6 +46,7 @@ export default function App() {
       <Suspense fallback={null}>
         {chordsTrackId && <SlipperizerWindow trackId={chordsTrackId} />}
         {arpTrackId && <ArpWindow trackId={arpTrackId} />}
+        {analyzerTrackId && <AnalyzerWindow trackId={analyzerTrackId} />}
       </Suspense>
       <Toasts />
       <BusyOverlay />

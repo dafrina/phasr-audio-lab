@@ -17,6 +17,12 @@ export function windowRank(id: string): number {
   return useWindowStack.getState().order.indexOf(id);
 }
 
+/** whether this window is open and in front of the others */
+export function isFrontWindow(id: string): boolean {
+  const { order } = useWindowStack.getState();
+  return order.length > 0 && order[order.length - 1] === id;
+}
+
 export function raiseWindow(id: string): void {
   const { order } = useWindowStack.getState();
   if (order[order.length - 1] === id) return;

@@ -27,6 +27,8 @@ interface UiState {
   chordsTrackId: string | null;
   /** track whose Arp-Ape-ator (arp / step sequencer) window is open */
   arpTrackId: string | null;
+  /** channel whose analyser window (spectrum / spectrogram / scope) is open: MASTER_ID, a send or a track */
+  analyzerTrackId: string | null;
   bottomPanel: BottomPanel;
   bottomHeight: number;
   /** Clip open in the bottom editor */
@@ -61,6 +63,7 @@ export const useUiStore = create<UiState>((set) => ({
   synthTrackId: null,
   chordsTrackId: null,
   arpTrackId: null,
+  analyzerTrackId: null,
   bottomPanel: 'none',
   bottomHeight: 300,
   editorClipId: null,

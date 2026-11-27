@@ -32,7 +32,8 @@ if (import.meta.env.DEV) {
     import('./state/recordingStore'),
     import('./audio/exportRender'),
     import('./persistence/session'),
-  ]).then(([e, p, u, fx, fxs, tc, tn, wl, pr, rec, recs, ex, ses]) => {
+    import('./ui/analyzer/stats'),
+  ]).then(([e, p, u, fx, fxs, tc, tn, wl, pr, rec, recs, ex, ses, an]) => {
     (window as unknown as Record<string, unknown>).__phasr = {
       engine: e.engine,
       projectStore: p.useProjectStore,
@@ -47,6 +48,7 @@ if (import.meta.env.DEV) {
       recordingStore: recs.useRecordingStore,
       renderProjectToWav: ex.renderProjectToWav,
       session: ses,
+      analyzerStats: an.analyzerStats,
     };
   });
 }

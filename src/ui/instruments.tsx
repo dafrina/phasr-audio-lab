@@ -14,6 +14,7 @@ const KeysWindow = lazy(() => import('./keys/KeysWindow').then((m) => ({ default
 const SamplerWindow = lazy(() => import('./sampler/SamplerWindow').then((m) => ({ default: m.SamplerWindow })));
 export const ArpWindow = lazy(() => import('./arp/ArpWindow').then((m) => ({ default: m.ArpWindow })));
 export const SlipperizerWindow = lazy(() => import('./chords/SlipperizerWindow').then((m) => ({ default: m.SlipperizerWindow })));
+export const AnalyzerWindow = lazy(() => import('./analyzer/AnalyzerWindow').then((m) => ({ default: m.AnalyzerWindow })));
 
 /** Fetch the windows' code in the background once the app is up, so the first open is instant. */
 export function preloadWindows(): void {
@@ -24,6 +25,7 @@ export function preloadWindows(): void {
     void import('./sampler/SamplerWindow');
     void import('./arp/ArpWindow');
     void import('./chords/SlipperizerWindow');
+    void import('./analyzer/AnalyzerWindow');
   };
   if (typeof requestIdleCallback === 'function') requestIdleCallback(load, { timeout: 4000 });
   else setTimeout(load, 1500);

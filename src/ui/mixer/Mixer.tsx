@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { AudioLines, Music, Shield } from 'lucide-react';
+import { Activity, AudioLines, Music, Shield } from 'lucide-react';
 import { EFFECT_LABELS, EFFECT_TYPES } from '../../audio/effects/specs';
 import { MASTER_ID, MAX_EFFECT_SLOTS, SEND_IDS, sendLabel, sendsTo, type EffectSlot, type EffectType, type Track } from '../../project/types';
 import { addEffect, setEffectEnabled, setTrackSend, updateSendBus } from '../../state/effectActions';
@@ -47,7 +47,10 @@ export function Mixer() {
         ))}
       </div>
       <div className="flex w-[104px] shrink-0 flex-col items-center gap-1.5 rounded-md border border-line-2 bg-panel-3 px-1.5 py-1.5">
-        <div className="flex w-full items-center justify-center gap-1 text-[11px] font-semibold tracking-[0.14em] text-fg">MASTER</div>
+        <div className="flex w-full items-center justify-center gap-1 text-[11px] font-semibold tracking-[0.14em] text-fg">
+          MASTER
+          <AnalyzerButton id={MASTER_ID} label="the master" />
+        </div>
         <FxSlots ownerId={MASTER_ID} effects={master.effects ?? []} />
         <button
           type="button"
@@ -94,6 +97,7 @@ function ChannelStrip({ track, index, faderH }: { track: Track; index: number; f
           {track.name}
         </span>
         <span className="font-mono text-[9px] text-dim">{index + 1}</span>
+        <AnalyzerButton id={track.id} label={track.name} />
       </div>
       <FxSlots ownerId={track.id} effects={track.effects} />
       <SendKnobs track={track} />
@@ -126,6 +130,25 @@ function ChannelStrip({ track, index, faderH }: { track: Track; index: number; f
       </div>
       <div className={`font-mono text-[10px] ${vol.automated ? 'text-[#f472b6]' : 'text-muted'}`}>{formatDb(vol.value)} dB</div>
     </div>
+  );
+}
+
+/** Opens the analyser window (spectrum / spectrogram / scope) on a channel; lit while it shows that one. */
+function AnalyzerButton({ id, label }: { id: string; label: string }) {
+  const on = useUiStore((s) => s.analyzerTrackId === id);
+  return (
+    <button
+      type="button"
+      data-testid={`analyzer-open-${id}`}
+      title={on ? `Close the analyser of ${label}` : `Analyser for ${label}: spectrum, spectrogram and oscilloscope`}
+      onClick={(e) => {
+        e.stopPropagation();
+        useUiStore.getState().set({ analyzerTrackId: on ? null : id });
+      }}
+      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${on ? 'bg-[#38bdf8] text-black' : 'text-dim hover:bg-panel hover:text-fg'}`}
+    >
+      <Activity size={10} />
+    </button>
   );
 }
 
@@ -227,9 +250,12 @@ function SendStrip({ k, faderH }: { k: number; faderH: number }) {
   return (
     <div className="flex w-[96px] shrink-0 flex-col items-center gap-1.5 rounded-md border border-dashed border-line-2 bg-panel-2 px-1.5 pb-1.5">
       <div className="-mx-1.5 h-1 w-[calc(100%+12px)] rounded-t-md" style={{ background: k === 0 ? '#38bdf8' : '#fb923c' }} />
-      <button type="button" onClick={() => openTrackDevices(id)} className="w-full truncate text-left text-[11px] font-medium text-fg hover:text-accent-hi" title="Open this send channel's effects">
-        {sendLabel(bus, (t) => EFFECT_LABELS[t], true)}
-      </button>
+      <div className="flex w-full items-center gap-1">
+        <button type="button" onClick={() => openTrackDevices(id)} className="min-w-0 flex-1 truncate text-left text-[11px] font-medium text-fg hover:text-accent-hi" title="Open this send channel's effects">
+          {sendLabel(bus, (t) => EFFECT_LABELS[t], true)}
+        </button>
+        <AnalyzerButton id={id} label={`send ${k === 0 ? 'A' : 'B'}`} />
+      </div>
       <FxSlots ownerId={id} effects={bus.effects} />
       <div className="text-center text-[9px] leading-tight text-dim" title="Tracks whose Send knob is up">
         {senders ? `${senders} track${senders === 1 ? '' : 's'} sending` : 'turn up a Send knob'}

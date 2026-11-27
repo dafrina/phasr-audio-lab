@@ -16,6 +16,11 @@ export class SendBusNode {
   private readonly gate: GainNode;
   private readonly ctx: BaseAudioContext;
 
+  /** what the channel outputs (post fader and mute, = what its meter shows), for analysers */
+  get tap(): AudioNode {
+    return this.gate;
+  }
+
   constructor(ctx: BaseAudioContext, destination: AudioNode, realtime: boolean) {
     this.ctx = ctx;
     this.input = new GainNode(ctx);

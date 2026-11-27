@@ -95,6 +95,13 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
   Mixer (F9 or toolbar): a channel strip per track (up to 12) with fader, pan, mute/solo, send A/B knobs, real meters
   with peak hold/clip LED and effect slots; strips for the two send channels; the master with its own 4 effect slots and
   the limiter toggle. Track device panel (FX button) shows the instrument, the tools, the sends and the full chain.
+- **Analysers:** the wave button on any mixer strip (a track, a send, the master) opens a window with a **spectrum**
+  (log frequency 20 Hz – 20 kHz, calibrated so a full-scale sine reads 0 dBFS, 8192-point FFT), a scrolling
+  **spectrogram** (frequency over time, low notes at the bottom) and a triggered **oscilloscope** (20 ms, triggered on a
+  rising zero crossing with hysteresis so a steady tone stands still, auto range); any of the three can be switched
+  off and the channel switched in the window. Post fader — what the strip's meter shows. Drawn on canvas; a view's
+  analyser is connected only while that view is on screen and the tab visible (closed, switched off or hidden = no
+  analysis, no drawing), silent frames are skipped, spectrum and scope redraw at 30 fps, the spectrogram at 60.
 - **Send channels A and B:** shared effect chains (e.g. one reverb, one delay) with up to 4 effects each, fed by every
   track's post-fader send knobs; Drum Rack pads have their own sends.
 - **Milestone 5 (recording): done.** Arm an audio track (R in the header; one at a time), pick the input in the record
@@ -298,7 +305,15 @@ fields or whole blocks instead of per-sample calls would remove most of it.
 | Playing + Arp-Ape-ator (sequencer) | 29.9 % | 17.8 % |
 | Playing + Arp-Ape-ator (arp, gorilla drumming) | 30.2 % | 23.9 % |
 | Playing + Drum Rack pattern grid | 17.2 % | 15.4 % |
+| Playing, mixer open (8 tracks; the analyser rows add to this) | | 18.1–18.2 % |
+| + master analyser: spectrum / spectrogram / scope alone | | 21.4–22.7 % / 21.7–21.9 % / 21.6–22.3 % |
+| + master analyser: all three | | 25.5–25.9 % |
+| + all three, tab hidden (window still open) | | 19.4–20.4 % |
 | Startup JavaScript (gzip) | 296 kB | 200 kB |
+
+The analyser rows (two runs) are reproducible with `UI_COST=1 npx playwright test e2e/ui-cost.e2e.ts` (Chrome's
+TaskDuration over 5 s, software rendering in headless Chromium; with a GPU the canvas work is cheaper). Drawing all three views at
+60 fps cost 31 %: spectrum and scope now redraw at 30 fps.
 
 Step playheads move a single overlay instead of re-rendering their window, meters skip frames that would look the
 same, the ruler is cached like the lanes, the instrument / tool windows load on demand (prefetched when idle), and
@@ -335,7 +350,7 @@ is uploaded. Things that can lose work:
 | --- | --- | --- |
 | `npm test` | unit + integration tests (Vitest, Node): DSP, scheduling, persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
-| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs) | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, and the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound

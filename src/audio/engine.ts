@@ -100,6 +100,7 @@ export class AudioEngine {
       await ctx.audioWorklet.addModule(limiterWorkletUrl);
       this.ctx = ctx;
       this.master = buildMaster(ctx);
+      this.connectAnalysers(MASTER_ID);
       this.transport = new Transport({
         ctx,
         // chord-tool tracks are scheduled with their chords expanded
@@ -166,7 +167,10 @@ export class AudioEngine {
     }
     // (tempo-synced master delays follow the BPM)
     if (force || !prev || prev.master !== p.master || prev.bpm !== p.bpm) master.fx.sync(p.master.effects ?? [], p.bpm);
-    if (!this.sendBuses.length) this.sendBuses = SEND_IDS.map(() => new SendBusNode(ctx, master.input, true));
+    if (!this.sendBuses.length) {
+      this.sendBuses = SEND_IDS.map(() => new SendBusNode(ctx, master.input, true));
+      for (const id of SEND_IDS) this.connectAnalysers(id);
+    }
     const busesNew = force || !prev || prev.sends !== p.sends || prev.bpm !== p.bpm;
     if (busesNew) (p.sends ?? []).forEach((b, k) => this.sendBuses[k]?.update(b, p.bpm, !prev));
     const sendInputs = this.sendBuses.map((b) => b.input);
@@ -182,6 +186,7 @@ export class AudioEngine {
       if (!ch) {
         ch = new TrackChannel(ctx, track, master.input, true);
         this.channels.set(track.id, ch);
+        this.connectAnalysers(track.id);
         ch.update(track, audible, true);
         ch.setSends(track.sends ?? [], sendInputs, true);
       } else if (force || prevTracks.get(track.id) !== track || prevAnySolo !== anySolo) {
@@ -340,6 +345,55 @@ export class AudioEngine {
     this.liveChords.releaseAll(trackId);
     this.liveArp.stop(trackId);
     for (const [id, ch] of this.channels) if (!trackId || id === trackId) ch.instrument?.allNotesOff();
+  }
+
+  // --- analysers (spectrum, spectrogram, scope) ---
+
+  /** analysers the open views asked for, per channel (MASTER_ID, a send id or a track id) */
+  private readonly analysers = new Map<string, Set<AnalyserNode>>();
+
+  /** a channel's output (post fader and mute: what its meter shows) */
+  private analyserTap(id: string): AudioNode | null {
+    if (id === MASTER_ID) return this.master?.out ?? null;
+    const k = (SEND_IDS as readonly string[]).indexOf(id);
+    if (k >= 0) return this.sendBuses[k]?.tap ?? null;
+    return this.channels.get(id)?.gate ?? null;
+  }
+
+  private connectAnalysers(id: string): void {
+    const tap = this.analyserTap(id);
+    if (tap) for (const a of this.analysers.get(id) ?? []) tap.connect(a);
+  }
+
+  /**
+   * Feed an AnalyserNode (made on `ctx`) from a channel while a view shows it. It stays
+   * connected across channel rebuilds until removeAnalyser — nothing is analysed for a
+   * view that isn't visible.
+   */
+  addAnalyser(id: string, node: AnalyserNode): void {
+    let set = this.analysers.get(id);
+    if (!set) this.analysers.set(id, (set = new Set()));
+    if (set.has(node)) return;
+    set.add(node);
+    this.analyserTap(id)?.connect(node);
+  }
+
+  removeAnalyser(id: string, node: AnalyserNode): void {
+    const set = this.analysers.get(id);
+    if (!set?.delete(node)) return;
+    if (!set.size) this.analysers.delete(id);
+    try {
+      this.analyserTap(id)?.disconnect(node);
+    } catch {
+      // the channel was rebuilt or removed since: nothing is connected any more
+    }
+  }
+
+  /** how many analysers are being fed (tests: views stop analysing when hidden) */
+  analyserCount(): number {
+    let n = 0;
+    for (const s of this.analysers.values()) n += s.size;
+    return n;
   }
 
   // --- metering ---
