@@ -90,7 +90,8 @@ export const TRACK_MOD_PARAMS: ModParamInfo[] = [
 ];
 
 /** Parameters of an effect that accept a modulation signal. */
-export function modulatableEffectParams(track: Track, slotId: string): ModParamInfo[] {
+/** Sidechain targets of an effect; with `any`, also those paused by its settings now (a Spectra EQ band that's off) — see automatableParams. */
+export function modulatableEffectParams(track: Track, slotId: string, any = false): ModParamInfo[] {
   const slot = track.effects.find((s) => s.id === slotId);
   if (!slot) return [];
   switch (slot.type) {
@@ -104,11 +105,11 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
     case 'peq': {
       const out: ModParamInfo[] = [];
       slot.params.bands.forEach((b, i) => {
-        if (!b.enabled) return;
+        if (!b.enabled && !any) return;
         out.push({ key: `b${i}.freq`, label: `Band ${i + 1} Freq`, depth: semiDepth });
-        if (peqHasGain(b.type)) out.push({ key: `b${i}.gain`, label: `Band ${i + 1} Gain`, depth: dbDepth(24, -6) });
+        if (any || peqHasGain(b.type)) out.push({ key: `b${i}.gain`, label: `Band ${i + 1} Gain`, depth: dbDepth(24, -6) });
         // width of bells, notches and band-passes (cut filters' resonance is in other units)
-        if (b.type === 'bell' || b.type === 'notch' || b.type === 'bandpass') out.push({ key: `b${i}.q`, label: `Band ${i + 1} Q`, depth: qDepth });
+        if (any || b.type === 'bell' || b.type === 'notch' || b.type === 'bandpass') out.push({ key: `b${i}.q`, label: `Band ${i + 1} Q`, depth: qDepth });
       });
       return out;
     }
@@ -153,7 +154,7 @@ export function modulatableEffectParams(track: Track, slotId: string): ModParamI
   }
 }
 
-export function modParamInfo(track: Track, target: AutomationTarget): (ModParamInfo & { fullLabel: string }) | null {
+export function modParamInfo(track: Track, target: AutomationTarget, any = false): (ModParamInfo & { fullLabel: string }) | null {
   if (target.kind === 'track') {
     const p = TRACK_MOD_PARAMS.find((x) => x.key === target.param);
     return p ? { ...p, fullLabel: p.label } : null;
@@ -161,7 +162,7 @@ export function modParamInfo(track: Track, target: AutomationTarget): (ModParamI
   if (target.kind === 'inst') return null; // instrument params aren't sidechain targets (yet)
   const slot = track.effects.find((s) => s.id === target.slotId);
   if (!slot) return null;
-  const p = modulatableEffectParams(track, target.slotId).find((x) => x.key === target.param);
+  const p = modulatableEffectParams(track, target.slotId, any).find((x) => x.key === target.param);
   return p ? { ...p, fullLabel: `${EFFECT_LABELS[slot.type]} · ${p.label}` } : null;
 }
 
@@ -250,7 +251,8 @@ export function sanitizeAllRoutes(project: Project, rawByTrack: unknown[]): void
       const sourceTrackId = typeof r.sourceTrackId === 'string' ? r.sourceTrackId : '';
       const source: ModSourceKind = r.source === 'midi' ? 'midi' : 'audio';
       if (!target || !ids.has(sourceTrackId)) continue;
-      const info = modParamInfo(track, target);
+      // (paused targets too: a route on a Spectra EQ band that's off must survive save / load)
+      const info = modParamInfo(track, target, true);
       const src = project.tracks.find((t) => t.id === sourceTrackId);
       if (!info || !src || !sourceKinds(src).includes(source)) continue;
       const route: ModRoute = {

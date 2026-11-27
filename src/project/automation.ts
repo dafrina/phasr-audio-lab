@@ -53,18 +53,23 @@ export const TRACK_AUTO_PARAMS: AutoParamInfo[] = [
   { key: 'pan', label: 'Pan', spec: PAN_SPEC },
 ];
 
-/** Parameters of an effect that can be automated (all are backed by AudioParams). */
-export function automatableParams(slot: EffectSlot): AutoParamInfo[] {
+/**
+ * Parameters of an effect that can be automated (all are backed by AudioParams).
+ * With `any`, every parameter the effect type can have, whatever its settings now:
+ * a lane on a Spectra EQ band that's switched off, or on Delay Time while Sync is
+ * on, is only paused — it must survive save / load (switching back revives it).
+ */
+export function automatableParams(slot: EffectSlot, any = false): AutoParamInfo[] {
   switch (slot.type) {
     case 'eq':
       return (['lowGain', 'midGain', 'midFreq', 'highGain'] as const).map((k) => ({ key: k, label: EQ_SPECS[k].label, spec: EQ_SPECS[k] }));
     case 'peq': {
       const out: AutoParamInfo[] = [];
       slot.params.bands.forEach((b, i) => {
-        if (!b.enabled) return;
+        if (!b.enabled && !any) return;
         out.push({ key: `b${i}.freq`, label: `Band ${i + 1} Freq`, spec: PEQ_SPECS.freq });
-        if (peqHasGain(b.type)) out.push({ key: `b${i}.gain`, label: `Band ${i + 1} Gain`, spec: PEQ_SPECS.gain });
-        if (peqHasQ(b.type, b.slope)) out.push({ key: `b${i}.q`, label: `Band ${i + 1} Q`, spec: PEQ_SPECS.q });
+        if (any || peqHasGain(b.type)) out.push({ key: `b${i}.gain`, label: `Band ${i + 1} Gain`, spec: PEQ_SPECS.gain });
+        if (any || peqHasQ(b.type, b.slope)) out.push({ key: `b${i}.q`, label: `Band ${i + 1} Q`, spec: PEQ_SPECS.q });
       });
       out.push({ key: 'output', label: 'Output', spec: PEQ_SPECS.output });
       return out;
@@ -72,7 +77,7 @@ export function automatableParams(slot: EffectSlot): AutoParamInfo[] {
     case 'compressor':
       return (['threshold', 'ratio', 'attack', 'release', 'makeup'] as const).map((k) => ({ key: k, label: COMP_SPECS[k].label, spec: COMP_SPECS[k] }));
     case 'delay': {
-      const keys = slot.params.sync ? (['feedback', 'mix'] as const) : (['time', 'feedback', 'mix'] as const);
+      const keys = slot.params.sync && !any ? (['feedback', 'mix'] as const) : (['time', 'feedback', 'mix'] as const);
       return keys.map((k) => ({ key: k, label: DELAY_SPECS[k].label, spec: DELAY_SPECS[k] }));
     }
     case 'reverb':
@@ -218,7 +223,10 @@ export function sanitizeLanes(input: unknown, track: Track): AutomationLane[] {
     if (t && t.kind === 'fx' && typeof t.slotId === 'string' && typeof t.param === 'string') target = { kind: 'fx', slotId: t.slotId, param: t.param };
     if (t && t.kind === 'inst' && typeof t.param === 'string') target = { kind: 'inst', param: t.param };
     if (!target) continue;
-    const info = targetInfo(track, target);
+    // (effect lanes: any parameter the effect type has, not only the ones live right now)
+    const fx = target.kind === 'fx' ? target : null;
+    const slot = fx ? track.effects.find((s) => s.id === fx.slotId) : undefined;
+    const info = fx ? (slot ? automatableParams(slot, true).find((p) => p.key === fx.param) : undefined) : targetInfo(track, target);
     if (!info) continue;
     if (out.some((l) => sameTarget(l.target, target))) continue;
     const pts = (Array.isArray(r.points) ? r.points : [])
@@ -230,16 +238,26 @@ export function sanitizeLanes(input: unknown, track: Track): AutomationLane[] {
   return out;
 }
 
+/**
+ * The lanes that act on the sound now: switched on, with points, and on a
+ * parameter that's live. A lane on a Spectra EQ band that's off, or on Delay
+ * Time while Sync is on, is paused: kept, but it must neither move the
+ * parameter nor stop the static value from applying.
+ */
+export function liveLanes(track: Track): AutomationLane[] {
+  return (track.automation ?? []).filter((l) => l.enabled && l.points.length > 0 && targetInfo(track, l.target) !== null);
+}
+
 /** Keys of effect params that are currently automated on a slot (for skipping static updates). */
 export function automatedKeys(track: Track, slotId: string): Set<string> {
   const s = new Set<string>();
-  for (const l of track.automation ?? []) if (l.enabled && l.points.length && l.target.kind === 'fx' && l.target.slotId === slotId) s.add(l.target.param);
+  for (const l of liveLanes(track)) if (l.target.kind === 'fx' && l.target.slotId === slotId) s.add(l.target.param);
   return s;
 }
 
 /** Instrument parameter keys with an active lane (the instrument keeps these under automation control). */
 export function automatedInstKeys(track: Track): string[] {
-  return (track.automation ?? []).filter((l) => l.enabled && l.points.length && l.target.kind === 'inst').map((l) => (l.target as { param: string }).param);
+  return liveLanes(track).filter((l) => l.target.kind === 'inst').map((l) => (l.target as { param: string }).param);
 }
 
 export function isTrackParamAutomated(track: Track, param: 'volumeDb' | 'pan'): boolean {

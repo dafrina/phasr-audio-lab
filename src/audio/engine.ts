@@ -24,7 +24,7 @@ import { StereoMeter, type MeterReading } from './meter';
 import { TrackChannel, dbToGainFader } from './trackChannel';
 import { Transport } from './transport';
 import { PeqUnit, isCompressorUnit } from './effects/units';
-import { automatedInstKeys, valueAt } from '../project/automation';
+import { automatedInstKeys, liveLanes, valueAt } from '../project/automation';
 import { chordToolActive } from '../chords/expand';
 import { withToolsExpanded } from '../arp/expand';
 import { LiveChords } from './chordLive';
@@ -382,8 +382,7 @@ export class AudioEngine {
     for (const track of p.tracks) {
       const ch = this.channels.get(track.id);
       if (!ch) continue;
-      for (const lane of track.automation) {
-        if (!lane.enabled) continue;
+      for (const lane of liveLanes(track)) {
         const v = valueAt(lane.points, tick);
         if (v === null) continue;
         if (lane.target.kind === 'inst') {

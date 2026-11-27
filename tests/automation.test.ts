@@ -4,6 +4,8 @@ import { createEffectSlot, defaultPeqParams, PEQ_SPECS, sanitizeEffect, FACTORY_
 import {
   addPoint,
   automatableParams,
+  automatedKeys,
+  liveLanes,
   createLane,
   deletePoint,
   movePoint,
@@ -16,6 +18,7 @@ import {
 } from '../src/project/automation';
 import { createProject } from '../src/project/defaults';
 import { migrateProject } from '../src/project/migrations';
+import { createRoute } from '../src/project/modulation';
 import type { AutomationLane, AutomationPoint, EffectSlot } from '../src/project/types';
 
 const BPM = 120; // 1920 ticks per second
@@ -182,6 +185,64 @@ describe('automation targets and persistence', () => {
     const back = migrateProject(JSON.parse(JSON.stringify(p)));
     expect(back.tracks[1]?.effects).toEqual(t.effects);
     expect(back.tracks[1]?.automation).toEqual(t.automation);
+  });
+
+  it('keeps lanes and sidechain routes whose parameter is only switched off for now (EQ band off, Delay synced)', () => {
+    const p = createProject();
+    const [src, t] = p.tracks;
+    if (!src || !t) throw new Error();
+    const peq = createEffectSlot('peq');
+    const delay = createEffectSlot('delay');
+    if (peq.type !== 'peq' || delay.type !== 'delay') throw new Error();
+    peq.params.bands[3] = { enabled: true, type: 'bell', freq: 2500, gain: 4, q: 2, slope: 24 };
+    delay.params.sync = false;
+    t.effects = [peq, delay];
+    const route = createRoute(t, src.id, 'audio', { kind: 'fx', slotId: peq.id, param: 'b3.gain' });
+    if (!route) throw new Error('route');
+    t.modulations = [route];
+    t.automation = [
+      { ...createLane({ kind: 'fx', slotId: peq.id, param: 'b3.freq' }, 2500, 0), points: pts([0, 2500], [3840, 800]) },
+      { ...createLane({ kind: 'fx', slotId: peq.id, param: 'b3.q' }, 2, 0), points: pts([0, 2]) },
+      { ...createLane({ kind: 'fx', slotId: delay.id, param: 'time' }, 0.3, 0), points: pts([0, 0.3], [1920, 0.5]) },
+    ];
+    // the user switches the band off and Sync on (the lanes and route stay in the session) …
+    peq.params.bands[3] = { ...peq.params.bands[3]!, enabled: false };
+    delay.params.sync = true;
+    // … saves and reloads: they're still there, unchanged (switching back brings them to life)
+    const back = migrateProject(JSON.parse(JSON.stringify(p)));
+    expect(back.tracks[1]?.automation).toEqual(t.automation);
+    expect(back.tracks[1]?.modulations).toEqual(t.modulations);
+    // a lane on a parameter the effect never has is still dropped
+    const junk = sanitizeLanes([{ target: { kind: 'fx', slotId: peq.id, param: 'b9.freq' }, points: [] }, { target: { kind: 'fx', slotId: delay.id, param: 'nope' }, points: [] }], t);
+    expect(junk).toEqual([]);
+  });
+
+  it('a paused lane (EQ band off, Delay synced) is kept but does nothing: not live, not scheduled, the static value applies', () => {
+    const p = createProject();
+    const t = p.tracks[1];
+    if (!t) throw new Error();
+    const peq = createEffectSlot('peq');
+    const delay = createEffectSlot('delay');
+    if (peq.type !== 'peq' || delay.type !== 'delay') throw new Error();
+    peq.params.bands[3] = { enabled: true, type: 'bell', freq: 2500, gain: 4, q: 2, slope: 24 };
+    delay.params.sync = false;
+    t.effects = [peq, delay];
+    t.automation = [
+      { ...createLane({ kind: 'fx', slotId: peq.id, param: 'b3.gain' }, 4, 0), points: pts([0, 4], [3840, -12]) },
+      { ...createLane({ kind: 'fx', slotId: delay.id, param: 'time' }, 0.3, 0), points: pts([0, 0.3]) },
+      { ...createLane({ kind: 'track', param: 'volumeDb' }, -6, 0), points: pts([0, -6]) },
+    ];
+    const live = () => liveLanes(t).map((l) => (l.target.kind === 'track' ? l.target.param : l.target.param));
+    expect(live()).toEqual(['b3.gain', 'time', 'volumeDb']);
+    expect([...automatedKeys(t, peq.id)]).toEqual(['b3.gain']);
+    expect([...automatedKeys(t, delay.id)]).toEqual(['time']);
+    // band off, Sync on: the lanes pause
+    peq.params.bands[3] = { ...peq.params.bands[3]!, enabled: false };
+    delay.params.sync = true;
+    expect(live()).toEqual(['volumeDb']);
+    // the synced delay time is applied again (an automated key would block it), and the band stays transparent
+    expect([...automatedKeys(t, peq.id)]).toEqual([]);
+    expect([...automatedKeys(t, delay.id)]).toEqual([]);
   });
 
   it('sanitizes Spectra EQ params and has valid presets', () => {

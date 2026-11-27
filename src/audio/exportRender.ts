@@ -23,7 +23,7 @@ import { estimateTailSeconds, exportRange, trackAudibleFn, type ExportRangeMode 
 import { createInstrumentNode } from './instruments';
 import { ModulationRouter } from './modulation';
 import { planWindow, toParamSegments } from './scheduling';
-import { automatedInstKeys, targetInfo } from '../project/automation';
+import { automatedInstKeys, liveLanes, targetInfo } from '../project/automation';
 import { TrackChannel, dbToGainFader } from './trackChannel';
 import { decodeWav, encodeWav, type WavFormat } from './wav';
 import modsourceWorkletUrl from './worklets/modsource.worklet.ts?worker&url';
@@ -100,7 +100,8 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
       beatTicks: ticksPerBeatUnit(ts),
       barTicks: ticksPerBar(ts),
       metronome: false,
-      tracks: project.tracks,
+      // (only lanes that act now: a paused lane — EQ band off, Delay synced — schedules nothing)
+        tracks: project.tracks.map((t) => ({ id: t.id, kind: t.kind, automation: liveLanes(t) })),
       clips: Object.values(project.clips),
     },
     { tick: range.startTick, time: 0, fresh: true },

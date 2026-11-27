@@ -17,7 +17,7 @@ import type { Project } from '../project/types';
 import type { SynthEvent } from '../synth/dsp/TriOscCore';
 import { SchedulerClock } from './clock';
 import { inOrder, planWindow, tickAtTime, toParamSegments, type Anchor, type Cursor, type WindowPlan } from './scheduling';
-import { targetInfo } from '../project/automation';
+import { liveLanes, targetInfo } from '../project/automation';
 import type { TrackChannel } from './trackChannel';
 
 export interface TransportHost {
@@ -268,7 +268,8 @@ export class Transport {
         beatTicks: ticksPerBeatUnit(ts),
         barTicks: ticksPerBar(ts),
         metronome: project.metronome,
-        tracks: project.tracks,
+        // (only lanes that act now: a paused lane — EQ band off, Delay synced — schedules nothing)
+        tracks: project.tracks.map((t) => ({ id: t.id, kind: t.kind, automation: liveLanes(t) })),
         clips: Object.values(project.clips),
       },
       this.cursor,
