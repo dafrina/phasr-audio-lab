@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fingers, isTouch } from '../touch';
 import { Download, Music, Repeat, Wand2 } from 'lucide-react';
 import { DRUM_BASE_NOTE } from '../../drums/kit';
 import { INSTRUMENTS, noteLabelFor } from '../../instruments/definitions';
@@ -31,6 +32,8 @@ const RULER_H = 20;
 const VEL_H = 68;
 const SB_H = 12;
 const EDGE = 6;
+/** a finger's resize edge (px) */
+const EDGE_TOUCH = 16;
 const MIN_ROW = 6;
 const MAX_ROW = 32;
 
@@ -42,9 +45,11 @@ type Drag =
   | { mode: 'keys'; pitch: number; id: number | null }
   | { mode: 'end'; key: string }
   | { mode: 'seek' }
-  | { mode: 'pan'; x: number; y: number; sx: number; sy: number }
+  // `fingers`: a two-finger pan (follows their midpoint, in client coordinates)
+  | { mode: 'pan'; x: number; y: number; sx: number; sy: number; fingers?: boolean }
   /** pressed on empty space: a drag (> 10 px within 150 ms) selects; otherwise a note drops on release or after 150 ms */
-  | { mode: 'pending'; key: string; x: number; y: number; timer: ReturnType<typeof setTimeout> };
+  // `touch`: a finger — dragging away from empty space pans the roll instead of selecting
+  | { mode: 'pending'; key: string; x: number; y: number; timer: ReturnType<typeof setTimeout>; touch?: boolean };
 
 /** how long a press on empty space waits before it drops a note, and how far a drag must go to select instead */
 const DROP_MS = 150;
@@ -84,6 +89,8 @@ export function PianoRoll({ clipId }: { clipId: string }) {
   const main = useRef<HTMLCanvasElement>(null);
   const vel = useRef<HTMLCanvasElement>(null);
   const view = useRef<View>({ pxPerBeat: 96, rowH: 14, scrollX: 0, scrollY: 0 });
+  /** fingers on the roll (touch): two pan it */
+  const fingers = useRef(new Fingers());
   const sel = useRef<Set<string>>(new Set());
   const drag = useRef<Drag | null>(null);
   const dirty = useRef(true);
@@ -190,7 +197,12 @@ export function PianoRoll({ clipId }: { clipId: string }) {
     if (id !== null) setTimeout(() => engine.previewNoteOff(track.id, id), ms);
   };
 
-  const hitNote = (c: MidiClip, x: number, y: number): { note: MidiNote; edge: boolean } | null => {
+  /**
+   * The note under (x, y) and whether it's at its right edge (resize). A finger
+   * (`touch`) also finds a note one row up or down (rows are 14 px; a fingertip
+   * isn't) and gets a wider edge.
+   */
+  const hitNote = (c: MidiClip, x: number, y: number, touch = false): { note: MidiNote; edge: boolean } | null => {
     const t = xToT(x);
     const p = yToP(y);
     const cycle = cycleOf(c);
@@ -199,8 +211,17 @@ export function PianoRoll({ clipId }: { clipId: string }) {
       if (n.pitch !== p || n.start >= cycle) continue;
       if (t < n.start || t > n.start + n.length) continue;
       const x1 = tToX(n.start + n.length);
-      const edge = x1 - x < Math.min(EDGE, (x1 - tToX(n.start)) / 3);
+      const edge = x1 - x < Math.min(touch ? EDGE_TOUCH : EDGE, (x1 - tToX(n.start)) / 3);
       if (!found || sel.current.has(n.id)) found = { note: n, edge };
+    }
+    if (!found && touch) {
+      for (const dp of [1, -1]) {
+        const near = hitNote(c, x, y - dp * view.current.rowH, false);
+        if (near) {
+          const x1 = tToX(near.note.start + near.note.length);
+          return { note: near.note, edge: x1 - x < Math.min(EDGE_TOUCH, (x1 - tToX(near.note.start)) / 3) };
+        }
+      }
     }
     return found;
   };
@@ -446,6 +467,19 @@ export function PianoRoll({ clipId }: { clipId: string }) {
     const { x, y } = local(e, e.currentTarget);
     e.currentTarget.setPointerCapture(e.pointerId);
     const key = `pr-${Date.now()}`;
+    const touch = isTouch(e);
+    if (touch) {
+      // a second finger: both pan the roll (whatever the first one was starting is dropped)
+      fingers.current.down(e);
+      if (fingers.current.count >= 2) {
+        const d = drag.current;
+        if (d?.mode === 'pending') clearTimeout(d.timer);
+        if (d?.mode === 'keys' && d.id !== null) engine.previewNoteOff(track.id, d.id);
+        const m = fingers.current.mid();
+        drag.current = { mode: 'pan', x: m.x, y: m.y, sx: view.current.scrollX, sy: view.current.scrollY, fingers: true };
+        return;
+      }
+    }
     // hand tool: Space + drag, or middle mouse button
     if (spaceHeld.current || e.button === 1) {
       e.preventDefault();
@@ -478,7 +512,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
       return;
     }
     if (e.button !== 0) return;
-    const hit = hitNote(c, x, y);
+    const hit = hitNote(c, x, y, touch);
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
     if (hit) {
       const id = hit.note.id;
@@ -523,7 +557,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
         const d = drag.current;
         if (d?.mode === 'pending' && d.timer === timer) dropNote(d.x, d.y, d.key);
       }, DROP_MS);
-      drag.current = { mode: 'pending', key, x, y, timer };
+      drag.current = { mode: 'pending', key, x, y, timer, touch };
     }
     redraw();
     force((n) => n + 1);
@@ -553,6 +587,11 @@ export function PianoRoll({ clipId }: { clipId: string }) {
     const c = latestClip();
     if (!c) return;
     const { x, y } = local(e, e.currentTarget);
+    if (isTouch(e)) {
+      fingers.current.move(e);
+      // (with two fingers down, only their pan moves anything)
+      if (fingers.current.count >= 2 && drag.current?.mode !== 'pan') return;
+    }
     const d = drag.current;
     if (!d) {
       if (spaceHeld.current) e.currentTarget.style.cursor = 'grab';
@@ -565,6 +604,12 @@ export function PianoRoll({ clipId }: { clipId: string }) {
       return;
     }
     if (d.mode === 'pending') {
+      // a finger dragging away from empty space: it scrolls the roll
+      if (d.touch && Math.hypot(x - d.x, y - d.y) > SELECT_PX) {
+        clearTimeout(d.timer);
+        drag.current = { mode: 'pan', x: d.x, y: d.y, sx: view.current.scrollX, sy: view.current.scrollY };
+        return;
+      }
       // dragged far enough before the note dropped: this is a selection
       if (Math.hypot(x - d.x, y - d.y) > SELECT_PX) {
         clearTimeout(d.timer);
@@ -578,8 +623,9 @@ export function PianoRoll({ clipId }: { clipId: string }) {
       return;
     }
     if (d.mode === 'pan') {
-      view.current.scrollX = d.sx - (x - d.x);
-      view.current.scrollY = d.sy - (y - d.y);
+      const m = d.fingers ? fingers.current.mid() : { x, y };
+      view.current.scrollX = d.sx - (m.x - d.x);
+      view.current.scrollY = d.sy - (m.y - d.y);
       clampScroll();
       redraw();
       return;
@@ -631,7 +677,15 @@ export function PianoRoll({ clipId }: { clipId: string }) {
     }
   };
 
-  const onUp = () => {
+  const onUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isTouch(e)) {
+      fingers.current.up(e);
+      // lifting one of two panning fingers ends the pan (the other one starts nothing new)
+      if (drag.current?.mode === 'pan' && drag.current.fingers && fingers.current.count > 0) {
+        drag.current = null;
+        return;
+      }
+    }
     const pending = drag.current;
     if (pending?.mode === 'pending') {
       // a click on empty space: the note drops now (before the 150 ms were up)
@@ -990,12 +1044,13 @@ export function PianoRoll({ clipId }: { clipId: string }) {
           })();
         }}
         className="relative min-h-0 flex-1 outline-none"
+        data-touch-longpress
         title="Drop a .mid file here to add its notes · Click: add note · drag: move · drag right edge: resize · right-click: delete · Shift/Ctrl-drag: select · Alt-drag: duplicate · Space+drag or middle-drag: pan · wheel: scroll · Shift+wheel: scroll sideways"
       >
         <canvas
           ref={main}
           style={{ width: size.w, height: mainH }}
-          className="block"
+          className="touch-control block"
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
@@ -1010,7 +1065,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
         <canvas
           ref={vel}
           style={{ width: size.w, height: VEL_H }}
-          className="block cursor-ns-resize"
+          className="touch-control block cursor-ns-resize"
           onPointerDown={startVelocity}
           onPointerMove={paintVelocity}
           onPointerUp={() => (velDrag.current = null)}
@@ -1020,7 +1075,7 @@ export function PianoRoll({ clipId }: { clipId: string }) {
         <div className="flex" style={{ height: SB_H }}>
           <div style={{ width: KEYS_W }} className="shrink-0 bg-panel" />
           <div
-            className="relative flex-1 bg-panel"
+            className="touch-control relative flex-1 bg-panel"
             title="Scroll horizontally (or Shift+wheel / Space+drag)"
             onPointerDown={(e) => {
               const r = e.currentTarget.getBoundingClientRect();

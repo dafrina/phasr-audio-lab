@@ -31,8 +31,8 @@ export function VFader({ db, onChange, height, title }: { db: number; onChange: 
   };
   return (
     <div
-      className="relative w-7 cursor-ns-resize outline-none"
-      style={{ height }}
+      className="touch-control touch-pad relative w-7 cursor-ns-resize outline-none"
+      style={{ height, '--touch-pad': '-4px -9px' } as React.CSSProperties}
       role="slider"
       tabIndex={0}
       aria-label={title}

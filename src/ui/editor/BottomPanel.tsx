@@ -60,7 +60,8 @@ export function BottomPanel() {
   return (
     <div style={{ height: h }} className="relative flex shrink-0 flex-col border-t border-line-2 bg-panel">
       <div
-        className="absolute -top-1 left-0 right-0 z-10 h-2 cursor-ns-resize"
+        className="touch-control touch-pad absolute -top-1 left-0 right-0 z-10 h-2 cursor-ns-resize"
+        style={{ '--touch-pad': '-10px 0' } as React.CSSProperties}
         title="Drag to resize"
         onPointerDown={(e) => {
           (e.target as Element).setPointerCapture(e.pointerId);

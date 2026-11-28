@@ -380,8 +380,9 @@ fields or whole blocks instead of per-sample calls would remove most of it.
 | + all three, tab hidden (window still open) | | 19.4–20.4 % |
 | Startup JavaScript (gzip) | 296 kB | 200 kB |
 
-Startup JavaScript: 229.6 kB gzip (index.html's scripts and preloads, gzip -9); the rebuilt drum synthesis added
-2.9 kB of it (226.7 kB before). Earlier: 216.8 kB after the Limiter, the analysers' mixer hooks, the General MIDI
+Startup JavaScript: 237.5 kB gzip (index.html's scripts and preloads, gzip -9): curved automation and point copy /
+paste added 5.5 kB, touch support 2.4 kB, on 229.6 kB after the rebuilt drum synthesis, which added 2.9 kB
+(226.7 kB before). Earlier: 216.8 kB after the Limiter, the analysers' mixer hooks, the General MIDI
 drum tables and Capture, against 208.5 kB for the release before; the analyser window itself loads on demand (11 kB).
 
 **Drum synthesis** (`npm run bench`, rendering every pad of a factory kit at 48 kHz, Node): 40–73 ms per kit, all
@@ -398,14 +399,74 @@ the MP3 encoder is no longer part of the startup bundle.
 
 ## Browser support
 
-- **Tested:** Chromium only (the Playwright suite runs Chrome for Testing on Linux; the app is developed in Chrome).
+- **Tested:** Chromium (the Playwright suite runs Chrome for Testing on Linux; the app is developed in Chrome), plus
+  the touch tests in WebKit — see *iPad and touch screens*.
 - **Required:** Web Audio with AudioWorklet, IndexedDB, ES2022. Recording needs `getUserMedia` in a secure context
   (https or localhost). MIDI input needs Web MIDI (Chrome, Edge, Firefox; not Safari) — without it the computer
   keyboard and on-screen keys still work.
 - **Optional, with fallbacks:** Web Locks (one writer per project across tabs; without it every tab is a writer),
   `AudioContext.getOutputTimestamp` (MIDI recording timing; falls back to the reported output latency).
-- **Not tested:** Firefox and Safari. Everything required exists there, but timing, latency reporting and
+- **Not tested:** Firefox, and Safari's audio. Everything required exists there, but timing, latency reporting and
   `DynamicsCompressorNode` / convolution behaviour differ between engines and haven't been checked.
+
+### iPad and touch screens
+
+Every control is made for fingers: knobs, faders and sliders, the EQ graph's nodes, the piano roll, clips and
+their edges (including the long-press stretch), automation points and curve handles, drum pads, the
+on-screen keyboard (chords with several fingers), window title bars, the bottom panel's divider, menus and the
+transport. The step grids (taps) and the Arp-Ape-ator's pitch lane already worked by touch.
+
+- A finger dragging a control drives it: the page never scrolls or zooms underneath (`touch-action: none`), so
+  the drag isn't cancelled half-way. That was the iPad bug: knobs in the scrollable device panel (the effect
+  filters) lost the drag to the panel, which scrolled instead. Knobs in the instrument windows mostly worked
+  because there was nothing to scroll.
+- Scrolling: scrollable areas (track list, device panel, mixer) scroll as usual. On the arrangement and the
+  piano roll, one finger on empty space scrolls, and two fingers scroll anywhere. Taps don't wait for a
+  double-tap (no 300 ms delay), and there's no double-tap zoom.
+- Bigger targets for fingers, invisible to a mouse: knobs, faders, sliders and small buttons get an extra margin
+  that a finger can hit (about 40 px or more), only where the primary pointer is coarse. On canvases, points,
+  curve handles, EQ nodes, note rows and clip edges take a finger from further away.
+- No hover on a touch screen, so:
+  - long-press is the right-click: menus for clips, lanes, automation shapes, copy / paste and EQ nodes;
+    long-press on empty EQ space adds a band;
+  - a selected clip shows grips on its edges;
+  - tapping an automation point selects it and shows its segments' curve handles;
+  - resting a finger on a button or knob shows its tooltip, and that press doesn't click.
+- Audio starts on the first touch: iPadOS only lets audio start from inside a touch. Opening the microphone,
+  which can interrupt the audio, resumes it.
+- All of this applies only to touch and pen input: the code branches on the pointer type, the larger margins
+  exist only for a coarse primary pointer, and mouse behaviour and the desktop look are unchanged. A touch laptop
+  used with its mouse behaves exactly like a desktop. Fine adjustment by touch is not available (Shift needs a
+  keyboard).
+- **What's tested:**
+  - Chromium emulating an iPad Pro 11 (`npm run test:e2e`): real touch input through the browser's own gesture
+    handling, so the tests show each drag turns the control and nothing on the page scrolled or zoomed. Covered:
+    - a filter knob in the device panel (the reported bug: it fails on the code before the fix);
+    - the TriOsc window's knobs, two at once, and a pinch on a knob;
+    - a mixer fader and the header volume slider, also from beside them;
+    - the EQ: hold to add a band, drag its node, hold it for the menu;
+    - the timeline: long-press menus, a clip drag, one-finger scrolling;
+    - the piano roll: tap a note in, drag it, resize it, scroll;
+    - automation: tap points in, bend a segment by its handle, the long-press shape menu, scrolling;
+    - a three-finger chord on the on-screen keyboard;
+    - audio starting on the first touch;
+    - tooltips, a window drag, and no double-tap zoom.
+  - Not covered by a touch test: the audio-clip edge stretch, the bottom panel's divider and recording.
+  - WebKit, Safari's engine on Linux (`npm run test:touch:webkit`, also in CI): real taps, with drags as
+    synthetic touch pointer events, because Playwright can't drive a WebKit touch drag. That exercises the
+    app's touch handling and checks the controls' `touch-action` in WebKit, but not WebKit's own scrolling.
+  - Neither is a real iPad: iPadOS Safari's gesture recogniser, its audio session (microphone permission, the
+    silent switch, audio after the iPad wakes), and the feel of drag distances under a finger still need a
+    check on the device.
+- **To try on an iPad:**
+  - turn an Auto-Filter or Spectra EQ knob in the device panel up and down;
+  - drag two knobs at once;
+  - play a chord on the on-screen keyboard;
+  - tap a note into the piano roll, drag it, drag its right edge, scroll the roll with one finger on empty space;
+  - drag a clip, long-press it for its menu, hold an audio clip's edge to stretch it;
+  - in Automation mode, tap two points in, bend the segment by its dot, long-press the segment for its shape;
+  - drag a mixer fader;
+  - record from the microphone (allow access when Safari asks), with and without headphones.
 
 ## Storage
 
@@ -427,7 +488,8 @@ is uploaded. Things that can lose work:
 | --- | --- | --- |
 | `npm test` | unit + integration tests (Vitest, Node): DSP (including measured drum quality: attacks, aliasing against a 192 kHz render, kick sub and click, tails, spectral balance, kit loudness), scheduling, automation shapes (exact endpoints, monotonic, the detent, the bend position, the subdivision's error bound checked against dense sampling, live windows vs. export for every shape across window and loop boundaries) and point copy / paste (mapping, replacing the pasted span), persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
-| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), Capture (keys played with the transport stopped and over a loop, the popover, one undo), Warp (a clip filling its bar at three tempos with its pitch, live vs. export, the long-press stretch and a short-press trim with the real mouse, the clip editor's tempo), and curved automation (bending with the real mouse — the handle, detent, Shift, double-click, Alt-drag, an S's bend, the shape menu on one and on several segments, undo; copy / cut / paste / duplicate of points with mouse and keyboard; offline renders of volume, pan, an effect, a worklet parameter and drum pad parameters measured against the lane; live windows vs. export through an AudioParam probe) | CI |
+| `npm run test:touch:webkit` | the touch tests in WebKit (Safari's engine) on an emulated iPad: real taps, drags as synthetic touch pointer events (see *iPad and touch screens*) | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), Capture (keys played with the transport stopped and over a loop, the popover, one undo), Warp (a clip filling its bar at three tempos with its pitch, live vs. export, the long-press stretch and a short-press trim with the real mouse, the clip editor's tempo), touch on an emulated iPad (every control above by real touch input: the drag turns it and nothing scrolls; fails first on the code before touch support), mouse behaviour against a baseline recorded before touch support (knob / fader / slider sensitivity and Shift, wheel, double-click, right-click menus, the 3 px clip threshold, cursors, tooltips, sizes, window drag, the keyboard glide), and curved automation (bending with the real mouse — the handle, detent, Shift, double-click, Alt-drag, an S's bend, the shape menu on one and on several segments, undo; copy / cut / paste / duplicate of points with mouse and keyboard; offline renders of volume, pan, an effect, a worklet parameter and drum pad parameters measured against the lane; live windows vs. export through an AudioParam probe) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound

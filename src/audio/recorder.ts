@@ -188,6 +188,8 @@ class AudioRecorder {
       uiToast('error', msg);
       return false;
     }
+    // iOS / iPadOS: opening the microphone switches the audio session and can suspend (interrupt) the context
+    if (ctx.state !== 'running') await ctx.resume().catch(() => undefined);
     const track = stream.getAudioTracks()[0];
     const source = new MediaStreamAudioSourceNode(ctx, { mediaStream: stream });
     const gain = new GainNode(ctx);

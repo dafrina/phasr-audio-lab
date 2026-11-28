@@ -42,6 +42,63 @@ textarea {
   -webkit-user-select: text;
 }
 
+/*
+ * Touch (iPad and other touch screens). Everything here only affects touch and
+ * pen input — a mouse ignores touch-action, the callout and the tap highlight,
+ * and the bigger hit areas exist only where the primary pointer is coarse:
+ *  - no double-tap zoom anywhere, so a tap isn't held back 300 ms (pan and
+ *    pinch-zoom of scrollable areas still work);
+ *  - .touch-control: a finger dragging it drives the control — the browser
+ *    neither scrolls nor zooms (and so never cancels the drag half-way), no
+ *    long-press callout or magnifier, no grey tap flash;
+ *  - .touch-pad: an invisible margin around a small (positioned) control that a
+ *    finger can hit too (on a coarse primary pointer only; nothing changes for a
+ *    mouse);
+ *  - .touch-btn: the same for small buttons;
+ *  - .touch-hit: an invisible overlay that is the control's touch area (knobs).
+ */
+html,
+body {
+  touch-action: manipulation;
+}
+
+.touch-control {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-hit {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  /* (a .touch-pad element is positioned itself — relative or absolute — so this margin sits around it) */
+  .touch-pad::before {
+    content: "";
+    position: absolute;
+    inset: var(--touch-pad, -8px);
+  }
+  /* small buttons: taller to a finger (a little wider too; neighbours sit a few px apart) */
+  .touch-btn {
+    position: relative;
+  }
+  .touch-btn::before {
+    content: "";
+    position: absolute;
+    inset: -9px -2px;
+  }
+  .touch-hit {
+    display: block;
+    position: absolute;
+    inset: -5px;
+    z-index: 1;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line-2) transparent;

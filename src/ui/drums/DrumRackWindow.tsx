@@ -161,7 +161,7 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70 outline-none"
     >
       <div
-        className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
+        className="touch-control flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('button,select,input')) return;
           (e.target as Element).setPointerCapture(e.pointerId);
@@ -273,7 +273,8 @@ export function DrumRackWindow({ trackId }: { trackId: string }) {
                   setDropPad(null);
                   void loadSamples([...e.dataTransfer.files], i);
                 }}
-                className={`relative flex h-[68px] w-[92px] flex-col justify-between rounded-md border p-1.5 text-left transition-colors ${
+                data-touch-longpress
+                className={`touch-control relative flex h-[68px] w-[92px] flex-col justify-between rounded-md border p-1.5 text-left transition-colors ${
                   sel === i ? 'border-[#fb923c] bg-panel-3' : 'border-line bg-panel-2 hover:bg-panel-3'
                 } ${dropPad === i ? 'ring-2 ring-accent' : ''}`}
               >

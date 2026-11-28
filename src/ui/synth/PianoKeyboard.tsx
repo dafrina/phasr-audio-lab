@@ -20,45 +20,60 @@ interface PianoKeyboardProps {
  */
 export function PianoKeyboard({ low, high, onNoteOn, onNoteOff, externalActive, height = 64, flashColor }: PianoKeyboardProps) {
   const [active, setActive] = useState<ReadonlySet<number>>(new Set());
-  const held = useRef<{ note: number; id: number } | null>(null);
-  const pointerDown = useRef(false);
+  /** the note each pointer holds (a mouse: one; fingers: one each, so chords play) */
+  const held = useRef(new Map<number, { note: number; id: number }>());
+  /** pointers pressed down on the keyboard (a glissando follows them from key to key) */
+  const downs = useRef(new Set<number>());
 
   const whites: number[] = [];
   for (let n = low; n <= high; n++) if (!isBlackKey(n)) whites.push(n);
   const whiteW = 100 / whites.length;
 
-  const release = () => {
-    const h = held.current;
-    if (h) {
+  const showHeld = () => setActive(new Set([...held.current.values()].map((h) => h.note)));
+
+  /** let go of what a pointer holds (all pointers when none is given) */
+  const release = (pointerId?: number) => {
+    const ids = pointerId === undefined ? [...held.current.keys()] : [pointerId];
+    let changed = false;
+    for (const pid of ids) {
+      const h = held.current.get(pid);
+      if (!h) continue;
       onNoteOff(h.note, h.id);
-      held.current = null;
-      setActive(new Set());
+      held.current.delete(pid);
+      changed = true;
     }
+    if (changed) showHeld();
   };
 
   const press = (note: number, e: React.PointerEvent) => {
-    if (held.current?.note === note) return;
-    release();
+    if (held.current.get(e.pointerId)?.note === note) return;
+    release(e.pointerId);
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const rel = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
     const velocity = 0.35 + 0.65 * rel;
     const id = onNoteOn(note, velocity);
     if (id !== null) {
-      held.current = { note, id };
-      setActive(new Set([note]));
+      held.current.set(e.pointerId, { note, id });
+      showHeld();
     }
   };
 
   useEffect(() => {
-    const up = () => {
-      pointerDown.current = false;
+    const up = (e: PointerEvent) => {
+      downs.current.delete(e.pointerId);
+      release(e.pointerId);
+    };
+    const blur = () => {
+      downs.current.clear();
       release();
     };
     window.addEventListener('pointerup', up);
-    window.addEventListener('blur', up);
+    window.addEventListener('pointercancel', up);
+    window.addEventListener('blur', blur);
     return () => {
       window.removeEventListener('pointerup', up);
-      window.removeEventListener('blur', up);
+      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('blur', blur);
     };
   });
 
@@ -68,18 +83,18 @@ export function PianoKeyboard({ low, high, onNoteOn, onNoteOff, externalActive, 
     onPointerDown: (e: React.PointerEvent) => {
       if (e.button !== 0) return;
       e.preventDefault();
-      pointerDown.current = true;
+      downs.current.add(e.pointerId);
       // release capture so pointerenter fires on other keys for glissando
       (e.target as Element).releasePointerCapture?.(e.pointerId);
       press(n, e);
     },
     onPointerEnter: (e: React.PointerEvent) => {
-      if (pointerDown.current) press(n, e);
+      if (downs.current.has(e.pointerId)) press(n, e);
     },
   });
 
   return (
-    <div className="relative w-full select-none" style={{ height }} onPointerLeave={() => pointerDown.current && release()}>
+    <div className="touch-control relative w-full select-none" data-touch-longpress style={{ height }} onPointerLeave={(e) => downs.current.has(e.pointerId) && release(e.pointerId)}>
       {whites.map((n, i) => (
         <div
           key={n}
@@ -124,7 +139,7 @@ export function BendWheel({ onChange, height = 64 }: { onChange: (v: number) => 
   return (
     <div
       title="Pitch bend — drag up/down, springs back to center"
-      className="relative w-4 cursor-ns-resize rounded bg-base"
+      className="touch-control relative w-4 cursor-ns-resize rounded bg-base"
       style={{ height }}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture(e.pointerId);

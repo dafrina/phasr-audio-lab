@@ -13,7 +13,7 @@ export function IconButton({ active, activeClass = 'bg-accent text-white', class
     <button
       type="button"
       {...rest}
-      className={`inline-flex items-center justify-center gap-1 rounded ${sz} transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+      className={`touch-btn inline-flex items-center justify-center gap-1 rounded ${sz} transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
         active ? activeClass : 'bg-panel-3 text-fg hover:bg-line-2'
       } ${className}`}
     >
@@ -44,7 +44,7 @@ export function ToggleChip({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className={`h-[18px] w-[18px] rounded-[3px] text-[10px] font-bold leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+      className={`touch-btn h-[18px] w-[18px] rounded-[3px] text-[10px] font-bold leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
         on ? onClass : 'bg-panel-3 text-muted hover:text-fg'
       }`}
     >

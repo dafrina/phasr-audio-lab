@@ -99,6 +99,7 @@ export function PitchLane({
         </div>
         <div
           ref={lane}
+          data-touch-longpress
           className="relative grid cursor-ns-resize touch-none select-none gap-[3px]"
           style={{ gridColumn: '2 / -1', gridTemplateColumns: `repeat(${SEQ_STEPS}, minmax(0, 1fr))`, height: H }}
           onPointerDown={down}

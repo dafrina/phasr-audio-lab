@@ -19,6 +19,7 @@ import { getProject } from '../../state/projectStore';
 import { useUiStore } from '../../state/uiStore';
 import { AutoKnob } from '../common/AutoKnob';
 import { ContextMenu, type MenuItem } from '../common/ContextMenu';
+import { LongPress, TOUCH_HIT_PX, isTouch } from '../touch';
 
 type PeqSlot = Extract<EffectSlot, { type: 'peq' }>;
 
@@ -109,6 +110,9 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const drag = useRef<{ band: number; x: number; y: number; f: number; g: number; key: string } | null>(null);
   const hover = useRef<number>(-1);
+  /** touch: a held finger (long-press = menu / add band) and whether the last press was a finger */
+  const longPress = useRef(new LongPress());
+  const lastTouch = useRef(false);
 
   const select = (i: number) => setUi({ peqSelected: { ...useUiStore.getState().peqSelected, [slot.id]: i } });
 
@@ -144,11 +148,12 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
     select(i);
   };
 
-  const hitNode = (x: number, y: number): number => {
+  /** the band node under (x, y): within `r` px (a finger gets a larger radius) */
+  const hitNode = (x: number, y: number, r = NODE_R + 4): number => {
     const s = liveSlot(trackId, slot.id);
     if (!s) return -1;
     let best = -1;
-    let bestD = NODE_R + 4;
+    let bestD = r;
     s.params.bands.forEach((_, i) => {
       const b = effectiveBand(trackId, s, i);
       if (!b.enabled) return;
@@ -325,12 +330,27 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
       <canvas
         ref={canvas}
         style={{ width: W, height: H }}
-        className="cursor-crosshair rounded border border-line"
+        className="touch-control cursor-crosshair rounded border border-line"
+        data-touch-longpress
         title="Double-click: add band · drag a node: frequency/gain · wheel: Q · right-click a node: type, slope, automate, remove"
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           const p = pos(e);
-          const i = hitNode(p.x, p.y);
+          const touch = isTouch(e);
+          lastTouch.current = touch;
+          const i = hitNode(p.x, p.y, touch ? TOUCH_HIT_PX : undefined);
+          if (touch) {
+            // touch: hold a node for its menu (the right-click), hold empty space to add a band there (the double-click)
+            const at = { x: e.clientX, y: e.clientY };
+            (e.target as Element).setPointerCapture(e.pointerId);
+            longPress.current.start(at.x, at.y, () => {
+              drag.current = null;
+              if (i >= 0) {
+                select(i);
+                bandMenu(i, at);
+              } else addBandAt(p.x, p.y);
+            });
+          }
           if (i < 0) return;
           select(i);
           const ls = liveSlot(trackId, slot.id);
@@ -341,6 +361,7 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
         }}
         onPointerMove={(e) => {
           const p = pos(e);
+          if (isTouch(e)) longPress.current.move(e.clientX, e.clientY);
           const d = drag.current;
           if (!d) {
             const h = hitNode(p.x, p.y);
@@ -358,6 +379,7 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
           setBand(d.band, part, d.key);
         }}
         onPointerUp={() => {
+          longPress.current.cancel();
           const d = drag.current;
           drag.current = null;
           if (d) {
@@ -386,6 +408,8 @@ export function PeqDevice({ trackId, slot, color }: { trackId: string; slot: Peq
         }}
         onContextMenu={(e) => {
           e.preventDefault();
+          // (a touch long-press makes its own menu, above; the browser's would come late and twice)
+          if (lastTouch.current) return;
           const p = pos(e);
           const i = hitNode(p.x, p.y);
           if (i >= 0) {

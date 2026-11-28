@@ -4,6 +4,7 @@ import { startCapture } from './audio/captureLive';
 import { useTransportStore } from './state/transportStore';
 import { useUiStore } from './state/uiStore';
 import { Toasts } from './ui/common/Toasts';
+import { TouchTooltip } from './ui/common/TouchTooltip';
 import { useSelectedTrackKeys } from './ui/selectedTrackKeys';
 import { useGlobalShortcuts } from './ui/shortcuts';
 import { Arrangement } from './ui/timeline/Arrangement';
@@ -51,6 +52,7 @@ export default function App() {
         {analyzerTrackId && <AnalyzerWindow trackId={analyzerTrackId} />}
       </Suspense>
       <Toasts />
+      <TouchTooltip />
       <BusyOverlay />
       <ShortcutHelp />
     </div>

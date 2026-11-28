@@ -49,7 +49,8 @@ export function HSlider({ value, min, max, step, onChange, onStart, onEnd, onDou
       aria-valuemax={max}
       aria-valuenow={value}
       title={title}
-      className={`relative h-[14px] cursor-ew-resize outline-none ${className}`}
+      className={`touch-control touch-pad relative h-[14px] cursor-ew-resize outline-none ${className}`}
+      style={{ '--touch-pad': '-14px -2px' } as React.CSSProperties}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.preventDefault();

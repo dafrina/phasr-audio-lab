@@ -24,6 +24,8 @@ export interface DrawState {
   playTick: number;
   timeSel: { start: number; end: number } | null;
   selectedTrackId: string | null;
+  /** the last press on the lanes was a finger: selected clips show grips on their edges */
+  touchUi?: boolean;
   /** take in progress, drawn as a growing red clip */
   recording:
     | { trackIndex: number; startTick: number; peaks: LivePeaks; sampleRate: number; notes?: undefined }
@@ -309,6 +311,14 @@ export function drawClip(g: CanvasRenderingContext2D, clip: Clip, trackIndex: nu
   g.strokeStyle = selected ? '#ffffff' : hexA(color, 0.9);
   g.stroke();
   g.lineWidth = 1;
+  // touch: a selected clip shows grips on its edges (there's no hover cursor to say "drag here")
+  if (selected && s.touchUi && w > 24) {
+    g.fillStyle = '#ffffff';
+    for (const gx of [x0 + 3, x0 + w - 6]) {
+      roundRect(g, gx, y + h / 2 - 9, 3, 18, 1.5);
+      g.fill();
+    }
+  }
 }
 
 /**

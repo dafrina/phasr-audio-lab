@@ -362,7 +362,7 @@ export function AnalyzerWindow({ trackId }: { trackId: string }) {
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-line-2 bg-panel shadow-2xl shadow-black/70"
     >
       <div
-        className="flex h-9 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-[#10202c] to-panel px-3"
+        className="touch-control flex h-9 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-[#10202c] to-panel px-3"
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('button,select,input')) return;
           (e.target as Element).setPointerCapture(e.pointerId);

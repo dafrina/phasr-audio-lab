@@ -38,6 +38,7 @@ import { setTimeSelection } from './timeSelection';
 import { getAutoSelection, setAutoHover, setAutoSelection, subscribeAutoSelection, type AutoSelection } from './autoSelection';
 import { copyAutomation, cutAutomation, duplicateAutomation, pasteAutomation } from '../automationEdit';
 import { hasPointClipboard } from '../../state/automationActions';
+import { Fingers, LongPress, TOUCH_HIT_PX, TOUCH_SLOP_PX, isTouch } from '../touch';
 import { INSTRUMENT_TYPES, INSTRUMENTS } from '../../instruments/definitions';
 import { ContextMenu, type MenuItem } from '../common/ContextMenu';
 
@@ -45,6 +46,8 @@ type Zone = 'body' | 'start' | 'end';
 
 /** a press on a clip only becomes a drag after the pointer moves this far (a click changes nothing) */
 const DRAG_PX = 3;
+/** a clip's edges under a finger (px; the mouse's are EDGE_PX) */
+const TOUCH_EDGE_PX = 16;
 /** holding an audio clip's edge this long without moving turns the drag into a time-stretch */
 export const STRETCH_HOLD_MS = 400;
 
@@ -53,7 +56,8 @@ type Drag =
   | { mode: 'move'; key: string; startX: number; startY: number; startTrack: number; origs: Clip[]; primary: Clip; last: string; started: boolean; copy: boolean }
   // `stretch`: held still on an audio clip's edge for STRETCH_HOLD_MS — the drag stretches instead of trimming
   | { mode: 'trim-start' | 'trim-end'; key: string; startX: number; orig: Clip; last: string; started: boolean; stretch: boolean; hold: ReturnType<typeof setTimeout> | null }
-  | { mode: 'select'; startTick: number; startX: number; moved: boolean }
+  // (`cx`/`cy`: a finger's press, client coordinates — a finger dragging empty space scrolls instead)
+  | { mode: 'select'; startTick: number; startX: number; moved: boolean; cx?: number; cy?: number }
   | { mode: 'ruler'; startTick: number; startX: number; moved: boolean; key: string }
   | { mode: 'loop-edge'; edge: 'start' | 'end'; key: string }
   // `toggleOnClick`: Shift-press on a point — released without moving, it toggles the point in the selection
@@ -65,6 +69,10 @@ type Drag =
    */
   | { mode: 'curve'; key: string; trackId: string; laneId: string; pointId: string; start: AutomationShape | undefined; kind: 'curve' | 's'; lastX: number; lastY: number; ax: number; ay: number; xa: number; wPx: number; ya: number; yb: number; dotY: number }
   | { mode: 'automarquee'; trackId: string; laneId: string; trackIndex: number; x0: number; y0: number; base: string[] }
+  /** touch: a finger (or two: `fingers`) scrolling the arrangement — `mx`/`my` client coordinates, `sx`/`sy` the scroll then */
+  | { mode: 'pan'; fingers: boolean; mx: number; my: number; sx: number; sy: number }
+  /** touch, Automation mode: a finger down on empty lane space — a tap adds a point there, a drag scrolls */
+  | { mode: 'autotap'; key: string; trackId: string; laneId: string; tick: number; value: number; clientX: number; clientY: number }
   | { mode: 'marquee'; x0: number; y0: number; base: string[] };
 
 /** pixels of vertical drag for the full steepness range of an S (or a curve on a flat segment) */
@@ -94,9 +102,9 @@ function editableLaneAt(project: Project, y: number) {
   return lane && info ? { track, trackIndex, lane, spec: info.spec } : null;
 }
 
-function hitLanePoint(lane: AutomationLane, trackIndex: number, spec: NumericParamSpec, x: number, y: number, pxPerBeat: number, scrollX: number): AutomationPoint | null {
+function hitLanePoint(lane: AutomationLane, trackIndex: number, spec: NumericParamSpec, x: number, y: number, pxPerBeat: number, scrollX: number, r = 8): AutomationPoint | null {
   let best: AutomationPoint | null = null;
-  let bestD = 8;
+  let bestD = r;
   for (const p of lane.points) {
     const d = Math.hypot(tickToX(p.tick, pxPerBeat, scrollX) - x, laneValueToY(trackIndex, spec, p.value) - y);
     if (d < bestD) {
@@ -135,7 +143,8 @@ function shapeTypeOf(shape: AutomationShape | undefined): ShapeType {
   return !shape || (shape.type === 'curve' && isLinearShape(shape)) ? 'linear' : shape.type;
 }
 
-function hitClip(project: Project, x: number, y: number, pxPerBeat: number, scrollX: number): { clip: Clip; zone: Zone } | null {
+/** the clip under (x, y) and which part of it (`edgePx`: how wide its edges are — wider for a finger) */
+function hitClip(project: Project, x: number, y: number, pxPerBeat: number, scrollX: number, edgePx = EDGE_PX): { clip: Clip; zone: Zone } | null {
   const ti = Math.floor(y / TRACK_H);
   const track = project.tracks[ti];
   if (!track) return null;
@@ -146,7 +155,7 @@ function hitClip(project: Project, x: number, y: number, pxPerBeat: number, scro
     if (c.trackId !== track.id || tick < c.start || tick > clipEnd(c)) continue;
     const x0 = tickToX(c.start, pxPerBeat, scrollX);
     const x1 = tickToX(clipEnd(c), pxPerBeat, scrollX);
-    const edge = Math.min(EDGE_PX, (x1 - x0) / 3);
+    const edge = Math.min(edgePx, (x1 - x0) / 3);
     const zone: Zone = x - x0 < edge ? 'start' : x1 - x < edge ? 'end' : 'body';
     // prefer selected clips (they're drawn on top)
     if (!found || sel.has(c.id)) found = { clip: c, zone };
@@ -200,6 +209,11 @@ export function Arrangement() {
   const [curveUi, setCurveUi] = useState<{ x: number; y: number; label: string } | null>(null);
   /** the automation segment under the mouse (its handle shows) and whether the pointer is on the handle */
   const hoverSeg = useRef<{ laneId: string; pointId: string; onHandle: boolean } | null>(null);
+  /** touch: the last press on the lanes was a finger (bigger targets, long-press menus, grips on selected clips) */
+  const touchUi = useRef(false);
+  /** touch: the fingers on the lanes (two scroll) and a resting finger's long-press (the right-click) */
+  const fingers = useRef(new Fingers());
+  const longPress = useRef(new LongPress());
   const { w: viewW } = useSize(laneArea);
   const { h: viewH } = useSize(scroller);
   const laneH = Math.max(viewH, tracks.length * TRACK_H + 48);
@@ -285,6 +299,7 @@ export function Arrangement() {
         playTick,
         timeSel: timeSel.current,
         selectedTrackId: ui.selectedTrackId,
+        touchUi: touchUi.current,
         lanes: project.tracks.flatMap((t, trackIndex) => {
           const laneId = ui.shownLanes[t.id];
           const lane = laneId ? t.automation.find((l) => l.id === laneId) : undefined;
@@ -400,12 +415,44 @@ export function Arrangement() {
     setLaneShapes(trackId, lane.id, [pointId], a?.shape?.type === 's' ? { type: 's', steepness: 0, bend: 0.5 } : undefined);
   };
 
+  /** touch: a second finger came down — the two scroll the arrangement (what the first was starting is dropped) */
+  const startFingerPan = () => {
+    longPress.current.cancel();
+    const d = drag.current;
+    if (d && (d.mode === 'trim-start' || d.mode === 'trim-end') && d.hold) clearTimeout(d.hold);
+    setStretchUi(null);
+    setCurveUi(null);
+    setMarquee(null);
+    const m = fingers.current.mid();
+    drag.current = { mode: 'pan', fingers: true, mx: m.x, my: m.y, sx: useUiStore.getState().scrollX, sy: scroller.current?.scrollTop ?? 0 };
+  };
+
   const onLaneDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     const { x, y } = localPos(e, e.currentTarget);
     const project = getProject();
     const ui = useUiStore.getState();
     e.currentTarget.setPointerCapture(e.pointerId);
+    const touch = isTouch(e);
+    if (touchUi.current !== touch) {
+      touchUi.current = touch;
+      dirty.current = true;
+    }
+    if (touch) {
+      fingers.current.down(e);
+      if (fingers.current.count >= 2) return void startFingerPan();
+      // a finger resting without moving: the menu a right-click opens (not while holding an edge — that
+      // trims, or stretches an audio clip — nor once a drag is under way)
+      const at = { x, y, cx: e.clientX, cy: e.clientY };
+      longPress.current.start(at.cx, at.cy, () => {
+        const d = drag.current;
+        if (d && (d.mode === 'trim-start' || d.mode === 'trim-end' || d.mode === 'curve' || d.mode === 'pan' || (d.mode === 'move' && d.started) || (d.mode === 'autopoint' && d.moved))) return;
+        drag.current = null;
+        openMenuAt(at.x, at.y, at.cx, at.cy);
+      });
+    }
+    // (a finger gets bigger targets: points, handles, clip edges)
+    const hitR = touch ? TOUCH_HIT_PX : 8;
     // automation mode: edit the shown lane's points instead of clips
     const al = editableLaneAt(project, y);
     if (al) {
@@ -414,9 +461,9 @@ export function Arrangement() {
       ui.set({ selectedTrackId: al.track.id });
       dirty.current = true;
       // a curve handle: bend its segment
-      const handle = hitHandle(lane, al.trackIndex, al.spec, visibleHandles(lane).map((h) => h.pointId), x, y, ui.pxPerBeat, ui.scrollX, 8);
+      const handle = hitHandle(lane, al.trackIndex, al.spec, visibleHandles(lane).map((h) => h.pointId), x, y, ui.pxPerBeat, ui.scrollX, hitR);
       if (handle && !e.altKey) return void startCurveDrag(al, handle, x, y, key);
-      const pt = hitLanePoint(lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX);
+      const pt = hitLanePoint(lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX, hitR);
       if (pt) {
         if (e.altKey) return void deleteLanePoint(al.track.id, lane.id, pt.id);
         const cur = getAutoSelection();
@@ -439,6 +486,11 @@ export function Arrangement() {
         const a = lane.points[i];
         if (a && Math.abs(laneValueToY(al.trackIndex, al.spec, valueAt(lane.points, tick, al.spec) as number) - y) <= 8) return void startCurveDrag(al, a.id, x, y, key);
       }
+      if (touch) {
+        // a finger on empty lane space: a tap adds a point (on release), a drag scrolls, a hold opens the menu
+        drag.current = { mode: 'autotap', key, trackId: al.track.id, laneId: lane.id, tick: Math.max(0, snapTick(tick)), value: laneYToValue(al.trackIndex, al.spec, y), clientX: e.clientX, clientY: e.clientY };
+        return;
+      }
       if (e.ctrlKey || e.metaKey) {
         // Ctrl/Cmd-drag on empty lane space: box-select points
         const cur = getAutoSelection();
@@ -453,7 +505,7 @@ export function Arrangement() {
       }
       return;
     }
-    const hit = hitClip(project, x, y, ui.pxPerBeat, ui.scrollX);
+    const hit = hitClip(project, x, y, ui.pxPerBeat, ui.scrollX, touch ? TOUCH_EDGE_PX : EDGE_PX);
     const additive = e.ctrlKey || e.metaKey || e.shiftKey;
     timeSel.current = null;
     setTimeSelection(null);
@@ -492,7 +544,7 @@ export function Arrangement() {
     } else {
       const track = project.tracks[Math.floor(y / TRACK_H)];
       ui.set({ selectedClipIds: [], selectedTrackId: track?.id ?? ui.selectedTrackId });
-      drag.current = { mode: 'select', startTick: xToTick(x, ui.pxPerBeat, ui.scrollX), startX: x, moved: false };
+      drag.current = { mode: 'select', startTick: xToTick(x, ui.pxPerBeat, ui.scrollX), startX: x, moved: false, ...(touch ? { cx: e.clientX, cy: e.clientY } : {}) };
     }
     dirty.current = true;
   };
@@ -501,6 +553,28 @@ export function Arrangement() {
     const { x, y } = localPos(e, e.currentTarget);
     const ui = useUiStore.getState();
     const project = getProject();
+    const touch = isTouch(e);
+    if (touch) {
+      fingers.current.move(e);
+      longPress.current.move(e.clientX, e.clientY);
+    }
+    const dp = drag.current;
+    if (dp?.mode === 'pan') {
+      const m = dp.fingers ? fingers.current.mid() : { x: e.clientX, y: e.clientY };
+      ui.set({ scrollX: Math.max(0, dp.sx - (m.x - dp.mx)) });
+      if (scroller.current) scroller.current.scrollTop = dp.sy - (m.y - dp.my);
+      return;
+    }
+    // (with two fingers down only their scrolling moves anything)
+    if (touch && fingers.current.count >= 2) return;
+    // a finger dragging away from empty space scrolls
+    const fromEmpty = dp?.mode === 'autotap' ? { cx: dp.clientX, cy: dp.clientY } : dp?.mode === 'select' && dp.cx !== undefined && dp.cy !== undefined ? { cx: dp.cx, cy: dp.cy } : null;
+    if (touch && fromEmpty) {
+      if (Math.hypot(e.clientX - fromEmpty.cx, e.clientY - fromEmpty.cy) > TOUCH_SLOP_PX) {
+        drag.current = { mode: 'pan', fingers: false, mx: fromEmpty.cx, my: fromEmpty.cy, sx: ui.scrollX, sy: scroller.current?.scrollTop ?? 0 };
+      }
+      return;
+    }
     const d = drag.current;
     if (!d) {
       const al = editableLaneAt(project, y);
@@ -571,6 +645,8 @@ export function Arrangement() {
       const lane = track?.automation.find((l) => l.id === d.laneId);
       const info = track && lane ? targetInfo(track, lane.target) : null;
       if (!info) return;
+      // (a finger must move a little first: a resting fingertip wobbles)
+      if (touch && !d.moved && Math.hypot(x - d.x0, y - d.y0) <= TOUCH_SLOP_PX) return;
       const tick = Math.max(0, snapTick(xToTick(x, ui.pxPerBeat, ui.scrollX), e.shiftKey));
       if (Math.hypot(x - d.x0, y - d.y0) > DRAG_PX) d.moved = true;
       moveLanePoint(d.trackId, d.laneId, d.pointId, tick, laneYToValue(d.trackIndex, info.spec, y), d.key);
@@ -580,7 +656,8 @@ export function Arrangement() {
     const tick = xToTick(x, ui.pxPerBeat, ui.scrollX);
     if ((d.mode === 'move' || d.mode === 'trim-start' || d.mode === 'trim-end') && !d.started) {
       // a click (or a hand wobbling a pixel) is not a drag: nothing moves, snaps or gets copied
-      if (Math.abs(x - d.startX) <= DRAG_PX && (d.mode !== 'move' || Math.abs(y - d.startY) <= DRAG_PX)) return;
+      const slop = touch ? TOUCH_SLOP_PX : DRAG_PX;
+      if (Math.abs(x - d.startX) <= slop && (d.mode !== 'move' || Math.abs(y - d.startY) <= slop)) return;
       d.started = true;
       // moved before the hold time: a trim
       if (d.mode !== 'move' && d.hold) clearTimeout(d.hold);
@@ -648,8 +725,20 @@ export function Arrangement() {
   };
 
   const onLaneUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isTouch(e)) fingers.current.up(e);
+    longPress.current.cancel();
     const d = drag.current;
+    // lifting one of two scrolling fingers ends the scroll (the other one starts nothing new)
+    if (d?.mode === 'pan' && d.fingers && fingers.current.count > 0) {
+      drag.current = null;
+      return;
+    }
     drag.current = null;
+    if (d?.mode === 'autotap') {
+      // a tap on empty lane space: a point there, selected (its curve handles show)
+      const id = addLanePoint(d.trackId, d.laneId, d.tick, d.value, d.key);
+      if (id) setAutoSelection({ trackId: d.trackId, laneId: d.laneId, ids: [id] });
+    }
     if (d && (d.mode === 'trim-start' || d.mode === 'trim-end') && d.hold) clearTimeout(d.hold);
     setStretchUi(null);
     e.currentTarget.style.cursor = 'default';
@@ -725,12 +814,19 @@ export function Arrangement() {
 
   const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    // (a finger's long-press opens its menu itself — the browser's own comes later, or twice)
+    if (touchUi.current) return;
     const { x, y } = localPos(e, e.currentTarget);
+    openMenuAt(x, y, e.clientX, e.clientY);
+  };
+
+  /** The lanes' menu at (x, y) — right-click with a mouse, long-press with a finger. */
+  const openMenuAt = (x: number, y: number, clientX: number, clientY: number) => {
     const ui = useUiStore.getState();
     const al = editableLaneAt(getProject(), y);
     if (al) {
       const items = shapeMenu(al, x, y);
-      if (items) setMenu({ x: e.clientX, y: e.clientY, items });
+      if (items) setMenu({ x: clientX, y: clientY, items });
       return;
     }
     const project = getProject();
@@ -767,7 +863,7 @@ export function Arrangement() {
         items.unshift({ label: 'Set loop to selection', shortcut: 'Shift+L', onClick: () => updateProjectFields('Set loop', { loop: { enabled: true, ...sel } }) });
       }
     }
-    setMenu({ x: e.clientX, y: e.clientY, items });
+    setMenu({ x: clientX, y: clientY, items });
   };
 
   // ---------------- ruler ----------------
@@ -779,12 +875,14 @@ export function Arrangement() {
     const p = getProject();
     e.currentTarget.setPointerCapture(e.pointerId);
     const key = `loop-${Date.now()}`;
-    // grab loop edges in the lower band
-    if (y > RULER_H - 12) {
+    // grab loop edges in the lower band (a finger: anywhere on the ruler, and a wider grip)
+    const touch = isTouch(e);
+    if (touch || y > RULER_H - 12) {
       const lx0 = tickToX(p.loop.start, ui.pxPerBeat, ui.scrollX);
       const lx1 = tickToX(p.loop.end, ui.pxPerBeat, ui.scrollX);
-      if (Math.abs(x - lx0) < 6) return void (drag.current = { mode: 'loop-edge', edge: 'start', key });
-      if (Math.abs(x - lx1) < 6) return void (drag.current = { mode: 'loop-edge', edge: 'end', key });
+      const grip = touch ? 14 : 6;
+      if (Math.abs(x - lx0) < grip) return void (drag.current = { mode: 'loop-edge', edge: 'start', key });
+      if (Math.abs(x - lx1) < grip) return void (drag.current = { mode: 'loop-edge', edge: 'end', key });
     }
     drag.current = { mode: 'ruler', startTick: xToTick(x, ui.pxPerBeat, ui.scrollX), startX: x, moved: false, key };
   };
@@ -884,7 +982,7 @@ export function Arrangement() {
         <canvas
           ref={rulerCv}
           style={{ width: viewW, height: RULER_H }}
-          className="block"
+          className="touch-control block"
           onPointerDown={onRulerDown}
           onPointerMove={onRulerMove}
           onPointerUp={onRulerUp}
@@ -914,8 +1012,9 @@ export function Arrangement() {
             <canvas
               ref={laneCv}
               data-testid="lanes"
+              data-touch-longpress
               style={{ width: viewW, height: laneH }}
-              className="block"
+              className="touch-control block"
               onPointerDown={onLaneDown}
               onPointerMove={onLaneMove}
               onPointerUp={onLaneUp}
@@ -996,7 +1095,7 @@ function HScrollbar({ viewW }: { viewW: number }) {
     <div className="flex h-3 shrink-0 border-t border-line bg-panel">
       <div style={{ width: HEADER_W }} className="shrink-0 border-r border-line" />
       <div
-        className="relative flex-1"
+        className="touch-control relative flex-1"
         onPointerDown={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           const x = e.clientX - r.left;

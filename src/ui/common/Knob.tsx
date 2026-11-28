@@ -36,7 +36,7 @@ function arc(cx: number, cy: number, r: number, from: number, to: number): strin
  */
 export function Knob({ spec, value, onChange, onCommitEnd, label, size = 34, disabled, color = 'var(--color-accent)', title }: KnobProps) {
   const [dragging, setDragging] = useState(false);
-  const drag = useRef<{ y: number; n: number } | null>(null);
+  const drag = useRef<{ y: number; n: number; id: number } | null>(null);
   const n = Math.min(1, Math.max(0, toNormalized(spec, value)));
   const angle = START + n * SWEEP;
   const zeroN = spec.bipolar ? toNormalized(spec, 0) : 0;
@@ -54,20 +54,21 @@ export function Knob({ spec, value, onChange, onCommitEnd, label, size = 34, dis
     if (disabled || e.button !== 0) return;
     e.preventDefault();
     (e.target as Element).setPointerCapture(e.pointerId);
-    drag.current = { y: e.clientY, n };
+    drag.current = { y: e.clientY, n, id: e.pointerId };
     setDragging(true);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
-    if (!d) return;
+    // (only the finger that grabbed it: another one on this knob doesn't take it over)
+    if (!d || e.pointerId !== d.id) return;
     const sens = e.shiftKey ? 0.0012 : 0.006;
     const nn = Math.min(1, Math.max(0, d.n + (d.y - e.clientY) * sens));
     // re-anchor so switching Shift mid-drag doesn't jump
-    drag.current = { y: e.clientY, n: nn };
+    drag.current = { y: e.clientY, n: nn, id: d.id };
     setN(nn);
   };
-  const onPointerUp = () => {
-    if (!drag.current) return;
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (!drag.current || e.pointerId !== drag.current.id) return;
     drag.current = null;
     setDragging(false);
     onCommitEnd?.();
@@ -109,7 +110,7 @@ export function Knob({ spec, value, onChange, onCommitEnd, label, size = 34, dis
           aria-valuemax={spec.max}
           aria-valuenow={value}
           aria-valuetext={text}
-          className={`outline-none ${disabled ? '' : 'cursor-ns-resize'}`}
+          className={`touch-control outline-none ${disabled ? '' : 'cursor-ns-resize'}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -131,6 +132,18 @@ export function Knob({ spec, value, onChange, onCommitEnd, label, size = 34, dis
           )}
           <line x1={c} y1={c} x2={px} y2={py} stroke="#e8e8f2" strokeWidth={2} strokeLinecap="round" />
         </svg>
+        {/* a finger's area: a little larger than the knob (touch screens only; a mouse never sees it) */}
+        {!disabled && (
+          <span
+            aria-hidden
+            className="touch-hit"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onDoubleClick={() => onChange(spec.default)}
+          />
+        )}
         {dragging && (
           <div className="pointer-events-none absolute -top-5 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded bg-black/90 px-1.5 py-0.5 font-mono text-[10px] text-fg">
             {text}

@@ -153,7 +153,7 @@ export function KeysWindow({ trackId }: { trackId: string }) {
     >
       {/* ---------- header ---------- */}
       <div
-        className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
+        className="touch-control flex h-10 shrink-0 cursor-move items-center gap-2 border-b border-line bg-gradient-to-r from-panel-3 to-panel px-3"
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('button,select,input')) return;
           (e.target as Element).setPointerCapture(e.pointerId);
@@ -306,7 +306,7 @@ function Drawbar({ trackId, spec, value, color, onChange }: { trackId: string; s
   return (
     <div className="flex flex-col items-center gap-1">
       <div
-        className="relative w-7 cursor-ns-resize overflow-hidden rounded-sm bg-base"
+        className="touch-control relative w-7 cursor-ns-resize overflow-hidden rounded-sm bg-base"
         style={{ height: H }}
         title={`${spec.label}: ${shown.toFixed(1)} — drag down to pull out (Shift for fine), double-click to push in`}
         onDoubleClick={() => onChange(0)}

@@ -91,6 +91,7 @@ export class AudioEngine {
 
   private async doInit(): Promise<void> {
     this.setStatus('loading');
+    this.installTouchUnlock();
     try {
       const ctx = new AudioContext({ latencyHint: 'interactive' });
       await ctx.audioWorklet.addModule(trioscWorkletUrl);
@@ -137,6 +138,25 @@ export class AudioEngine {
       this.setStatus('error', `Audio engine failed to start: ${msg}`);
       throw e;
     }
+  }
+
+  /**
+   * Touch screens (iOS / iPadOS above all): audio may only start from inside a
+   * touch — its end, not the press — and a resume that comes after an await can be
+   * too late. Whenever the context isn't running (at first, or after iPadOS
+   * suspended it: a call, another app), the end of a touch resumes it right there,
+   * in the event. (A mouse isn't involved: desktop browsers start audio on a press,
+   * as before.)
+   */
+  private installTouchUnlock(): void {
+    if (typeof window === 'undefined') return;
+    const unlock = (e: Event) => {
+      if (e.type === 'pointerup' && (e as PointerEvent).pointerType === 'mouse') return;
+      const ctx = this.ctx;
+      if (ctx && ctx.state !== 'running') void ctx.resume();
+    };
+    window.addEventListener('touchend', unlock, { capture: true, passive: true });
+    window.addEventListener('pointerup', unlock, { capture: true, passive: true });
   }
 
   /** Must be called from a user gesture at least once (autoplay policy). */

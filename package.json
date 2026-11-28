@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "bench": "vitest run --config bench/vitest.config.ts --disableConsoleIntercept",
     "test:e2e": "playwright test",
+    "test:touch:webkit": "playwright test --config playwright.webkit.config.ts",
     "test:e2e:update": "UPDATE_GOLDEN=1 playwright test"
   },
   "dependencies": {

@@ -28,7 +28,8 @@ jobs:
       - run: npm test
       - run: npm run test:perf
 
-  # browser tests: the real app in Chromium (renders vs the golden baseline, effects, recording, cleanup)
+  # browser tests: the real app in Chromium (renders vs the golden baseline, effects, recording, cleanup,
+  # touch on an emulated iPad), then the touch tests again in WebKit (Safari's engine)
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -39,8 +40,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
+      - run: npm run test:touch:webkit
       - name: Upload the Playwright report and traces
         if: failure()
         uses: actions/upload-artifact@v7
