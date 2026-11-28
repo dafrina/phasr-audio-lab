@@ -81,8 +81,9 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
     updateTrack(trackId, { chords: { ...cur, ...part } }, 'Edit Slipper-izer', { coalesce: `chords-${trackId}-${key}` });
   };
 
+  // a pad plays its key in the keyboard's octave ([ ] or − / +), like the computer keys: the octave moves the chord
   const padOn = (pc: number) => {
-    padNote.current = engine.previewNoteOn(trackId, 60 + pc, 0.85);
+    padNote.current = engine.previewNoteOn(trackId, (kb.octave + 1) * 12 + pc, 0.85);
     setPadDown(pc);
   };
   const padOff = () => {
@@ -267,7 +268,7 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
         {/* chord pads laid out like the keys that trigger them */}
         <div>
           <div className="mb-1 flex items-baseline gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-            4 · Play — click a pad or press its key (any octave)
+            4 · Play — click a pad or press its key (the octave, [ ] or − / + below, moves the chords)
             <span className="normal-case tracking-normal text-dim">C D E F = the progression · G A B = extras · black keys = spicy versions</span>
           </div>
           <div className="relative h-[124px] select-none" data-testid="chord-pads">
