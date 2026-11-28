@@ -15,7 +15,7 @@ import type { TimeSignature } from '../core/time';
 import type { TriOscPatch } from '../synth/params';
 import type { AutomationShape } from './curves';
 
-export const PROJECT_SCHEMA_VERSION = 4;
+export const PROJECT_SCHEMA_VERSION = 5;
 /** 12: measured headroom with busy Keyforge tracks and 4 effects each (see README → Performance) */
 export const MAX_TRACKS = 12;
 export const MAX_EFFECT_SLOTS = 4;

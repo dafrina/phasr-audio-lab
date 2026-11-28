@@ -37,8 +37,6 @@ export interface ChordToolConfig {
   /** auto-play: bars per chord */
   chordBars: 0.5 | 1 | 2;
   voicing: ChordVoicing;
-  /** register shift in octaves (−2…2) */
-  octave: number;
   /** add the root an octave or two below */
   bass: boolean;
   /** 0…1: roll the chord tones like a strummed/rolled chord */
@@ -203,7 +201,7 @@ export function progressionOf(cfg: Pick<ChordToolConfig, 'vibe' | 'progression'>
 
 export function defaultChordTool(vibeId = 'deephouse'): ChordToolConfig {
   const v = vibeById(vibeId);
-  return { enabled: true, vibe: v.id, progression: 0, key: v.defaultKey, play: 'chord', pattern: v.pattern, rate: 8, chordBars: 1, voicing: 'close', octave: 0, bass: true, strum: 0 };
+  return { enabled: true, vibe: v.id, progression: 0, key: v.defaultKey, play: 'chord', pattern: v.pattern, rate: 8, chordBars: 1, voicing: 'close', bass: true, strum: 0 };
 }
 
 const PATTERNS: readonly ChordPattern[] = ['hold', 'stabs', 'offbeat', 'syncopated', 'arp'];
@@ -225,7 +223,6 @@ export function sanitizeChordTool(raw: unknown): ChordToolConfig | null {
     rate: r.rate === 4 || r.rate === 16 ? r.rate : 8,
     chordBars: r.chordBars === 0.5 || r.chordBars === 2 ? r.chordBars : 1,
     voicing: r.voicing === 'wide' ? 'wide' : 'close',
-    octave: int(r.octave, -2, 2, 0),
     bass: r.bass !== false,
     strum: typeof r.strum === 'number' && Number.isFinite(r.strum) ? Math.min(1, Math.max(0, r.strum)) : 0,
   };
@@ -317,8 +314,9 @@ const MAX_UPPER = 5;
  * octave whose average pitch is closest to the centre (so changes between
  * chords move as little as possible); the bass adds the root low.
  */
-export function voiceChord(chord: Pick<ResolvedChord, 'rootPc' | 'intervals'>, cfg: Pick<ChordToolConfig, 'voicing' | 'octave' | 'bass'>, octaveShift = 0): { bass: number | null; upper: number[] } {
-  const shift = Math.max(-3, Math.min(3, cfg.octave + octaveShift)) * 12;
+export function voiceChord(chord: Pick<ResolvedChord, 'rootPc' | 'intervals'>, cfg: Pick<ChordToolConfig, 'voicing' | 'bass'>, octaveShift = 0): { bass: number | null; upper: number[] } {
+  // (the octave is the played key's: the keyboard's octave selector moves it)
+  const shift = Math.max(-3, Math.min(3, octaveShift)) * 12;
   const power = chord.intervals.length === 3 && chord.intervals[1] === 7;
   // with a bass note, rich chords are voiced rootless (the bass carries the root)
   let tones = chord.intervals.map((i) => (chord.rootPc + i) % 12);

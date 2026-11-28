@@ -4,6 +4,7 @@
  * the on-screen keybed.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { engine } from '../../audio/engine';
 import { BendWheel, PianoKeyboard } from './PianoKeyboard';
 import { useLiveKeys } from '../liveKeys';
@@ -31,7 +32,7 @@ function AutomatableBendWheel({ trackId }: { trackId: string }) {
     : [{ label: 'Automate pitch bend', onClick: () => automate(trackId, BEND_TARGET) }];
   return (
     <div
-      className="relative"
+      className="relative flex flex-col items-center gap-1"
       title={can ? `Pitch bend — drag up/down, springs back to center${auto.automated ? ' · automated' : ''} · right-click to automate` : undefined}
       onContextMenu={(e) => {
         if (!can) return;
@@ -40,8 +41,9 @@ function AutomatableBendWheel({ trackId }: { trackId: string }) {
         setMenu({ x: e.clientX, y: e.clientY });
       }}
     >
-      <BendWheel onChange={(v) => engine.pitchBend(trackId, v)} />
-      {auto.laneId && <span className={`pointer-events-none absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full ${auto.enabled ? 'bg-[#f472b6]' : 'bg-dim'}`} title="Automated" />}
+      <BendWheel height={50} onChange={(v) => engine.pitchBend(trackId, v)} />
+      <span className="text-[8px] font-semibold uppercase leading-none tracking-[0.14em] text-muted">Pitch</span>
+      {auto.laneId && <span className={`pointer-events-none absolute -right-1 -top-1 h-2 w-2 rounded-full ${auto.enabled ? 'bg-[#f472b6]' : 'bg-dim'}`} title="Automated" />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   );
@@ -131,36 +133,49 @@ export function useComputerKeyboard(trackId: string, onEscape: () => void, veloc
   return { octave, setOctave, sustain, toggleSustain, active, releaseAll };
 }
 
+/** a raised, hardware-style button (the strip's octave and sustain buttons) */
+const HW_BUTTON =
+  'touch-btn flex items-center justify-center rounded-md border border-black/70 bg-gradient-to-b from-[#3c3c57] to-[#20202f] text-fg shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_2px_3px_rgba(0,0,0,0.55)] transition-[transform,box-shadow] hover:from-[#46466a] active:translate-y-px active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)] disabled:cursor-not-allowed disabled:opacity-35';
+
 export function KeyboardStrip({ trackId, kb, low = 36, high = 96, sustainLabel = 'Sustain', flashColor }: { trackId: string; kb: ComputerKeyboard; low?: number; high?: number; sustainLabel?: string; flashColor?: string }) {
+  // the on-screen keys follow the octave selector too (− / +, [ ]): at C4 they span low…high, each octave up or
+  // down moves them by 12 — as many keys as ever, kept within MIDI's 0–127
+  const width = high - low;
+  const lo = Math.max(0, Math.min(127 - width, low + (kb.octave - 4) * 12));
   return (
     <div className="flex items-stretch gap-2 border-t border-line bg-panel-2 px-2 py-2">
-      <div className="flex flex-col justify-between gap-1">
-        <div className="flex items-center gap-1">
-          <button type="button" title="Octave down ([)" onClick={() => kb.setOctave((o) => o - 1)} className="h-5 w-5 rounded bg-panel-3 text-[11px] hover:bg-line-2">
-            −
+      {/* (the octave row sets this column's width: Sustain matches it, the hint wraps within it) */}
+      <div className="flex flex-col justify-between gap-1.5">
+        <div className="flex items-center gap-1" role="group" aria-label="Octave">
+          <button type="button" title="Octave down ([)" aria-label="Octave down" disabled={kb.octave <= 0} onClick={() => kb.setOctave((o) => o - 1)} className={`${HW_BUTTON} h-7 w-7`}>
+            <ChevronDown size={15} strokeWidth={2.6} />
           </button>
-          <span className="w-10 text-center font-mono text-[10px] text-muted" title="Computer keyboard base octave">
-            C{kb.octave}
-          </span>
-          <button type="button" title="Octave up (])" onClick={() => kb.setOctave((o) => o + 1)} className="h-5 w-5 rounded bg-panel-3 text-[11px] hover:bg-line-2">
-            +
+          <div className="flex h-7 w-[44px] flex-col items-center justify-center rounded-md border border-black/80 bg-[#06060b] shadow-[inset_0_1px_4px_rgba(0,0,0,0.9)]">
+            <span className="font-mono text-[13px] font-bold leading-none text-accent-hi" title="Octave: the computer keys (Z = this C) and the on-screen keys move with it">
+              C{kb.octave}
+            </span>
+            <span className="mt-0.5 text-[7px] font-semibold uppercase leading-none tracking-[0.16em] text-dim">Octave</span>
+          </div>
+          <button type="button" title="Octave up (])" aria-label="Octave up" disabled={kb.octave >= 8} onClick={() => kb.setOctave((o) => o + 1)} className={`${HW_BUTTON} h-7 w-7`}>
+            <ChevronUp size={15} strokeWidth={2.6} />
           </button>
         </div>
         <button
           type="button"
           title={`${sustainLabel} pedal (latching)`}
+          aria-pressed={kb.sustain}
           onClick={kb.toggleSustain}
-          className={`h-5 rounded px-1.5 text-[10px] uppercase tracking-wide ${kb.sustain ? 'bg-accent text-white' : 'bg-panel-3 text-muted'}`}
+          className={`${HW_BUTTON} h-6 px-2 text-[10px] font-semibold uppercase tracking-wide ${kb.sustain ? '!border-accent !from-accent-hi !to-accent text-white shadow-[0_0_8px_rgba(118,93,252,0.6)]' : 'text-muted'}`}
         >
           {sustainLabel}
         </button>
-        <div className="max-w-[92px] text-[9px] leading-tight text-dim" title="While this window is open the computer keyboard plays it, wherever you clicked last. Space still plays/stops the song.">Keys Z–M / Q–P play · [ ] octave</div>
+        <div className="w-0 min-w-full text-[9px] leading-tight text-dim" title="While this window is open the computer keyboard plays it, wherever you clicked last. Space still plays/stops the song.">Keys Z–M / Q–P play · [ ] octave</div>
       </div>
       <AutomatableBendWheel trackId={trackId} />
       <div className="flex-1">
         <PianoKeyboard
-          low={low}
-          high={high}
+          low={lo}
+          high={lo + width}
           externalActive={kb.active}
           flashColor={flashColor}
           onNoteOn={(n, v) => engine.previewNoteOn(trackId, n, v)}

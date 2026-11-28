@@ -21,7 +21,37 @@ const migrations: Record<number, Migration> = {
   1: drumPadsToGeneralMidi,
   2: audioClipsWarpOff,
   3: automationSegmentsLinear,
+  4: chordOctaveIntoNotes,
 };
+
+/**
+ * v4 → v5: the Slipper-izer lost its own octave setting (the instrument window's octave selector,
+ * like the played key's octave, moves the chords now). A track that had it at ±1 or ±2 octaves gets
+ * its clips' keys moved by as much instead, so they play exactly the same chords (a chord follows the
+ * key's octave plus that setting); with the Slipper-izer switched off the keys play themselves, so
+ * they stay where they are.
+ */
+function chordOctaveIntoNotes(raw: RawProject): RawProject {
+  if (!Array.isArray(raw.tracks)) return raw;
+  const shift = new Map<unknown, number>();
+  const tracks = raw.tracks.map((t) => {
+    if (!isRec(t) || !isRec(t.chords) || !('octave' in t.chords)) return t;
+    const { octave, ...chords } = t.chords;
+    const oct = typeof octave === 'number' && Number.isFinite(octave) ? Math.min(2, Math.max(-2, Math.round(octave))) : 0;
+    if (oct !== 0 && chords.enabled !== false) shift.set(t.id, oct * 12);
+    return { ...t, chords };
+  });
+  if (!shift.size || !isRec(raw.clips)) return { ...raw, tracks };
+  const clips: Record<string, unknown> = {};
+  for (const [id, c] of Object.entries(raw.clips)) {
+    const by = isRec(c) ? shift.get(c.trackId) : undefined;
+    clips[id] =
+      by && isRec(c) && Array.isArray(c.notes)
+        ? { ...c, notes: c.notes.map((n) => (isRec(n) && typeof n.pitch === 'number' && n.pitch + by >= 0 && n.pitch + by <= 127 ? { ...n, pitch: n.pitch + by } : n)) }
+        : c;
+  }
+  return { ...raw, tracks, clips };
+}
 
 /**
  * v3 → v4: automation segments have shapes (curve, S-curve, hold — project/curves.ts),

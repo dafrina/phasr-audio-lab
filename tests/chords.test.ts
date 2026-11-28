@@ -153,7 +153,8 @@ describe('Slipper-izer note expansion', () => {
     expect(s?.key).toBe(11);
     expect(s?.progression).toBe(2);
     expect(s?.rate).toBe(8);
-    expect(s?.octave).toBe(2);
+    // (no octave setting of its own any more: the played key's octave moves the chords)
+    expect(s && 'octave' in s).toBe(false);
   });
 });
 
@@ -216,5 +217,47 @@ describe('Slipper-izer in the project', () => {
     const old = JSON.parse(JSON.stringify(createProject()));
     for (const t of old.tracks) delete t.chords;
     expect(migrateProject(old).tracks.every((t) => t.chords === null)).toBe(true);
+  });
+});
+
+import { createTrack } from '../src/project/defaults';
+
+describe('the Slipper-izer octave setting moved to the keyboard (schema 5)', () => {
+  /** a v4 file: the chord tool with its own octave, on two tracks — one on, one switched off */
+  function v4(octOn: number, octOff: number): unknown {
+    const p = createProject();
+    const a = createTrack('instrument', 0);
+    const b = createTrack('instrument', 1);
+    p.tracks = [a, b];
+    const ca = { ...createMidiClip(a.id, 0, BAR), notes: [{ id: 'a1', pitch: 60, start: 0, length: 960, velocity: 100 }] };
+    const cb = { ...createMidiClip(b.id, 0, BAR), notes: [{ id: 'b1', pitch: 62, start: 0, length: 960, velocity: 100 }] };
+    const tracks = p.tracks.map((t) =>
+      t.id === a.id ? { ...t, chords: { ...defaultChordTool('deephouse'), octave: octOn } } : t.id === b.id ? { ...t, chords: { ...defaultChordTool('deephouse'), enabled: false, octave: octOff } } : t,
+    );
+    return JSON.parse(JSON.stringify({ ...p, schemaVersion: 4, tracks, clips: { [ca.id]: ca, [cb.id]: cb } }));
+  }
+  const pitchesOn = (p: Project) => {
+    const heard = withChordsExpanded(p);
+    const c = Object.values(heard.clips).find((x) => x.kind === 'midi' && x.trackId === p.tracks.filter((t) => t.kind === 'instrument')[0]!.id);
+    return c?.kind === 'midi' ? c.notes.map((n) => n.pitch).sort((x, y) => x - y) : [];
+  };
+
+  it('a track that had it at +1 plays the very same chords: its keys move up an octave instead', () => {
+    const p = migrateProject(v4(1, -1));
+    const [a, b] = p.tracks.filter((t) => t.kind === 'instrument');
+    expect(a!.chords && 'octave' in a!.chords).toBe(false);
+    const keys = (id: string) => Object.values(p.clips).flatMap((c) => (c.kind === 'midi' && c.trackId === id ? c.notes.map((n) => n.pitch) : []));
+    expect(keys(a!.id)).toEqual([72]);
+    // C4 with the old octave +1 played this chord (the same as C5 now)
+    expect(pitchesOn(p)).toEqual([57, 71, 72, 76, 79]);
+    // the Slipper-izer was off on the other track: its notes play themselves, so they stay
+    expect(keys(b!.id)).toEqual([62]);
+    expect(b!.chords && 'octave' in b!.chords).toBe(false);
+  });
+
+  it('at octave 0 (the default, and every project made with it) nothing moves', () => {
+    const p = migrateProject(v4(0, 0));
+    expect(pitchesOn(p)).toEqual([45, 59, 60, 64, 67]);
+    expect(Object.values(p.clips).flatMap((c) => (c.kind === 'midi' ? c.notes.map((n) => n.pitch) : [])).sort()).toEqual([60, 62]);
   });
 });

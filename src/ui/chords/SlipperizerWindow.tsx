@@ -232,15 +232,6 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
                 >
                   Bass
                 </button>
-                <div className="flex h-6 items-center overflow-hidden rounded border border-line" title="Move all chords up or down an octave">
-                  <button type="button" onClick={() => set({ octave: Math.max(-2, cfg.octave - 1) }, 'oct')} className="h-6 w-6 bg-panel-3 text-[12px] hover:bg-line-2">
-                    −
-                  </button>
-                  <span className="w-12 text-center font-mono text-[10px] text-muted">Oct {cfg.octave > 0 ? `+${cfg.octave}` : cfg.octave}</span>
-                  <button type="button" onClick={() => set({ octave: Math.min(2, cfg.octave + 1) }, 'oct')} className="h-6 w-6 bg-panel-3 text-[12px] hover:bg-line-2">
-                    +
-                  </button>
-                </div>
               </div>
             </div>
             <Knob spec={STRUM_SPEC} value={cfg.strum} size={28} color={GOLD} onChange={(v) => set({ strum: v }, 'strum')} title={`Strum: roll the chord notes like a hand (${STRUM_SPEC.format(cfg.strum)})`} />
@@ -268,8 +259,8 @@ export function SlipperizerWindow({ trackId }: { trackId: string }) {
         {/* chord pads laid out like the keys that trigger them */}
         <div>
           <div className="mb-1 flex items-baseline gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-            4 · Play — click a pad or press its key (the octave, [ ] or − / + below, moves the chords)
-            <span className="normal-case tracking-normal text-dim">C D E F = the progression · G A B = extras · black keys = spicy versions</span>
+            4 · Play — click a pad or press its key
+            <span className="normal-case tracking-normal text-dim">C D E F = the progression · G A B = extras · black keys = spicy versions · the octave selector below moves the chords</span>
           </div>
           <div className="relative h-[124px] select-none" data-testid="chord-pads">
             <div className="absolute inset-x-0 bottom-0 grid h-[78px] grid-cols-7 gap-1.5">

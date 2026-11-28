@@ -248,8 +248,9 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
 - **Gucci Slipper-izer** (chord tool for any synth track — footprints button in the track header or the device panel):
   play single keys, hear full chords. Pick a vibe (90s Deep House, Jazzy, Neo-Soul, Lo-fi Chill, Emotional Techno,
   Pop Anthem, Gospel), a progression and a key; white keys C D E F play the progression's four chords, G A B three
-  extras, black keys spicier versions (m11, maj9♯11, 7alt…), and the octave moves the chord — the computer keyboard's
-  ([ ] or the − / + beside the on-screen keys) for the keys and the window's chord pads alike. Voicings gravitate to a
+  extras, black keys spicier versions (m11, maj9♯11, 7alt…), and the octave you play in moves the chord — the
+  window's octave selector (▼ C4 ▲ under the on-screen keys, or [ ]) moves the computer keys, the on-screen keys and
+  the chord pads together. Voicings gravitate to a
   fixed centre (smooth voice leading, no hidden state), optional bass, close/wide, strum. **Auto-play**: hold one key
   and the progression plays in rhythm (hold, stabs, house offbeat, groove, arp; ½/1/2 bars per chord), locked to the
   song tempo. Clips store the single keys you play (recording included) and are expanded at playback/export; the piano
@@ -490,7 +491,7 @@ is uploaded. Things that can lose work:
 | `npm test` | unit + integration tests (Vitest, Node): DSP (including measured drum quality: attacks, aliasing against a 192 kHz render, kick sub and click, tails, spectral balance, kit loudness), scheduling, automation shapes (exact endpoints, monotonic, the detent, the bend position, the subdivision's error bound checked against dense sampling, live windows vs. export for every shape across window and loop boundaries) and point copy / paste (mapping, replacing the pasted span), persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
 | `npm run test:touch:webkit` | the touch tests in WebKit (Safari's engine) on an emulated iPad: real taps, drags as synthetic touch pointer events (see *iPad and touch screens*) | CI |
-| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), Capture (keys played with the transport stopped and over a loop, the popover, one undo), the Slipper-izer's octave (computer keys, − / +, chord pads), Warp (a clip filling its bar at three tempos with its pitch, live vs. export, the long-press stretch and a short-press trim with the real mouse, the clip editor's tempo), touch on an emulated iPad (every control above by real touch input: the drag turns it and nothing scrolls; fails first on the code before touch support), mouse behaviour against a baseline recorded before touch support (knob / fader / slider sensitivity and Shift, wheel, double-click, right-click menus, the 3 px clip threshold, cursors, tooltips, sizes, window drag, the keyboard glide), and curved automation (bending with the real mouse — the handle, detent, Shift, double-click, Alt-drag, an S's bend, the shape menu on one and on several segments, undo; copy / cut / paste / duplicate of points with mouse and keyboard; offline renders of volume, pan, an effect, a worklet parameter and drum pad parameters measured against the lane; live windows vs. export through an AudioParam probe) | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), Capture (keys played with the transport stopped and over a loop, the popover, one undo), the octave selector (computer keys, − / +, the on-screen keys of an instrument window, the Slipper-izer's chord pads), Warp (a clip filling its bar at three tempos with its pitch, live vs. export, the long-press stretch and a short-press trim with the real mouse, the clip editor's tempo), touch on an emulated iPad (every control above by real touch input: the drag turns it and nothing scrolls; fails first on the code before touch support), mouse behaviour against a baseline recorded before touch support (knob / fader / slider sensitivity and Shift, wheel, double-click, right-click menus, the 3 px clip threshold, cursors, tooltips, sizes, window drag, the keyboard glide), and curved automation (bending with the real mouse — the handle, detent, Shift, double-click, Alt-drag, an S's bend, the shape menu on one and on several segments, undo; copy / cut / paste / duplicate of points with mouse and keyboard; offline renders of volume, pan, an effect, a worklet parameter and drum pad parameters measured against the lane; live windows vs. export through an AudioParam probe) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound
@@ -541,6 +542,10 @@ loudness in `stats-<label>.json` — for listening to a drum change before and a
   automation where it is (copy automation points with the point clipboard instead). A *Linear* volume segment ramps
   linearly in gain between its points, as before (so old projects sound the same); shaped volume segments follow the
   dB curve the lane draws.
+- The Slipper-izer no longer has an octave setting of its own (the window's octave selector moves the chords). Projects
+  that used it (schema 4) open with that track's clip keys moved by as many octaves, so they play the same chords;
+  with the Slipper-izer switched off on that track the keys stay where they were. Live MIDI keyboards play the chords
+  at the octave of the key pressed.
 - Projects from before curved automation (schema 3) open with every segment linear, exactly as they played. Since
   schema 4, exp-curve parameters (frequency, times) are also read on their log scale where the app reads a lane at one
   moment — starting playback or a loop pass inside a straight segment, the knob's live value, drum pad and sampler
@@ -567,8 +572,10 @@ Ctrl/Cmd + letter edits.**
   edge ~0.4 s, then drag** to time-stretch it (pitch kept) · double-click to open in the editor.
 - Everywhere: Space play/stop · Enter stop · Delete remove · ←→ nudge · ↑↓ move to track (piano roll: transpose, Shift =
   octave) · F9 mixer · ? help · Esc closes a window / deselects.
-- Notes: Z–M / Q–P play the instrument window in front (or the selected instrument track), [ ] octave. Shortcuts are
-  ignored while typing in text fields.
+- Notes: Z–M / Q–P play the instrument window in front (or the selected instrument track), [ ] octave — in a
+  window, the ▼ C4 ▲ octave selector beside its on-screen keyboard does the same and moves the on-screen keys (and
+  the Slipper-izer's chord pads) with it; next to it, Sustain and the pitch wheel. Shortcuts are ignored while typing
+  in text fields.
 
 ## Third-party code
 

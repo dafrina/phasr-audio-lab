@@ -128,6 +128,9 @@ export function PianoKeyboard({ low, high, onNoteOn, onNoteOff, externalActive, 
   );
 }
 
+/** how far a drag bends fully up or down (px) */
+const BEND_TRAVEL = 32;
+
 /** Spring-loaded pitch-bend wheel: drag vertically, returns to center on release. */
 export function BendWheel({ onChange, height = 64 }: { onChange: (v: number) => void; height?: number }) {
   const [v, setV] = useState(0);
@@ -139,7 +142,7 @@ export function BendWheel({ onChange, height = 64 }: { onChange: (v: number) => 
   return (
     <div
       title="Pitch bend — drag up/down, springs back to center"
-      className="touch-control relative w-4 cursor-ns-resize rounded bg-base"
+      className="touch-control relative w-[22px] cursor-ns-resize overflow-hidden rounded-md border border-black/80 bg-[#05050a] shadow-[inset_0_2px_5px_rgba(0,0,0,0.95)]"
       style={{ height }}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture(e.pointerId);
@@ -147,7 +150,7 @@ export function BendWheel({ onChange, height = 64 }: { onChange: (v: number) => 
       }}
       onPointerMove={(e) => {
         if (!start.current) return;
-        set(Math.max(-1, Math.min(1, (start.current.y - e.clientY) / (height / 2))));
+        set(Math.max(-1, Math.min(1, (start.current.y - e.clientY) / BEND_TRAVEL)));
       }}
       onPointerUp={() => {
         start.current = null;
@@ -158,10 +161,21 @@ export function BendWheel({ onChange, height = 64 }: { onChange: (v: number) => 
         set(0);
       }}
     >
-      <div className="absolute left-0 right-0 top-1/2 h-px bg-line-2" />
+      {/* the wheel: ridges that roll as it turns, shaded round at top and bottom */}
       <div
-        className="absolute left-0.5 right-0.5 h-2 rounded-sm bg-fg"
-        style={{ top: `calc(${50 - v * 45}% - 4px)` }}
+        className="pointer-events-none absolute inset-x-[3px] inset-y-[2px] rounded-[3px]"
+        style={{
+          backgroundImage: 'repeating-linear-gradient(180deg, #4b4b68 0px, #4b4b68 1.5px, #1b1b28 1.5px, #1b1b28 5px)',
+          backgroundPositionY: `${-v * 14}px`,
+          boxShadow: 'inset 0 10px 8px -4px rgba(0,0,0,0.85), inset 0 -10px 8px -4px rgba(0,0,0,0.85)',
+        }}
+      />
+      {/* rest position */}
+      <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-accent/60" />
+      {/* the grip */}
+      <div
+        className="pointer-events-none absolute inset-x-[2px] h-[6px] rounded-sm bg-gradient-to-b from-white to-[#b8b8cc] shadow-[0_0_6px_rgba(155,138,255,0.7)]"
+        style={{ top: `calc(${50 - v * 42}% - 3px)` }}
       />
     </div>
   );

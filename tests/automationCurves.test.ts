@@ -27,7 +27,7 @@ import { rampValueAt } from '../src/audio/paramRamp';
 import { createProject } from '../src/project/defaults';
 import { migrateProject } from '../src/project/migrations';
 import type { NumericParamSpec } from '../src/synth/params';
-import type { AutomationLane, AutomationPoint } from '../src/project/types';
+import { PROJECT_SCHEMA_VERSION, type AutomationLane, type AutomationPoint } from '../src/project/types';
 
 const BPM = 120; // 1920 ticks per second
 const BAR = 3840;
@@ -463,6 +463,6 @@ describe('editing keeps shapes', () => {
     // a v3 file: whatever `shape` it carries isn't ours — it plays linear, exactly as before
     const v3 = migrateProject({ ...JSON.parse(JSON.stringify(p)), schemaVersion: 3 });
     expect(v3.tracks[0]!.automation[0]!.points.every((q) => !('shape' in q))).toBe(true);
-    expect(v3.schemaVersion).toBe(4);
+    expect(v3.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);
   });
 });
