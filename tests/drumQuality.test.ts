@@ -9,7 +9,7 @@
  *  - toms settle on a pitch; claps have distinct bursts;
  *  - the factory kits play at one loudness, with headroom.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DRUM_STYLES, DRUM_VOICES, FACTORY_KITS } from '../src/drums/kit';
 import { Partials } from '../src/drums/dsp';
@@ -17,6 +17,9 @@ import { DRUM_PEAK, renderDrumVoice } from '../src/drums/synth';
 import type { DrumPadSource, DrumVoiceType } from '../src/project/types';
 import { maxStep } from './clickMetric';
 import { attackTimes, bandEnergy, bandEnvelope, centroid, db, firstMsDb, hitLoudness, integratedLoudness, peakOf, powerSpectrum, tailDb } from './helpers/drumMetrics';
+
+// these render hundreds of hits (≈ 2 s for the largest here; a CI runner can take 3× as long): more than the 5 s default
+vi.setConfig({ testTimeout: 30_000 });
 
 const SR = 48000;
 type Synth = Extract<DrumPadSource, { kind: 'synth' }>;
