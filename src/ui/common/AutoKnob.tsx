@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { engine } from '../../audio/engine';
-import { sameTarget, valueAt } from '../../project/automation';
+import { sameTarget, targetInfo, valueAt } from '../../project/automation';
 import { isPlainChain, type AutomationTarget } from '../../project/types';
 import { automate, deleteLane, endAutomationGesture, setLaneEnabled, showLane, writeAutomation } from '../../state/automationActions';
 import { useProjectStore } from '../../state/projectStore';
@@ -24,17 +24,21 @@ export function useAutomatedValue(trackId: string, target: AutomationTarget, sta
       setLive(null);
       return;
     }
+    // (the spec: shapes and exp-curve parameters interpolate on the lane's own scale)
+    const track = useProjectStore.getState().project.tracks.find((t) => t.id === trackId);
+    const spec = track ? (targetInfo(track, target)?.spec ?? null) : null;
     let raf = 0;
     let last = 0;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       if (now - last < 33) return;
       last = now;
-      setLive(valueAt(points, engine.transport?.getTick() ?? 0));
+      setLive(valueAt(points, engine.transport?.getTick() ?? 0, spec));
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [active, points]);
+    // (`target` is a fresh object every render: the lane + track identify it)
+  }, [active, points, trackId]);
   return { value: active && live !== null ? live : staticValue, automated: active, laneId: lane?.id ?? null, enabled: lane?.enabled ?? false };
 }
 

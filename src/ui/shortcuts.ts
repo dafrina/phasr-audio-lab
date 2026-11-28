@@ -2,6 +2,7 @@
  * Global keyboard shortcuts. Ignored while typing in text fields, and keys
  * claimed by an open instrument window (see liveKeys.ts) never reach this handler.
  */
+import { copyAutomation, cutAutomation, deleteAutomationPoints, duplicateAutomation, pasteAutomation } from './automationEdit';
 import { getTimeSelection } from './timeline/timeSelection';
 import { useEffect } from 'react';
 import { useProjectStore, updateProjectFields, getProject } from '../state/projectStore';
@@ -125,23 +126,26 @@ export function useGlobalShortcuts(): void {
       } else if (e.key === '?') {
         useUiStore.getState().set({ helpOpen: !useUiStore.getState().helpOpen });
       } else if (mod && key === 'c') {
-        copySelectedClips();
+        // (Automation mode with points selected: the points; otherwise the clips)
+        if (!copyAutomation()) copySelectedClips();
+      } else if (mod && key === 'x') {
+        if (cutAutomation()) e.preventDefault();
       } else if (mod && key === 'v') {
         e.preventDefault();
-        pasteClips();
+        if (!pasteAutomation()) pasteClips();
       } else if (mod && key === 'k' && !e.shiftKey && !e.altKey) {
         // Capture: what was just played becomes a clip (an edit, so Ctrl/Cmd)
         e.preventDefault();
         if (!e.repeat) captureNow(useUiStore.getState().captureBars);
       } else if (mod && key === 'd') {
         e.preventDefault();
-        duplicateSelectedClips();
+        if (!duplicateAutomation()) duplicateSelectedClips();
       } else if (mod && key === 'l') {
         e.preventDefault();
         toggleLoopSelectedClips();
       } else if (key === 'delete' || key === 'backspace') {
         e.preventDefault();
-        deleteSelection();
+        if (!deleteAutomationPoints()) deleteSelection();
       } else if (key === 's' && cmd) {
         splitSelectedAtPlayhead();
       } else if (key === 'l' && cmd) {

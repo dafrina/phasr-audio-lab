@@ -87,8 +87,9 @@ function effectiveBand(trackId: string, slot: PeqSlot, i: number): PeqBand {
     if (!l.enabled || l.target.kind !== 'fx' || l.target.slotId !== slot.id) continue;
     const m = /^b(\d)\.(freq|gain|q)$/.exec(l.target.param);
     if (!m || Number(m[1]) !== i) continue;
-    const v = valueAt(l.points, tick);
-    if (v !== null) out[m[2] as 'freq' | 'gain' | 'q'] = v;
+    const field = m[2] as 'freq' | 'gain' | 'q';
+    const v = valueAt(l.points, tick, PEQ_SPECS[field]);
+    if (v !== null) out[field] = v;
   }
   return out;
 }
@@ -97,7 +98,7 @@ function effectiveBand(trackId: string, slot: PeqSlot, i: number): PeqBand {
 function effectiveOutput(trackId: string, slot: PeqSlot): number {
   const track = getProject().tracks.find((t) => t.id === trackId);
   const lane = track?.automation.find((l) => l.enabled && l.target.kind === 'fx' && l.target.slotId === slot.id && l.target.param === 'output');
-  const v = lane ? valueAt(lane.points, engine.transport?.getTick() ?? 0) : null;
+  const v = lane ? valueAt(lane.points, engine.transport?.getTick() ?? 0, PEQ_SPECS.output) : null;
   return v ?? slot.params.output;
 }
 

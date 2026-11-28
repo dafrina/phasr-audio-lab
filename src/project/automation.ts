@@ -3,11 +3,25 @@
  * registry of automatable parameters, and validation of stored lanes.
  *
  * Values are stored in each parameter's own units (dB, Hz, 0..1 …) so a lane
- * stays meaningful if the UI changes. Between points the value is linearly
- * interpolated (exponential-curve parameters such as frequency are ramped
- * exponentially by the scheduler, which matches how they're heard).
+ * stays meaningful if the UI changes. Between points the value follows the
+ * segment's shape (project/curves.ts; linear by default) in the lane's display
+ * space: linear for most parameters, logarithmic for exp-curve ones such as
+ * frequency, which the scheduler ramps exponentially — matching how they're
+ * drawn and heard.
  */
 import { createId } from '../core/ids';
+import {
+  domainPos,
+  isExpDomain,
+  isLinearShape,
+  lerpDomain,
+  normalizeShape,
+  sanitizeShape,
+  shapeBreaks,
+  shapeFrac,
+  type AutomationShape,
+  type ShapeDomain,
+} from './curves';
 import {
   AUTOFILTER_SPECS, CHORUS_SPECS, PHASER_SPECS, ROOM_SPECS, SATURATOR_SPECS, UTILITY_SPECS,
   COMP_SPECS,
@@ -23,7 +37,7 @@ import {
 } from '../audio/effects/specs';
 import type { NumericParamSpec } from '../synth/params';
 import { INSTRUMENTS, instrumentAutoParams, instrumentStaticValue } from '../instruments/definitions';
-import type { AutomationLane, AutomationPoint, AutomationTarget, EffectSlot, Track } from './types';
+import type { AutomationLane, AutomationPoint, AutomationTarget, EffectSlot, Project, Track } from './types';
 
 export interface AutoParamInfo {
   key: string;
@@ -149,11 +163,13 @@ export function staticValue(track: Track, t: AutomationTarget): number | null {
 }
 
 /**
- * Value of a lane at a tick (linear between points; held before the first /
- * after the last). Several points on one tick form a step: at that tick the
+ * Value of a lane at a tick (each segment's shape between points, in the
+ * parameter's display space — pass its spec so exp-curve parameters interpolate
+ * logarithmically, as they're drawn and ramped; held before the first / after
+ * the last point). Several points on one tick form a step: at that tick the
  * value is the *last* of them, matching how the scheduler continues from it.
  */
-export function valueAt(points: readonly AutomationPoint[], tick: number): number | null {
+export function valueAt(points: readonly AutomationPoint[], tick: number, spec?: ShapeDomain | null): number | null {
   const n = points.length;
   if (n === 0) return null;
   // index of the last point with p.tick <= tick
@@ -168,7 +184,53 @@ export function valueAt(points: readonly AutomationPoint[], tick: number): numbe
   const a = points[lo] as AutomationPoint;
   const b = points[lo + 1];
   if (!b) return a.value;
-  return a.value + ((b.value - a.value) * (tick - a.tick)) / (b.tick - a.tick);
+  return lerpDomain(a.value, b.value, shapeFrac(a.shape, (tick - a.tick) / (b.tick - a.tick)), isExpDomain(spec));
+}
+
+/**
+ * The lane as playback schedules it: the points, with every shaped segment
+ * replaced by straight sub-ramps (`shapeBreaks`: within PLAYBACK_EPS of the exact
+ * shape, adaptively spaced where it bends) and a hold by a flat ramp plus a step.
+ * The result has only linear segments, so the scheduler — lookahead windows, loop
+ * wraps, fresh starts, the export's single plan — handles it exactly as before,
+ * and a lane without shapes comes back as the very same array. Breakpoints depend
+ * on the points alone (never on the window), so live and export agree. Cached per
+ * points array (lanes are immutable).
+ */
+export function playbackPoints(points: readonly AutomationPoint[], spec: ShapeDomain | null): readonly AutomationPoint[] {
+  if (!points.some((p) => p.shape && !isLinearShape(p.shape))) return points;
+  const hit = playbackCache.get(points);
+  if (hit && hit.spec === spec) return hit.out;
+  const exp = isExpDomain(spec);
+  const out: AutomationPoint[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i] as AutomationPoint;
+    out.push({ id: a.id, tick: a.tick, value: a.value });
+    const b = points[i + 1];
+    const shape = a.shape;
+    if (!b || !shape || isLinearShape(shape) || b.tick <= a.tick || a.value === b.value) continue;
+    if (shape.type === 'hold') {
+      out.push({ id: `${a.id}~hold`, tick: b.tick, value: a.value });
+      continue;
+    }
+    const span = spec ? Math.abs(domainPos(spec, b.value) - domainPos(spec, a.value)) : 1;
+    shapeBreaks(shape, span).forEach((x, k) => {
+      out.push({ id: `${a.id}~${k}`, tick: a.tick + x * (b.tick - a.tick), value: lerpDomain(a.value, b.value, shapeFrac(shape, x), exp) });
+    });
+  }
+  playbackCache.set(points, { spec, out });
+  return out;
+}
+
+const playbackCache = new WeakMap<readonly AutomationPoint[], { spec: ShapeDomain | null; out: AutomationPoint[] }>();
+
+/** The spec of each lane's parameter, for the scheduler (null when the target is gone). */
+export function laneSpecResolver(project: Pick<Project, 'tracks'>): (trackId: string, lane: AutomationLane) => NumericParamSpec | null {
+  const byId = new Map(project.tracks.map((t) => [t.id, t]));
+  return (trackId, lane) => {
+    const t = byId.get(trackId);
+    return t ? (targetInfo(t, lane.target)?.spec ?? null) : null;
+  };
 }
 
 function clampToSpec(spec: NumericParamSpec, v: number): number {
@@ -183,10 +245,49 @@ export function createLane(target: AutomationTarget, initial: number, tick = 0):
   return { id: createId('aut'), target, enabled: true, points: [{ id: createId('ap'), tick: Math.max(0, Math.round(tick)), value: initial }] };
 }
 
+/**
+ * Add a point. One added inside a shaped segment takes that segment's shape, so
+ * both halves keep its character (a hold stays a hold, a curve stays curved).
+ */
 export function addPoint(lane: AutomationLane, tick: number, value: number, spec: NumericParamSpec): [AutomationLane, string] {
   const id = createId('ap');
-  const p = { id, tick: Math.max(0, Math.round(tick)), value: clampToSpec(spec, value) };
+  const t = Math.max(0, Math.round(tick));
+  let before: AutomationPoint | undefined;
+  for (const q of lane.points) if (q.tick <= t) before = q;
+  const inside = before && lane.points.some((q) => q.tick > t);
+  const p: AutomationPoint = { id, tick: t, value: clampToSpec(spec, value), ...(inside && before?.shape ? { shape: before.shape } : {}) };
   return [{ ...lane, points: sorted([...lane.points, p]) }, id];
+}
+
+/** Set the shape of the segments that start at the given points (undefined = linear). */
+export function setShapes(lane: AutomationLane, pointIds: readonly string[], shape: AutomationShape | undefined): AutomationLane {
+  const ids = new Set(pointIds);
+  const s = normalizeShape(shape);
+  return {
+    ...lane,
+    points: lane.points.map((p) => {
+      if (!ids.has(p.id)) return p;
+      const { shape: _old, ...rest } = p;
+      return s ? { ...rest, shape: s } : rest;
+    }),
+  };
+}
+
+/**
+ * The points whose segments a shape change applies to: with several points
+ * selected, every segment from the first selected point to the last; otherwise
+ * the segment that starts at `pointId`. (The last point has no segment.)
+ */
+export function segmentStarts(lane: AutomationLane, pointId: string, selected: readonly string[]): string[] {
+  const idx = (id: string) => lane.points.findIndex((p) => p.id === id);
+  const sel = selected.map(idx).filter((i) => i >= 0);
+  const at = idx(pointId);
+  if (sel.length >= 2) {
+    const lo = Math.min(...sel);
+    const hi = Math.max(...sel);
+    if (at >= lo && at <= hi) return lane.points.slice(lo, hi).map((p) => p.id);
+  }
+  return at >= 0 && at < lane.points.length - 1 ? [pointId] : [];
 }
 
 export function movePoint(lane: AutomationLane, id: string, tick: number, value: number, spec: NumericParamSpec): AutomationLane {
@@ -235,7 +336,10 @@ export function sanitizeLanes(input: unknown, track: Track): AutomationLane[] {
     const pts = (Array.isArray(r.points) ? r.points : [])
       .filter((p): p is Record<string, unknown> => p !== null && typeof p === 'object')
       .filter((p) => typeof p.tick === 'number' && typeof p.value === 'number' && Number.isFinite(p.tick) && Number.isFinite(p.value))
-      .map((p) => ({ id: typeof p.id === 'string' ? p.id : createId('ap'), tick: Math.max(0, Math.round(p.tick as number)), value: clampToSpec(info.spec, p.value as number) }));
+      .map((p) => {
+        const shape = sanitizeShape(p.shape);
+        return { id: typeof p.id === 'string' ? p.id : createId('ap'), tick: Math.max(0, Math.round(p.tick as number)), value: clampToSpec(info.spec, p.value as number), ...(shape ? { shape } : {}) };
+      });
     out.push({ id: typeof r.id === 'string' ? r.id : createId('aut'), target, enabled: r.enabled !== false, points: sorted(pts) });
   }
   return out;

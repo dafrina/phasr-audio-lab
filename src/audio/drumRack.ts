@@ -19,6 +19,7 @@ import type { DrumKit, DrumPad } from '../project/types';
 import { createEffectUnit, type EffectUnit } from './effects/units';
 import { sendGain } from './sendGain';
 import { envelopeAt, type EnvPoint } from './clipEnvelope';
+import { rampValueAt, type ParamRamp } from './paramRamp';
 import type { SynthEvent } from '../synth/dsp/TriOscCore';
 
 interface Hit {
@@ -49,7 +50,7 @@ export class DrumRackInstrument {
   private disposed = false;
   private static synthCache = new Map<string, AudioBuffer>();
   /** automation segments per pad-param key ("p0.tune"), sorted by start time */
-  private readonly autoSegs = new Map<string, { t0: number; v0: number; t1: number; v1: number }[]>();
+  private readonly autoSegs = new Map<string, ParamRamp[]>();
   /** values set while stopped (live hits use these) */
   private readonly autoHeld = new Map<string, number>();
   private autoKeys = new Set<string>();
@@ -168,15 +169,7 @@ export class DrumRackInstrument {
   /** Automated value of a pad parameter at time t (null = not automated). */
   private autoValue(key: string, t: number): number | null {
     if (!this.autoKeys.has(key)) return null;
-    const segs = this.autoSegs.get(key);
-    let v = this.autoHeld.get(key) ?? null;
-    if (segs) {
-      for (const s of segs) {
-        if (s.t0 > t) break;
-        v = t >= s.t1 || s.t1 <= s.t0 ? s.v1 : s.v0 + ((s.v1 - s.v0) * (t - s.t0)) / (s.t1 - s.t0);
-      }
-    }
-    return v;
+    return rampValueAt(this.autoSegs.get(key), t, this.autoHeld.get(key) ?? null);
   }
 
   setAutomatedKeys(keys: string[]): void {
@@ -272,7 +265,7 @@ export class DrumRackInstrument {
     for (const e of events) {
       if (e.type !== 'param') continue;
       const list = this.autoSegs.get(e.key) ?? [];
-      list.push({ t0: e.time, v0: e.fromValue, t1: e.toTime, v1: e.toValue });
+      list.push({ t0: e.time, v0: e.fromValue, t1: e.toTime, v1: e.toValue, exp: e.exp });
       list.sort((a, b) => a.t0 - b.t0);
       this.autoSegs.set(e.key, list);
     }

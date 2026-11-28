@@ -20,7 +20,26 @@ type Migration = (p: RawProject) => RawProject;
 const migrations: Record<number, Migration> = {
   1: drumPadsToGeneralMidi,
   2: audioClipsWarpOff,
+  3: automationSegmentsLinear,
 };
+
+/**
+ * v3 → v4: automation segments have shapes (curve, S-curve, hold — project/curves.ts),
+ * stored on the point that starts the segment. Every segment before was linear: a
+ * `shape` field in older data isn't one of ours, so it's dropped and the lane plays
+ * exactly as it did.
+ */
+function automationSegmentsLinear(raw: RawProject): RawProject {
+  if (!Array.isArray(raw.tracks)) return raw;
+  const point = (p: unknown) => {
+    if (!isRec(p) || !('shape' in p)) return p;
+    const { shape: _drop, ...rest } = p;
+    return rest;
+  };
+  const lane = (l: unknown) => (isRec(l) && Array.isArray(l.points) ? { ...l, points: l.points.map(point) } : l);
+  const tracks = raw.tracks.map((t) => (isRec(t) && Array.isArray(t.automation) ? { ...t, automation: t.automation.map(lane) } : t));
+  return { ...raw, tracks };
+}
 
 /**
  * v2 → v3: audio clips can follow the tempo (warp). Clips made before keep

@@ -10,6 +10,7 @@ import type { AssetRegistry } from '../../audio/assets';
 import type { AudioClip, AutomationPoint, Clip, MidiClip, Project } from '../../project/types';
 import { fromNormalized, toNormalized, type NumericParamSpec } from '../../synth/params';
 import { valueAt } from '../../project/automation';
+import { handleX, isLinearShape, shapeFrac } from '../../project/curves';
 import { TRACK_H, tickToX } from './layout';
 import { LIVE_PEAK_BUCKET, type LivePeaks } from '../../audio/recordingMath';
 import type { LiveNote } from '../../audio/midiTake';
@@ -29,7 +30,18 @@ export interface DrawState {
     | { trackIndex: number; startTick: number; notes: readonly LiveNote[]; peaks?: undefined }
     | null;
   /** automation lanes shown over their tracks */
-  lanes: { trackIndex: number; points: AutomationPoint[]; spec: NumericParamSpec; label: string; editable: boolean; enabled: boolean }[];
+  lanes: {
+    trackIndex: number;
+    points: AutomationPoint[];
+    spec: NumericParamSpec;
+    label: string;
+    editable: boolean;
+    enabled: boolean;
+    /** selected points (drawn filled) */
+    selected?: ReadonlySet<string>;
+    /** curve handles to show: the segments starting at these points (`active`: hovered / being dragged) */
+    handles?: { pointId: string; active: boolean }[];
+  }[];
 }
 
 /** Vertical area of a track used for automation curves. */
@@ -45,6 +57,22 @@ export function laneValueToY(trackIndex: number, spec: NumericParamSpec, v: numb
 export function laneYToValue(trackIndex: number, spec: NumericParamSpec, y: number): number {
   const { top, h } = laneBox(trackIndex);
   return fromNormalized(spec, 1 - (y - top) / h);
+}
+
+/**
+ * Where the curve handle of the segment starting at points[i] is drawn (null:
+ * the last point, a zero-length step, or a hold — nothing to bend): mid-segment
+ * on the curve, or at an S-curve's bend.
+ */
+export function segmentHandle(points: readonly AutomationPoint[], i: number, spec: NumericParamSpec, trackIndex: number, pxPerBeat: number, scrollX: number): { x: number; y: number } | null {
+  const a = points[i];
+  const b = points[i + 1];
+  if (!a || !b || b.tick <= a.tick || a.shape?.type === 'hold') return null;
+  const hx = handleX(a.shape);
+  const { top, h } = laneBox(trackIndex);
+  const na = Math.min(1, Math.max(0, toNormalized(spec, a.value)));
+  const nb = Math.min(1, Math.max(0, toNormalized(spec, b.value)));
+  return { x: tickToX(a.tick + hx * (b.tick - a.tick), pxPerBeat, scrollX), y: top + (1 - (na + (nb - na) * shapeFrac(a.shape, hx))) * h };
 }
 
 const COL = {
@@ -371,18 +399,61 @@ function drawLane(g: CanvasRenderingContext2D, width: number, s: DrawState, lane
   const pts = lane.points;
   if (pts.length) {
     const yAt = (v: number) => laneValueToY(lane.trackIndex, lane.spec, v);
-    g.moveTo(0, yAt(valueAt(pts, (s.scrollX / s.pxPerBeat) * PPQ) as number));
-    for (const p of pts) g.lineTo(tickToX(p.tick, s.pxPerBeat, s.scrollX), yAt(p.value));
+    const xAt = (t: number) => tickToX(t, s.pxPerBeat, s.scrollX);
+    const { top, h } = laneBox(lane.trackIndex);
+    const norm = (v: number) => Math.min(1, Math.max(0, toNormalized(lane.spec, v)));
+    g.moveTo(0, yAt(valueAt(pts, (s.scrollX / s.pxPerBeat) * PPQ, lane.spec) as number));
+    g.lineTo(xAt((pts[0] as AutomationPoint).tick), yAt((pts[0] as AutomationPoint).value));
+    // each segment exactly as it plays: straight, held, or its curve traced every 2 px
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i] as AutomationPoint;
+      const b = pts[i + 1] as AutomationPoint;
+      const xa = xAt(a.tick);
+      const xb = xAt(b.tick);
+      if (a.shape?.type === 'hold') {
+        g.lineTo(xb, yAt(a.value));
+      } else if (!isLinearShape(a.shape) && xb > xa && xb >= 0 && xa <= width) {
+        const na = norm(a.value);
+        const nb = norm(b.value);
+        const x0 = Math.max(xa, -2);
+        const x1 = Math.min(xb, width + 2);
+        const at = (x: number) => top + (1 - (na + (nb - na) * shapeFrac(a.shape, (x - xa) / (xb - xa)))) * h;
+        g.lineTo(x0, at(x0));
+        // (an S's bend is traced exactly: a near-step stays a clean edge)
+        const bend = a.shape?.type === 's' ? xa + a.shape.bend * (xb - xa) : NaN;
+        for (let x = x0 + 2; x < x1; x += 2) {
+          if (bend > x - 2 && bend < x) g.lineTo(bend, at(bend));
+          g.lineTo(x, at(x));
+        }
+        g.lineTo(x1, at(x1));
+      }
+      g.lineTo(xb, yAt(b.value));
+    }
     g.lineTo(width, yAt((pts[pts.length - 1] as AutomationPoint).value));
     g.stroke();
     g.setLineDash([]);
     for (const p of pts) {
-      const x = tickToX(p.tick, s.pxPerBeat, s.scrollX);
+      const x = xAt(p.tick);
       if (x < -6 || x > width + 6) continue;
+      const sel = lane.selected?.has(p.id) ?? false;
       g.beginPath();
-      g.arc(x, yAt(p.value), lane.editable ? 4 : 2.5, 0, Math.PI * 2);
-      g.fillStyle = lane.editable ? '#0b0b12' : AUTO_COLOR;
+      g.arc(x, yAt(p.value), lane.editable ? (sel ? 5 : 4) : 2.5, 0, Math.PI * 2);
+      g.fillStyle = lane.editable && !sel ? '#0b0b12' : AUTO_COLOR;
       g.fill();
+      g.strokeStyle = sel ? '#ffffff' : AUTO_COLOR;
+      g.stroke();
+    }
+    // curve handles: a small dot mid-segment (an S: at its bend)
+    for (const hd of lane.handles ?? []) {
+      const i = pts.findIndex((p) => p.id === hd.pointId);
+      const at = i >= 0 ? segmentHandle(pts, i, lane.spec, lane.trackIndex, s.pxPerBeat, s.scrollX) : null;
+      if (!at) continue;
+      g.beginPath();
+      g.arc(at.x, at.y, hd.active ? 4.5 : 3.5, 0, Math.PI * 2);
+      g.fillStyle = hd.active ? AUTO_COLOR : '#0b0b12';
+      g.fill();
+      g.lineWidth = 1.4;
+      g.strokeStyle = hd.active ? '#ffffff' : AUTO_COLOR;
       g.stroke();
     }
   }
@@ -393,7 +464,7 @@ function drawLane(g: CanvasRenderingContext2D, width: number, s: DrawState, lane
 function drawLaneLabel(g: CanvasRenderingContext2D, width: number, s: DrawState, lane: DrawState['lanes'][number]): void {
   const { top } = laneBox(lane.trackIndex);
   g.save();
-  const v = valueAt(lane.points, s.playTick);
+  const v = valueAt(lane.points, s.playTick, lane.spec);
   const txt = `${lane.label}${v !== null ? `: ${lane.spec.format(v)}` : ''}${lane.enabled ? '' : ' (off)'}`;
   g.globalAlpha = 1;
   g.font = '600 10px Inter, system-ui, sans-serif';

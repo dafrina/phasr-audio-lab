@@ -11,7 +11,8 @@
 import { secondsToTicks, ticksToSeconds } from '../core/time';
 import { warpRate } from './warp';
 import type { AudioClip, AutomationLane, AutomationPoint, AutomationTarget, LoopRegion, MidiClip, MidiNote } from '../project/types';
-import { valueAt } from '../project/automation';
+import { playbackPoints, valueAt } from '../project/automation';
+import type { ShapeDomain } from '../project/curves';
 
 export interface Cursor {
   tick: number;
@@ -253,7 +254,8 @@ export interface WindowPlan {
 }
 
 /**
- * Automation events for one lane in one segment.
+ * Automation events for one lane in one segment (`points`: the lane as
+ * `playbackPoints` gives it — only linear segments).
  *
  * Each point P_i whose tick lies in the segment schedules the ramp *towards
  * the next point* P_{i+1} — even if that point is far beyond the lookahead —
@@ -262,7 +264,7 @@ export interface WindowPlan {
  * first sets the interpolated value at its start. Ramps never cross the
  * segment's hard end (loop end): they stop at the value the curve has there.
  */
-export function planAutomation(points: readonly AutomationPoint[], seg: Segment, bpm: number): AutomationEvent[] {
+export function planAutomation(points: readonly AutomationPoint[], seg: Segment, bpm: number, spec: ShapeDomain | null = null): AutomationEvent[] {
   const ev: AutomationEvent[] = [];
   if (points.length === 0) return ev;
   const timeOf = (tick: number) => segmentTime(seg, tick, bpm);
@@ -270,11 +272,11 @@ export function planAutomation(points: readonly AutomationPoint[], seg: Segment,
     // first point strictly after index idx
     const next = points[idx + 1];
     if (next && next.tick <= seg.hardEndTick) ev.push({ kind: 'ramp', time: timeOf(next.tick), value: next.value });
-    else if (next && Number.isFinite(seg.hardEndTick)) ev.push({ kind: 'ramp', time: timeOf(seg.hardEndTick), value: valueAt(points, seg.hardEndTick) ?? next.value });
+    else if (next && Number.isFinite(seg.hardEndTick)) ev.push({ kind: 'ramp', time: timeOf(seg.hardEndTick), value: valueAt(points, seg.hardEndTick, spec) ?? next.value });
   };
   let firstIdx = 0;
   if (seg.fresh) {
-    ev.push({ kind: 'set', time: seg.startTime, value: valueAt(points, seg.startTick) as number });
+    ev.push({ kind: 'set', time: seg.startTime, value: valueAt(points, seg.startTick, spec) as number });
     // index of the last point at or before the start; ramp toward the one after it
     let last = -1;
     for (let i = 0; i < points.length; i++) if ((points[i] as AutomationPoint).tick <= seg.startTick) last = i;
@@ -300,6 +302,11 @@ export interface PlanContext {
   /** tracks: id + kind (+ automation lanes), in project order */
   tracks: { id: string; kind: 'audio' | 'instrument'; automation?: AutomationLane[] }[];
   clips: Iterable<AudioClip | MidiClip>;
+  /**
+   * The parameter spec of a lane (project/automation `laneSpecResolver`): shapes and
+   * exp-curve parameters interpolate in its display space. Without it, linear.
+   */
+  laneSpec?: (trackId: string, lane: AutomationLane) => ShapeDomain | null;
 }
 
 export function planWindow(ctx: PlanContext, cursor: Cursor, windowEndTime: number): WindowPlan {
@@ -344,7 +351,10 @@ export function planWindow(ctx: PlanContext, cursor: Cursor, windowEndTime: numb
   for (const t of ctx.tracks) {
     for (const lane of t.automation ?? []) {
       if (!lane.enabled || lane.points.length === 0) continue;
-      const events = segments.flatMap((seg) => planAutomation(lane.points, seg, ctx.bpm));
+      // shaped segments become straight sub-ramps (the same ones in every window and in the export)
+      const spec = ctx.laneSpec?.(t.id, lane) ?? null;
+      const points = playbackPoints(lane.points, spec);
+      const events = segments.flatMap((seg) => planAutomation(points, seg, ctx.bpm, spec));
       if (events.length) plan.automation.push({ trackId: t.id, target: lane.target, events });
     }
   }
@@ -393,3 +403,4 @@ export function toParamSegments(
   }
   return { segments, last: prev };
 }
+

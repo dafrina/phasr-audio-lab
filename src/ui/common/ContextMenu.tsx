@@ -6,6 +6,8 @@ export interface MenuItem {
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
+  /** a choice in a group (shown with a check mark when true) */
+  checked?: boolean;
 }
 
 export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
@@ -28,11 +30,13 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
   const left = Math.min(x, window.innerWidth - 200);
   const top = Math.min(y, window.innerHeight - items.length * 26 - 12);
   return (
-    <div ref={ref} style={{ left, top }} className="fixed z-[100] min-w-[180px] rounded-md border border-line-2 bg-panel-2 py-1 shadow-2xl shadow-black/60">
+    <div ref={ref} role="menu" style={{ left, top }} className="fixed z-[100] min-w-[180px] rounded-md border border-line-2 bg-panel-2 py-1 shadow-2xl shadow-black/60">
       {items.map((it) => (
         <button
           key={it.label}
           type="button"
+          role={it.checked === undefined ? 'menuitem' : 'menuitemradio'}
+          aria-checked={it.checked}
           disabled={it.disabled}
           onClick={() => {
             onClose();
@@ -40,7 +44,10 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
           }}
           className={`flex w-full items-center justify-between px-3 py-1 text-left text-[12px] hover:bg-accent/25 disabled:opacity-35 ${it.danger ? 'text-bad' : 'text-fg'}`}
         >
-          <span>{it.label}</span>
+          <span>
+            {it.checked !== undefined && <span className="mr-1.5 inline-block w-3 text-accent-hi">{it.checked ? '✓' : ''}</span>}
+            {it.label}
+          </span>
           {it.shortcut && <span className="ml-4 font-mono text-[10px] text-muted">{it.shortcut}</span>}
         </button>
       ))}

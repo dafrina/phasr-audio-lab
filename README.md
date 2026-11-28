@@ -131,9 +131,40 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
   double-click to add, right-click for type/slope/automate/remove.
 - **Automation:** right-click any automatable knob (all effect parameters backed by AudioParams, track volume and pan)
   → *Automate*, or use the track header's Auto… menu. Press **Shift+A** for Automation mode to draw points on the track
-  (click add, drag move, right-click/double-click delete, Shift = no snap). Moving an automated knob writes automation
+  (click add, drag move, double-click delete, Shift = no snap). Moving an automated knob writes automation
   at the playhead (recording a sweep while playing). Playback is sample-accurate via AudioParam ramps (frequencies
   ramp exponentially), across loop wraps and seeks.
+  - **Curved segments:** every segment (a point to the next) has a shape — *Linear*, *Curve* (−100…+100 %: + slow
+    then fast, − fast then slow), *S-curve* (steepness −100…+100 %: up to ≈ a smooth step, negative = fast at the ends
+    and flat in the middle; plus where the bend sits, 0–100 % of the segment, so an S can ease in slowly and snap open
+    late) or *Hold* (keep the value, jump at the next point). Hovering a segment shows a dot at its middle (an S: at its
+    bend): drag it up/down to bend the segment (a curve's midpoint follows the pointer; an S gets steeper), sideways to
+    move an S's bend; it snaps to straight near 0, Shift is fine adjustment, double-click straightens, and a readout
+    shows e.g. *Curve +40%* or *S 60% · bend at 70%*. **Alt-drag** on the line itself does the same (Alt-click on a
+    point still deletes it). **Right-click** a point or segment for its shape — with several points selected, the shape
+    goes to every segment between the first and last. The lane draws each segment exactly as it plays; exp-curve
+    parameters (frequency, times) bend on their log scale, as they're drawn. A point added inside a shaped segment
+    takes its shape; moving points, undo/redo, save/load and archives keep shapes.
+  - **Copy / paste points:** select points (click; Ctrl/Cmd- or Shift-click adds; Ctrl/Cmd-drag on empty lane space
+    box-selects), then Ctrl/Cmd+C / X / V, Ctrl+D duplicates right after the selection, Delete removes them (the
+    right-click menu has Copy / Cut / Paste here / Duplicate too). Paste goes where the pointer is over a lane, else
+    at the playhead (snapped); timing stays relative, values and shapes are kept. Into a lane on another parameter,
+    values map by their position in the range (log for frequencies) and are clamped. Pasting over existing points
+    replaces the points inside the pasted span (no interleaved duplicates); a point exactly on its edge stays and
+    forms a step with the pasted one unless they have the same value — so duplicating a ramp repeats it as a clean
+    sawtooth. One undo step per paste, cut or duplicate.
+  - **How curves play:** playback splits a shaped segment into short straight ramps — placed adaptively where it
+    bends, always within 0.1 % of the parameter's range of the exact shape (an exact bound: each piece of a shape is an
+    exponential, so the chord error has a closed form), and no ramp moving more than 1/32 of the range, so the target's
+    own ramp type (linear in gain for volume, exponential for frequency) adds nothing audible. A full-range segment
+    needs at most a few dozen ramps. The result is a plain linear lane, so every target — AudioParams (volume, pan,
+    effect parameters), TriOsc / Keyforge parameters inside their worklets, and sampler / drum pad parameters read at
+    each hit — and the scheduler's lookahead windows, loop wraps, seeks and the export all handle it exactly as they
+    handle straight segments. `setValueCurveAtTime` was not used: it refuses any other event inside its time range
+    (steps, holds, loop ends, cancel-and-reschedule), can't be cut at a loop end once scheduled, and doesn't exist for
+    the worklet and drum-pad targets. Measured in offline renders against the lane: volume within 0.08 dB, pan 0.002,
+    an effect's gain 0.05 dB, a worklet parameter 0.004 (of 0–1), drum pad gain at the hits 0.03 dB; through an
+    AudioParam probe, live windows = export to float precision and ≤ 0.1 % of the range from the exact shape.
 - **Sidechain / modulation routing:** right-click a knob → *Sidechain from <track> (MIDI notes | audio)*, or a track
   header's Auto… → *Duck from …*. Audio sources use an envelope follower on the source's post-effects signal (threshold,
   attack, release); MIDI sources fire an attack/hold/release envelope on note-ons (optionally only one note — Duck from a
@@ -394,9 +425,9 @@ is uploaded. Things that can lose work:
 
 | Command | What | Where |
 | --- | --- | --- |
-| `npm test` | unit + integration tests (Vitest, Node): DSP (including measured drum quality: attacks, aliasing against a 192 kHz render, kick sub and click, tails, spectral balance, kit loudness), scheduling, persistence, golden project | CI |
+| `npm test` | unit + integration tests (Vitest, Node): DSP (including measured drum quality: attacks, aliasing against a 192 kHz render, kick sub and click, tails, spectral balance, kit loudness), scheduling, automation shapes (exact endpoints, monotonic, the detent, the bend position, the subdivision's error bound checked against dense sampling, live windows vs. export for every shape across window and loop boundaries) and point copy / paste (mapping, replacing the pasted span), persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
-| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), Capture (keys played with the transport stopped and over a loop, the popover, one undo), and Warp (a clip filling its bar at three tempos with its pitch, live vs. export, the long-press stretch and a short-press trim with the real mouse, the clip editor's tempo) | CI |
+| `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), Capture (keys played with the transport stopped and over a loop, the popover, one undo), Warp (a clip filling its bar at three tempos with its pitch, live vs. export, the long-press stretch and a short-press trim with the real mouse, the clip editor's tempo), and curved automation (bending with the real mouse — the handle, detent, Shift, double-click, Alt-drag, an S's bend, the shape menu on one and on several segments, undo; copy / cut / paste / duplicate of points with mouse and keyboard; offline renders of volume, pan, an effect, a worklet parameter and drum pad parameters measured against the lane; live windows vs. export through an AudioParam probe) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound
@@ -443,6 +474,16 @@ loudness in `stats-<label>.json` — for listening to a drum change before and a
 - Audio sidechain sources tap the source track before its fader and mute (so a muted track can still drive a duck).
 - Drum pads are one-shots (note length is ignored). Instrument parameters can be automated but not sidechain-modulated.
 - TriOsc / Keyforge automation updates at the worklet's block rate (128 samples ≈ 2.7 ms).
+- Automation lanes belong to tracks, not clips: copying, duplicating, moving or splitting a clip leaves the track's
+  automation where it is (copy automation points with the point clipboard instead). A *Linear* volume segment ramps
+  linearly in gain between its points, as before (so old projects sound the same); shaped volume segments follow the
+  dB curve the lane draws.
+- Projects from before curved automation (schema 3) open with every segment linear, exactly as they played. Since
+  schema 4, exp-curve parameters (frequency, times) are also read on their log scale where the app reads a lane at one
+  moment — starting playback or a loop pass inside a straight segment, the knob's live value, drum pad and sampler
+  parameters at each hit — matching the exponential ramp that plays and the straight line the lane draws (before, a
+  start halfway through a 100 Hz → 10 kHz ramp began at 5 kHz instead of 1 kHz, and a pad's Decay was read halfway in
+  seconds).
 - Keyforge is fully synthesized (no samples), so it trades the last bit of sampled-piano realism for tiny size,
   continuous velocity response and real interaction between notes (restrikes, pedal resonance).
 
@@ -454,7 +495,11 @@ Ctrl/Cmd + letter edits.**
 - Song commands: Shift+S split at playhead · Shift+R record · Shift+L loop the time selection (or loop on/off) ·
   Shift+M metronome · Shift+A automation mode · Shift+Q quantize (piano roll).
 - Editing: Ctrl+S save · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl+K capture what you just played · Ctrl+A select all · Ctrl+C / V copy/paste · Ctrl+D duplicate ·
-  Ctrl+L loop clip content.
+  Ctrl+L loop clip content. In Automation mode with points selected, Ctrl/Cmd+C / X / V / D and Delete act on the
+  points.
+- Mouse on automation (Automation mode): click add · drag move · double-click delete · drag a segment's dot or
+  Alt-drag the line to bend it (sideways: an S's bend; Shift fine; double-click straightens) · right-click for the
+  segment's shape and Copy / Paste.
 - Mouse on clips: drag to move (Alt: copy, Shift: no snap) · drag an edge to trim · **press and hold an audio clip's
   edge ~0.4 s, then drag** to time-stretch it (pitch kept) · double-click to open in the editor.
 - Everywhere: Space play/stop · Enter stop · Delete remove · ←→ nudge · ↑↓ move to track (piano roll: transpose, Shift =

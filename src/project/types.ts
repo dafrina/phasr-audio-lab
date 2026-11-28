@@ -13,8 +13,9 @@ import type { ArpConfig } from '../arp/arp';
 import type { SamplerParams, SamplerZone } from '../sampler/zones';
 import type { TimeSignature } from '../core/time';
 import type { TriOscPatch } from '../synth/params';
+import type { AutomationShape } from './curves';
 
-export const PROJECT_SCHEMA_VERSION = 3;
+export const PROJECT_SCHEMA_VERSION = 4;
 /** 12: measured headroom with busy Keyforge tracks and 4 effects each (see README → Performance) */
 export const MAX_TRACKS = 12;
 export const MAX_EFFECT_SLOTS = 4;
@@ -369,6 +370,8 @@ export interface AutomationPoint {
   tick: number;
   /** value in the parameter's own units (dB, Hz, 0..1, …) */
   value: number;
+  /** shape of the segment from this point to the next (project/curves.ts); absent = linear */
+  shape?: AutomationShape;
 }
 
 /**
@@ -405,7 +408,7 @@ export interface ModRoute {
 export interface AutomationLane {
   id: string;
   target: AutomationTarget;
-  /** sorted by tick; linear interpolation between points */
+  /** sorted by tick; between points each point's `shape` (linear when absent) */
   points: AutomationPoint[];
   enabled: boolean;
 }

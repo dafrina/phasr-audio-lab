@@ -25,7 +25,8 @@ import { estimateTailSeconds, exportRange, trackAudibleFn, type ExportRangeMode 
 import { createInstrumentNode } from './instruments';
 import { ModulationRouter } from './modulation';
 import { planWindow, toParamSegments } from './scheduling';
-import { automatedInstKeys, liveLanes, targetInfo } from '../project/automation';
+import { automatedInstKeys, laneSpecResolver, liveLanes, targetInfo } from '../project/automation';
+import { applyParamEvents } from './paramEvents';
 import { TrackChannel, dbToGainFader } from './trackChannel';
 import { decodeWav, encodeWav, type WavFormat } from './wav';
 import modsourceWorkletUrl from './worklets/modsource.worklet.ts?worker&url';
@@ -112,8 +113,9 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
       barTicks: ticksPerBar(ts),
       metronome: false,
       // (only lanes that act now: a paused lane — EQ band off, Delay synced — schedules nothing)
-        tracks: project.tracks.map((t) => ({ id: t.id, kind: t.kind, automation: liveLanes(t) })),
+      tracks: project.tracks.map((t) => ({ id: t.id, kind: t.kind, automation: liveLanes(t) })),
       clips: Object.values(project.clips),
+      laneSpec: laneSpecResolver(project),
     },
     { tick: range.startTick, time: 0, fresh: true },
     range.seconds,
@@ -179,14 +181,7 @@ export async function renderProjectToWav(source: Project, assets: AssetRegistry,
 
   for (const a of plan.automation) {
     if (a.target.kind === 'inst') continue; // handled with the instrument's events
-    for (const t of channels.get(a.trackId)?.automationParams(a.target) ?? []) {
-      for (const e of a.events) {
-        const v = t.map(e.value);
-        if (e.kind === 'set') t.param.setValueAtTime(v, e.time);
-        else if (t.exp && v > 0) t.param.exponentialRampToValueAtTime(v, e.time);
-        else t.param.linearRampToValueAtTime(v, e.time);
-      }
-    }
+    for (const t of channels.get(a.trackId)?.automationParams(a.target) ?? []) applyParamEvents(t, a.events);
   }
 
   // sidechains: MIDI routes get every trigger up front

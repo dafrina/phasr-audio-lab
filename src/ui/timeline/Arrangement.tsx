@@ -5,8 +5,9 @@ import { PPQ, ticksPerBar } from '../../core/time';
 import { clipEnd, duplicateClip, moveClip, stretchAudioClip, trimClipEnd, trimClipStart } from '../../project/clipOps';
 import { WARP_GOOD_MAX, WARP_GOOD_MIN, warpRate } from '../../audio/warp';
 import { MAX_TRACKS, type AutomationLane, type AutomationPoint, type Clip, type Project } from '../../project/types';
-import { targetInfo } from '../../project/automation';
-import { addLanePoint, deleteLanePoint, moveLanePoint } from '../../state/automationActions';
+import { segmentStarts, targetInfo, valueAt } from '../../project/automation';
+import { curveAmountForMid, detent, handleX, isLinearShape, shapeAmount, shapeFrac, shapeLabel, type AutomationShape, type ShapeType } from '../../project/curves';
+import { addLanePoint, deleteLanePoint, moveLanePoint, setLaneShapes } from '../../state/automationActions';
 import type { NumericParamSpec } from '../../synth/params';
 import { getProject, updateProjectFields, upsertClips, useProjectStore } from '../../state/projectStore';
 import { useTransportStore } from '../../state/transportStore';
@@ -29,11 +30,14 @@ import {
   openClipEditor,
 } from '../actions';
 import { isMidiFileName } from '../../midi/smf';
-import { drawLanesDynamic, drawLanesStatic, drawRuler, drawRulerPlayhead, laneValueToY, laneYToValue, type DrawState } from './draw';
+import { drawLanesDynamic, drawLanesStatic, drawRuler, drawRulerPlayhead, laneValueToY, laneYToValue, segmentHandle, type DrawState } from './draw';
 import { EDGE_PX, HEADER_W, MAX_PX_PER_BEAT, MIN_PX_PER_BEAT, RULER_H, TRACK_H, tickToX, xToTick } from './layout';
 import { TrackHeader } from './TrackHeader';
 import { AddTrackRow } from './AddTrackRow';
 import { setTimeSelection } from './timeSelection';
+import { getAutoSelection, setAutoHover, setAutoSelection, subscribeAutoSelection, type AutoSelection } from './autoSelection';
+import { copyAutomation, cutAutomation, duplicateAutomation, pasteAutomation } from '../automationEdit';
+import { hasPointClipboard } from '../../state/automationActions';
 import { INSTRUMENT_TYPES, INSTRUMENTS } from '../../instruments/definitions';
 import { ContextMenu, type MenuItem } from '../common/ContextMenu';
 
@@ -52,8 +56,19 @@ type Drag =
   | { mode: 'select'; startTick: number; startX: number; moved: boolean }
   | { mode: 'ruler'; startTick: number; startX: number; moved: boolean; key: string }
   | { mode: 'loop-edge'; edge: 'start' | 'end'; key: string }
-  | { mode: 'autopoint'; key: string; trackId: string; laneId: string; pointId: string; trackIndex: number }
+  // `toggleOnClick`: Shift-press on a point — released without moving, it toggles the point in the selection
+  | { mode: 'autopoint'; key: string; trackId: string; laneId: string; pointId: string; trackIndex: number; moved: boolean; toggleOnClick: AutoSelection | null; x0: number; y0: number }
+  /**
+   * bending a segment by its handle (or Alt-drag on the line): vertical = curve amount / S steepness,
+   * sideways = an S's bend. `ax`/`ay`: the pointer movement so far (Shift scales new movement down);
+   * `ya`/`yb`/`xa`/`wPx`: the segment on screen; `dotY`: the handle's y when the drag began
+   */
+  | { mode: 'curve'; key: string; trackId: string; laneId: string; pointId: string; start: AutomationShape | undefined; kind: 'curve' | 's'; lastX: number; lastY: number; ax: number; ay: number; xa: number; wPx: number; ya: number; yb: number; dotY: number }
+  | { mode: 'automarquee'; trackId: string; laneId: string; trackIndex: number; x0: number; y0: number; base: string[] }
   | { mode: 'marquee'; x0: number; y0: number; base: string[] };
+
+/** pixels of vertical drag for the full steepness range of an S (or a curve on a flat segment) */
+const CURVE_DRAG_PX = 60;
 
 /** the readout while stretching: speed, the tempo the audio now has, and the warnings */
 function stretchLabel(rate: number, bpm: number, limited: boolean): string {
@@ -90,6 +105,34 @@ function hitLanePoint(lane: AutomationLane, trackIndex: number, spec: NumericPar
     }
   }
   return best;
+}
+
+/** index of the segment (points[i] → points[i + 1]) under `tick`, or −1 */
+function segmentAt(lane: AutomationLane, tick: number): number {
+  const p = lane.points;
+  for (let i = 0; i < p.length - 1; i++) if ((p[i] as AutomationPoint).tick <= tick && tick < (p[i + 1] as AutomationPoint).tick) return i;
+  return -1;
+}
+
+/** the curve handle (of the given segments) under the pointer: the start point of its segment */
+function hitHandle(lane: AutomationLane, trackIndex: number, spec: NumericParamSpec, ids: readonly string[], x: number, y: number, pxPerBeat: number, scrollX: number, r: number): string | null {
+  let best: string | null = null;
+  let bestD = r;
+  for (const id of ids) {
+    const i = lane.points.findIndex((p) => p.id === id);
+    const at = i >= 0 ? segmentHandle(lane.points, i, spec, trackIndex, pxPerBeat, scrollX) : null;
+    const d = at ? Math.hypot(at.x - x, at.y - y) : Infinity;
+    if (d < bestD) {
+      bestD = d;
+      best = id;
+    }
+  }
+  return best;
+}
+
+/** the shape a segment's menu shows as current */
+function shapeTypeOf(shape: AutomationShape | undefined): ShapeType {
+  return !shape || (shape.type === 'curve' && isLinearShape(shape)) ? 'linear' : shape.type;
 }
 
 function hitClip(project: Project, x: number, y: number, pxPerBeat: number, scrollX: number): { clip: Clip; zone: Zone } | null {
@@ -153,6 +196,10 @@ export function Arrangement() {
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   /** stretch mode on a clip edge: the highlighted edge and the live rate / tempo readout */
   const [stretchUi, setStretchUi] = useState<{ x: number; y: number; label: string } | null>(null);
+  /** the readout while bending an automation segment ("Curve +40%") */
+  const [curveUi, setCurveUi] = useState<{ x: number; y: number; label: string } | null>(null);
+  /** the automation segment under the mouse (its handle shows) and whether the pointer is on the handle */
+  const hoverSeg = useRef<{ laneId: string; pointId: string; onHandle: boolean } | null>(null);
   const { w: viewW } = useSize(laneArea);
   const { h: viewH } = useSize(scroller);
   const laneH = Math.max(viewH, tracks.length * TRACK_H + 48);
@@ -164,16 +211,46 @@ export function Arrangement() {
     const u2 = useUiStore.subscribe(mark);
     const u3 = engine.assets.subscribe(mark);
     const u4 = useTransportStore.subscribe(mark);
+    const u5 = subscribeAutoSelection(mark);
     return () => {
       u1();
       u2();
       u3();
       u4();
+      u5();
     };
   }, []);
   useEffect(() => {
     dirty.current = true;
   }, [viewW, laneH]);
+
+  /**
+   * The curve handles a lane shows: the hovered segment's, the one being bent, and
+   * those next to selected points (on touch there's no hover: tap a point to see them).
+   */
+  const visibleHandles = (lane: AutomationLane): { pointId: string; active: boolean }[] => {
+    const out: { pointId: string; active: boolean }[] = [];
+    const add = (pointId: string | undefined, active = false) => {
+      if (!pointId) return;
+      const have = out.find((h) => h.pointId === pointId);
+      if (have) have.active ||= active;
+      else out.push({ pointId, active });
+    };
+    const d = drag.current;
+    if (d?.mode === 'curve' && d.laneId === lane.id) add(d.pointId, true);
+    const hov = hoverSeg.current;
+    if (hov && hov.laneId === lane.id && d === null) add(hov.pointId, hov.onHandle);
+    const sel = getAutoSelection();
+    if (sel && sel.laneId === lane.id) {
+      for (const id of sel.ids) {
+        const i = lane.points.findIndex((p) => p.id === id);
+        if (i < 0) continue;
+        add(lane.points[i]?.id);
+        add(lane.points[i - 1]?.id);
+      }
+    }
+    return out;
+  };
 
   // render loop
   useEffect(() => {
@@ -212,7 +289,10 @@ export function Arrangement() {
           const laneId = ui.shownLanes[t.id];
           const lane = laneId ? t.automation.find((l) => l.id === laneId) : undefined;
           const info = lane ? targetInfo(t, lane.target) : null;
-          return lane && info ? [{ trackIndex, points: lane.points, spec: info.spec, label: info.fullLabel, editable: ui.automationMode, enabled: lane.enabled }] : [];
+          if (!lane || !info) return [];
+          const cur = getAutoSelection();
+          const sel = cur?.laneId === lane.id ? new Set(cur.ids) : undefined;
+          return [{ trackIndex, points: lane.points, spec: info.spec, label: info.fullLabel, editable: ui.automationMode, enabled: lane.enabled, selected: ui.automationMode ? sel : undefined, handles: ui.automationMode ? visibleHandles(lane) : undefined }];
         }),
         recording: (() => {
           const live = recorder.liveView();
@@ -269,6 +349,57 @@ export function Arrangement() {
 
   // ---------------- lanes ----------------
 
+  /** Begin bending the segment that starts at `pointId` (its handle, or Alt-drag on the line). */
+  const startCurveDrag = (al: NonNullable<ReturnType<typeof editableLaneAt>>, pointId: string, x: number, y: number, key: string) => {
+    const ui = useUiStore.getState();
+    const i = al.lane.points.findIndex((p) => p.id === pointId);
+    const a = al.lane.points[i];
+    const b = al.lane.points[i + 1];
+    if (!a || !b || b.tick <= a.tick) return;
+    const xa = tickToX(a.tick, ui.pxPerBeat, ui.scrollX);
+    const ya = laneValueToY(al.trackIndex, al.spec, a.value);
+    const yb = laneValueToY(al.trackIndex, al.spec, b.value);
+    // (a hold bent by Alt-drag becomes a curve)
+    const start = a.shape?.type === 'hold' ? undefined : a.shape;
+    const dot = segmentHandle(al.lane.points, i, al.spec, al.trackIndex, ui.pxPerBeat, ui.scrollX) ?? { x: xa + (tickToX(b.tick, ui.pxPerBeat, ui.scrollX) - xa) / 2, y: (ya + yb) / 2 };
+    drag.current = {
+      mode: 'curve', key, trackId: al.track.id, laneId: al.lane.id, pointId, start, kind: start?.type === 's' ? 's' : 'curve',
+      lastX: x, lastY: y, ax: 0, ay: 0, xa, wPx: Math.max(1, tickToX(b.tick, ui.pxPerBeat, ui.scrollX) - xa), ya, yb, dotY: dot.y,
+    };
+    setCurveUi({ x: dot.x, y: dot.y, label: shapeLabel(start) });
+  };
+
+  /** The shape a curve drag has reached (detents unless Shift; Shift also scales new movement down for fine control). */
+  const bendTo = (d: Extract<Drag, { mode: 'curve' }>, x: number, y: number, fine: boolean): AutomationShape | undefined => {
+    const f = fine ? 0.2 : 1;
+    d.ax += (x - d.lastX) * f;
+    d.ay += (y - d.lastY) * f;
+    d.lastX = x;
+    d.lastY = y;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+    if (d.kind === 's') {
+      const s0 = d.start?.type === 's' ? d.start : { steepness: 0, bend: 0.5 };
+      let steepness = clamp(s0.steepness - d.ay / CURVE_DRAG_PX, -1, 1);
+      let bend = clamp(s0.bend + d.ax / d.wPx, 0, 1);
+      if (!fine) {
+        steepness = detent(steepness);
+        bend = detent(bend, 0.5, 0.02);
+      }
+      return { type: 's', steepness, bend };
+    }
+    // a curve's handle follows the pointer: the curve's midpoint goes where it is dragged
+    const span = d.yb - d.ya;
+    let amount = Math.abs(span) < 3 ? clamp(shapeAmount(d.start) - d.ay / CURVE_DRAG_PX, -1, 1) : curveAmountForMid((d.dotY + d.ay - d.ya) / span);
+    if (!fine) amount = detent(amount);
+    return amount === 0 ? undefined : { type: 'curve', amount };
+  };
+
+  /** Reset a segment's bend (double-click its handle): a curve → straight, an S → straight with its bend centred. */
+  const resetCurve = (trackId: string, lane: AutomationLane, pointId: string) => {
+    const a = lane.points.find((p) => p.id === pointId);
+    setLaneShapes(trackId, lane.id, [pointId], a?.shape?.type === 's' ? { type: 's', steepness: 0, bend: 0.5 } : undefined);
+  };
+
   const onLaneDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     const { x, y } = localPos(e, e.currentTarget);
@@ -279,17 +410,47 @@ export function Arrangement() {
     const al = editableLaneAt(project, y);
     if (al) {
       const key = `auto-${Date.now()}`;
-      const pt = hitLanePoint(al.lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX);
+      const lane = al.lane;
       ui.set({ selectedTrackId: al.track.id });
-      if (pt) {
-        if (e.altKey) return void deleteLanePoint(al.track.id, al.lane.id, pt.id);
-        drag.current = { mode: 'autopoint', key, trackId: al.track.id, laneId: al.lane.id, pointId: pt.id, trackIndex: al.trackIndex };
-      } else {
-        const tick = Math.max(0, snapTick(xToTick(x, ui.pxPerBeat, ui.scrollX), e.shiftKey));
-        const id = addLanePoint(al.track.id, al.lane.id, tick, laneYToValue(al.trackIndex, al.spec, y), key);
-        if (id) drag.current = { mode: 'autopoint', key, trackId: al.track.id, laneId: al.lane.id, pointId: id, trackIndex: al.trackIndex };
-      }
       dirty.current = true;
+      // a curve handle: bend its segment
+      const handle = hitHandle(lane, al.trackIndex, al.spec, visibleHandles(lane).map((h) => h.pointId), x, y, ui.pxPerBeat, ui.scrollX, 8);
+      if (handle && !e.altKey) return void startCurveDrag(al, handle, x, y, key);
+      const pt = hitLanePoint(lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX);
+      if (pt) {
+        if (e.altKey) return void deleteLanePoint(al.track.id, lane.id, pt.id);
+        const cur = getAutoSelection();
+        const sel = cur?.laneId === lane.id ? cur.ids : [];
+        const toggled = { trackId: al.track.id, laneId: lane.id, ids: sel.includes(pt.id) ? sel.filter((i) => i !== pt.id) : [...sel, pt.id] };
+        if (e.ctrlKey || e.metaKey) {
+          // Ctrl/Cmd-click: add to / remove from the selection
+          setAutoSelection(toggled);
+          return;
+        }
+        // (Shift: a click toggles the point in the selection; a drag moves it without snapping, as before)
+        if (!e.shiftKey && !sel.includes(pt.id)) setAutoSelection({ trackId: al.track.id, laneId: lane.id, ids: [pt.id] });
+        drag.current = { mode: 'autopoint', key, trackId: al.track.id, laneId: lane.id, pointId: pt.id, trackIndex: al.trackIndex, moved: false, toggleOnClick: e.shiftKey ? toggled : null, x0: x, y0: y };
+        return;
+      }
+      const tick = xToTick(x, ui.pxPerBeat, ui.scrollX);
+      // Alt-drag on the line itself bends that segment, like its handle
+      if (e.altKey) {
+        const i = segmentAt(lane, tick);
+        const a = lane.points[i];
+        if (a && Math.abs(laneValueToY(al.trackIndex, al.spec, valueAt(lane.points, tick, al.spec) as number) - y) <= 8) return void startCurveDrag(al, a.id, x, y, key);
+      }
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl/Cmd-drag on empty lane space: box-select points
+        const cur = getAutoSelection();
+        drag.current = { mode: 'automarquee', trackId: al.track.id, laneId: lane.id, trackIndex: al.trackIndex, x0: x, y0: y, base: cur?.laneId === lane.id ? cur.ids : [] };
+        setMarquee({ x0: x, y0: y, x1: x, y1: y });
+        return;
+      }
+      const id = addLanePoint(al.track.id, lane.id, Math.max(0, snapTick(tick, e.shiftKey)), laneYToValue(al.trackIndex, al.spec, y), key);
+      if (id) {
+        setAutoSelection({ trackId: al.track.id, laneId: lane.id, ids: [id] });
+        drag.current = { mode: 'autopoint', key, trackId: al.track.id, laneId: lane.id, pointId: id, trackIndex: al.trackIndex, moved: false, toggleOnClick: null, x0: x, y0: y };
+      }
       return;
     }
     const hit = hitClip(project, x, y, ui.pxPerBeat, ui.scrollX);
@@ -344,8 +505,22 @@ export function Arrangement() {
     if (!d) {
       const al = editableLaneAt(project, y);
       if (al) {
-        e.currentTarget.style.cursor = hitLanePoint(al.lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX) ? 'move' : 'crosshair';
+        // hovering a segment shows its curve handle
+        const prev = hoverSeg.current;
+        const i = segmentAt(al.lane, xToTick(x, ui.pxPerBeat, ui.scrollX));
+        const seg = al.lane.points[i];
+        const onHandle = !!seg && hitHandle(al.lane, al.trackIndex, al.spec, [seg.id], x, y, ui.pxPerBeat, ui.scrollX, 8) !== null;
+        hoverSeg.current = seg ? { laneId: al.lane.id, pointId: seg.id, onHandle } : null;
+        setAutoHover({ trackId: al.track.id, laneId: al.lane.id, tick: xToTick(x, ui.pxPerBeat, ui.scrollX) });
+        if (prev?.pointId !== hoverSeg.current?.pointId || prev?.onHandle !== onHandle) dirty.current = true;
+        const overPoint = hitLanePoint(al.lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX);
+        e.currentTarget.style.cursor = onHandle && !e.altKey ? (seg?.shape?.type === 's' ? 'move' : 'ns-resize') : overPoint ? 'move' : 'crosshair';
         return;
+      }
+      setAutoHover(null);
+      if (hoverSeg.current) {
+        hoverSeg.current = null;
+        dirty.current = true;
       }
       const hit = hitClip(project, x, y, ui.pxPerBeat, ui.scrollX);
       e.currentTarget.style.cursor = !hit ? 'default' : hit.zone === 'body' ? 'grab' : 'ew-resize';
@@ -364,12 +539,40 @@ export function Arrangement() {
       ui.set({ selectedClipIds: [...new Set([...d.base, ...hits])] });
       return;
     }
+    if (d.mode === 'curve') {
+      const shape = bendTo(d, x, y, e.shiftKey);
+      setLaneShapes(d.trackId, d.laneId, [d.pointId], shape, d.key);
+      const hx = handleX(shape);
+      setCurveUi({ x: d.xa + hx * d.wPx, y: d.ya + (d.yb - d.ya) * shapeFrac(shape, hx), label: shapeLabel(shape) });
+      dirty.current = true;
+      return;
+    }
+    if (d.mode === 'automarquee') {
+      setMarquee({ x0: d.x0, y0: d.y0, x1: x, y1: y });
+      const track = project.tracks[d.trackIndex];
+      const lane = track?.automation.find((l) => l.id === d.laneId);
+      const info = track && lane ? targetInfo(track, lane.target) : null;
+      if (!lane || !info) return;
+      const [x0, x1] = [Math.min(d.x0, x), Math.max(d.x0, x)];
+      const [y0, y1] = [Math.min(d.y0, y), Math.max(d.y0, y)];
+      const hits = lane.points
+        .filter((p) => {
+          const px = tickToX(p.tick, ui.pxPerBeat, ui.scrollX);
+          const py = laneValueToY(d.trackIndex, info.spec, p.value);
+          return px >= x0 && px <= x1 && py >= y0 && py <= y1;
+        })
+        .map((p) => p.id);
+      setAutoSelection({ trackId: d.trackId, laneId: d.laneId, ids: [...new Set([...d.base, ...hits])] });
+      dirty.current = true;
+      return;
+    }
     if (d.mode === 'autopoint') {
       const track = project.tracks.find((t) => t.id === d.trackId);
       const lane = track?.automation.find((l) => l.id === d.laneId);
       const info = track && lane ? targetInfo(track, lane.target) : null;
       if (!info) return;
       const tick = Math.max(0, snapTick(xToTick(x, ui.pxPerBeat, ui.scrollX), e.shiftKey));
+      if (Math.hypot(x - d.x0, y - d.y0) > DRAG_PX) d.moved = true;
       moveLanePoint(d.trackId, d.laneId, d.pointId, tick, laneYToValue(d.trackIndex, info.spec, y), d.key);
       return;
     }
@@ -450,7 +653,9 @@ export function Arrangement() {
     if (d && (d.mode === 'trim-start' || d.mode === 'trim-end') && d.hold) clearTimeout(d.hold);
     setStretchUi(null);
     e.currentTarget.style.cursor = 'default';
-    if (d?.mode === 'marquee') setMarquee(null);
+    if (d?.mode === 'marquee' || d?.mode === 'automarquee') setMarquee(null);
+    if (d?.mode === 'curve') setCurveUi(null);
+    if (d?.mode === 'autopoint' && !d.moved && d.toggleOnClick) setAutoSelection(d.toggleOnClick);
     if (d?.mode === 'select' && !d.moved) {
       // click on empty space moves the playhead
       engine.transport?.seek(snapTick(d.startTick));
@@ -464,6 +669,9 @@ export function Arrangement() {
     const project = getProject();
     const al = editableLaneAt(project, y);
     if (al) {
+      // a curve handle: back to straight
+      const handle = hitHandle(al.lane, al.trackIndex, al.spec, visibleHandles(al.lane).map((h) => h.pointId), x, y, ui.pxPerBeat, ui.scrollX, 8);
+      if (handle) return resetCurve(al.track.id, al.lane, handle);
       const pt = hitLanePoint(al.lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX);
       if (pt) deleteLanePoint(al.track.id, al.lane.id, pt.id);
       return;
@@ -474,14 +682,55 @@ export function Arrangement() {
     if (track?.kind === 'instrument') createMidiClipAt(track.id, xToTick(x, ui.pxPerBeat, ui.scrollX));
   };
 
+  /**
+   * The shape menu for the point or segment at (x, y): Linear / Curve / S-curve / Hold
+   * for its segment — or, with several points selected around it, for every segment
+   * between the first and last selected point — plus Delete on a point.
+   */
+  const shapeMenu = (al: NonNullable<ReturnType<typeof editableLaneAt>>, x: number, y: number): MenuItem[] | null => {
+    const ui = useUiStore.getState();
+    const lane = al.lane;
+    const pt = hitLanePoint(lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX);
+    const tick = xToTick(x, ui.pxPerBeat, ui.scrollX);
+    const at = pt?.id ?? lane.points[segmentAt(lane, tick)]?.id;
+    const was = getAutoSelection();
+    // (a right-click / long-press on a point outside the selection selects it, for Copy / Cut)
+    if (pt && !(was?.laneId === lane.id && was.ids.includes(pt.id))) setAutoSelection({ trackId: al.track.id, laneId: lane.id, ids: [pt.id] });
+    const sel = getAutoSelection()?.laneId === lane.id ? (getAutoSelection()?.ids ?? []) : [];
+    const edit: MenuItem[] = [
+      { label: 'Copy', shortcut: 'Ctrl+C', disabled: !sel.length, onClick: () => void copyAutomation() },
+      { label: 'Cut', shortcut: 'Ctrl+X', disabled: !sel.length, onClick: () => void cutAutomation() },
+      { label: 'Paste here', shortcut: 'Ctrl+V', disabled: !hasPointClipboard(), onClick: () => void pasteAutomation({ trackId: al.track.id, laneId: lane.id, tick }) },
+      { label: 'Duplicate', shortcut: 'Ctrl+D', disabled: !sel.length, onClick: () => void duplicateAutomation() },
+    ];
+    if (!at) return edit;
+    const ids = segmentStarts(lane, at, sel);
+    const cur = lane.points.find((p) => p.id === ids[0])?.shape;
+    const type = shapeTypeOf(cur);
+    const apply = (shape: AutomationShape | undefined) => () => {
+      setLaneShapes(al.track.id, lane.id, ids, shape);
+      dirty.current = true;
+    };
+    const items: MenuItem[] = [
+      { label: ids.length > 1 ? `Shape of ${ids.length} segments` : 'Segment shape', disabled: true, onClick: () => {} },
+      { label: 'Linear', checked: ids.length > 0 && type === 'linear', disabled: !ids.length, onClick: apply(undefined) },
+      { label: 'Curve', checked: type === 'curve', disabled: !ids.length, onClick: apply(cur?.type === 'curve' ? cur : { type: 'curve', amount: 0.5 }) },
+      { label: 'S-curve', checked: type === 's', disabled: !ids.length, onClick: apply(cur?.type === 's' ? cur : { type: 's', steepness: 0.5, bend: 0.5 }) },
+      { label: 'Hold', checked: type === 'hold', disabled: !ids.length, onClick: apply({ type: 'hold' }) },
+    ];
+    items.push(...edit);
+    if (pt) items.push({ label: 'Delete point', shortcut: 'Dbl-click', danger: true, onClick: () => deleteLanePoint(al.track.id, lane.id, pt.id) });
+    return items;
+  };
+
   const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const { x, y } = localPos(e, e.currentTarget);
     const ui = useUiStore.getState();
     const al = editableLaneAt(getProject(), y);
     if (al) {
-      const pt = hitLanePoint(al.lane, al.trackIndex, al.spec, x, y, ui.pxPerBeat, ui.scrollX);
-      if (pt) deleteLanePoint(al.track.id, al.lane.id, pt.id);
+      const items = shapeMenu(al, x, y);
+      if (items) setMenu({ x: e.clientX, y: e.clientY, items });
       return;
     }
     const project = getProject();
@@ -671,6 +920,13 @@ export function Arrangement() {
               onPointerMove={onLaneMove}
               onPointerUp={onLaneUp}
               onPointerCancel={onLaneUp}
+              onPointerLeave={() => {
+                setAutoHover(null);
+                if (hoverSeg.current && !drag.current) {
+                  hoverSeg.current = null;
+                  dirty.current = true;
+                }
+              }}
               onDoubleClick={onLaneDoubleClick}
               onContextMenu={onContextMenu}
             />
@@ -682,6 +938,11 @@ export function Arrangement() {
                   {stretchUi.label}
                 </div>
               </>
+            )}
+            {curveUi && (
+              <div data-testid="curve-readout" className="pointer-events-none absolute whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 font-mono text-[10px] text-[#f472b6]" style={{ left: curveUi.x + 10, top: curveUi.y - 22 }}>
+                {curveUi.label}
+              </div>
             )}
             {marquee && (
               <div

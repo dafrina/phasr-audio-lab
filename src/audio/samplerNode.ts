@@ -13,6 +13,7 @@ import type { SynthEvent } from '../synth/dsp/TriOscCore';
 import { SAMPLER_BEND_SEMITONES as BEND_SEMITONES, mapZones, playbackRate, zoneFor, type MappedZone, type SamplerParams } from '../sampler/zones';
 import { PITCH_BEND_KEY } from '../synth/dsp/bend';
 import type { InstrumentNode } from './instruments';
+import { rampValueAt, type ParamRamp } from './paramRamp';
 
 type SamplerConfig = Extract<InstrumentConfig, { type: 'sampler' }>;
 
@@ -29,7 +30,7 @@ interface Voice {
   released: boolean;
 }
 
-type AutoSeg = { t0: number; v0: number; t1: number; v1: number };
+type AutoSeg = ParamRamp;
 
 export class SamplerInstrument implements InstrumentNode {
   readonly output: GainNode;
@@ -67,12 +68,7 @@ export class SamplerInstrument implements InstrumentNode {
   /** An automated value at time t (`base` when the key has no lane). */
   private autoAt(key: string, t: number, base: number): number {
     if (!this.autoKeys.has(key)) return base;
-    let v = this.autoHeld.get(key) ?? base;
-    for (const s of this.autoSegs.get(key) ?? []) {
-      if (s.t0 > t) break;
-      v = t >= s.t1 || s.t1 <= s.t0 ? s.v1 : s.v0 + ((s.v1 - s.v0) * (t - s.t0)) / (s.t1 - s.t0);
-    }
-    return v;
+    return rampValueAt(this.autoSegs.get(key), t, this.autoHeld.get(key) ?? base) as number;
   }
 
   setAutomatedKeys(keys: string[]): void {
@@ -227,7 +223,7 @@ export class SamplerInstrument implements InstrumentNode {
           this.allNotesOff(e.time);
           break;
         case 'param': {
-          const seg = { t0: e.time, v0: e.fromValue, t1: e.toTime, v1: e.toValue };
+          const seg = { t0: e.time, v0: e.fromValue, t1: e.toTime, v1: e.toValue, exp: e.exp };
           const list = this.autoSegs.get(e.key) ?? [];
           list.push(seg);
           list.sort((a, b) => a.t0 - b.t0);

@@ -25,7 +25,7 @@ import { StereoMeter, type MeterReading } from './meter';
 import { TrackChannel, dbToGainFader } from './trackChannel';
 import { Transport } from './transport';
 import { PeqUnit, createSafetyLimiter, isCompressorUnit } from './effects/units';
-import { automatedInstKeys, liveLanes, valueAt } from '../project/automation';
+import { automatedInstKeys, liveLanes, targetInfo, valueAt } from '../project/automation';
 import { chordToolActive } from '../chords/expand';
 import { withToolsExpanded } from '../arp/expand';
 import { LiveChords } from './chordLive';
@@ -491,7 +491,7 @@ export class AudioEngine {
       const ch = this.channels.get(track.id);
       if (!ch) continue;
       for (const lane of liveLanes(track)) {
-        const v = valueAt(lane.points, tick);
+        const v = valueAt(lane.points, tick, targetInfo(track, lane.target)?.spec);
         if (v === null) continue;
         if (lane.target.kind === 'inst') {
           ch.instrument?.setAutomationValue(lane.target.param, v);

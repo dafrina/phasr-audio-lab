@@ -19,7 +19,8 @@ import type { Project } from '../project/types';
 import type { SynthEvent } from '../synth/dsp/TriOscCore';
 import { SchedulerClock } from './clock';
 import { inOrder, planWindow, tickAtTime, toParamSegments, type Anchor, type Cursor, type WindowPlan } from './scheduling';
-import { liveLanes, targetInfo } from '../project/automation';
+import { laneSpecResolver, liveLanes, targetInfo } from '../project/automation';
+import { applyParamEvents } from './paramEvents';
 import type { TrackChannel } from './trackChannel';
 
 export interface TransportHost {
@@ -293,6 +294,7 @@ export class Transport {
         // (only lanes that act now: a paused lane — EQ band off, Delay synced — schedules nothing)
         tracks: project.tracks.map((t) => ({ id: t.id, kind: t.kind, automation: liveLanes(t) })),
         clips: Object.values(project.clips),
+        laneSpec: laneSpecResolver(project),
       },
       this.cursor,
       now + this.lookahead,
@@ -374,12 +376,7 @@ export class Transport {
         this.automatedParams.add(t.param);
         const ordered = inOrder(a.events, this.autoLastTime.get(t.param) ?? -Infinity);
         this.autoLastTime.set(t.param, ordered.lastTime);
-        for (const e of ordered.events) {
-          const v = t.map(e.value);
-          if (e.kind === 'set') t.param.setValueAtTime(v, e.time);
-          else if (t.exp && v > 0) t.param.exponentialRampToValueAtTime(v, e.time);
-          else t.param.linearRampToValueAtTime(v, e.time);
-        }
+        applyParamEvents(t, ordered.events);
       }
     }
   }
