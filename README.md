@@ -147,6 +147,14 @@ boxes some floating-point values at calls it doesn't inline: ≈ 3 kB of short-l
   every factory kit), procedurally synthesized kits (Electro / Punchy /
   Lo-Fi / House / Techno / Hip-Hop / Trap; voice, tone, snap, length per pad), a style per pad (Classic, House, Techno,
   Hip-Hop, Trap, Lo-Fi), per-pad gain, pan, tune, decay and choke groups, a Spectra EQ and send A/B per pad, and
+  The synthesized voices are made to be clean and crisp, and measured so (`tests/drumQuality.test.ts`): every hit
+  starts on its first sample at full strength (low tones on a crest, a 0.1 ms ramp — no fade-in smearing the
+  transient, no filter ringing ahead of it); tones are sine partials and band-limited squares, so kick sweeps,
+  bells and hat metal don't alias; kicks have a click and a sub that stops where Length says, driven without
+  aliasing; snares pair a body with bright wires, claps have distinct bursts 5–12 ms apart; every voice reaches
+  −60 dB at its Length and fades to exact silence, with no DC. Lo-Fi is a deliberate 12-bit / 26 kHz sampler
+  (band-limited on both sides, so its grit is bits and saturation, not aliasing). The factory kits are balanced by
+  loudness: every kit plays the same beat within 1 dB, below −1 dBFS.
   *Split to track* (moves a pad's notes onto a track of its own). Replace any pad with your own sample (drop a file on it,
   or *Sample…*), or drop/load several files to fill consecutive pads. **Pattern** tab: a 16-step grid per pad that edits
   the track's clip directly (click a hit, Shift-click accent/ghost, right-click rolls). The piano roll shows pad names
@@ -341,9 +349,13 @@ fields or whole blocks instead of per-sample calls would remove most of it.
 | + all three, tab hidden (window still open) | | 19.4–20.4 % |
 | Startup JavaScript (gzip) | 296 kB | 200 kB |
 
-Startup JavaScript after the Limiter, the analysers' mixer hooks, the General MIDI drum tables and Capture: 216.8 kB
-gzip, against 208.5 kB for the previous release measured the same way (index.html's scripts and preloads, gzip -9);
-the analyser window itself loads on demand (11 kB).
+Startup JavaScript: 229.6 kB gzip (index.html's scripts and preloads, gzip -9); the rebuilt drum synthesis added
+2.9 kB of it (226.7 kB before). Earlier: 216.8 kB after the Limiter, the analysers' mixer hooks, the General MIDI
+drum tables and Capture, against 208.5 kB for the release before; the analyser window itself loads on demand (11 kB).
+
+**Drum synthesis** (`npm run bench`, rendering every pad of a factory kit at 48 kHz, Node): 40–73 ms per kit, all
+seven kits 373 ms — the old engine took 44–74 ms, 417 ms in all (the band-limited partials and 8th-order Lo-Fi filters
+cost about what the old naive squares and per-sample filters did). A pad renders once and is cached.
 
 The analyser rows (two runs) are reproducible with `UI_COST=1 npx playwright test e2e/ui-cost.e2e.ts` (Chrome's
 TaskDuration over 5 s, software rendering in headless Chromium; with a GPU the canvas work is cheaper). Drawing all three views at
@@ -382,16 +394,20 @@ is uploaded. Things that can lose work:
 
 | Command | What | Where |
 | --- | --- | --- |
-| `npm test` | unit + integration tests (Vitest, Node): DSP, scheduling, persistence, golden project | CI |
+| `npm test` | unit + integration tests (Vitest, Node): DSP (including measured drum quality: attacks, aliasing against a 192 kHz render, kick sub and click, tails, spectral balance, kit loudness), scheduling, persistence, golden project | CI |
 | `npm run test:perf` | allocation budgets of the audio-thread DSP (pass/fail) | CI |
 | `npm run test:e2e` | browser tests (Playwright, Chromium): golden-project renders vs baseline, every effect preset, click-free switching, recording with a fake microphone, cleanup / leaks, audio-node behaviour (clip fades from any start / stop, fader after removing a lane, pad sends vs. fader automation and ducking, drum chokes and Decay, sampler panic), solo vs. mute, and UI workflows driven by mouse and keyboard (add track, piano roll editing, effects, automation lanes, save/reload, WAV export, undo/redo, window stacking, keyboard rules, full storage, two tabs), the Limiter (ceiling on fast transients, release, gain-reduction meter), the master safety limiter's transparency, the analysers (open from the mixer, a tone at the right frequency, a still scope, no analysis while hidden or closed), Capture (keys played with the transport stopped and over a loop, the popover, one undo), and Warp (a clip filling its bar at three tempos with its pitch, live vs. export, the long-press stretch and a short-press trim with the real mouse, the clip editor's tempo) | CI |
 | `npm run bench` | speed benchmarks (× realtime, median of 5) | manual — CI runners are too noisy for timing |
 
 `npm run test:e2e:update` rewrites the golden render baseline (`e2e/golden-baseline.json`) after an intended sound
-change. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium instead of Playwright's download.
+change. `DRUM_PREVIEWS=<label> npx playwright test e2e/drum-previews.e2e.ts` renders a beat and every pad of each
+factory kit through the export path into `previews/drums/<kit>-<label>.mp3` (320 kbps; not committed), with their
+loudness in `stats-<label>.json` — for listening to a drum change before and after. Locally, `PLAYWRIGHT_CHROMIUM_PATH` can point at an installed Chromium instead of Playwright's download.
 
 ## Known limitations
 
+- Projects made before the drum engine was rebuilt (November 2026) play the new drum sounds: their pads keep their
+  voice, tone, snap, length and gain, so a mix's drum levels can come out a few dB different.
 - Projects saved before the General MIDI drum layout (schema 1) are moved to it on open — pads, their notes, pad
   automation and kick-note sidechains together, so they sound as before. Only notes an Arp-Ape-ator on a drum
   track transposes (octaves, step transpose) land on different pads than they used to. Live MIDI input is not

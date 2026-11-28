@@ -39,8 +39,8 @@ describe('Drum Rack kits follow the General MIDI drum map', () => {
     expect(tones).toEqual([...tones].sort((a, b) => a - b));
   });
 
-  it('the default kit is the old one, rearranged: the same 16 pads, nothing re-voiced', () => {
-    const key = (p: DrumPad) => JSON.stringify(p);
+  it('the default kit is the old one, rearranged: the same 16 pads, nothing re-voiced (only the gains re-balanced for the new drum engine)', () => {
+    const key = (p: DrumPad) => JSON.stringify({ ...p, gain: undefined });
     expect(defaultKit().pads.map(key).sort()).toEqual((v1Kit.pads as DrumPad[]).map(key).sort());
   });
 
